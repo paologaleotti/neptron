@@ -60,9 +60,10 @@ pub(super) struct QuickMenu {
 }
 
 impl QuickMenu {
-    pub(super) fn new(layout: &Layout, theme: &Theme) -> Self {
+    pub(super) fn new(metrics: &Metrics, theme: &Theme) -> Self {
+        let content = Layout::of(metrics).content;
         Self {
-            page: Page::new(QUICK_MENU_PAGE, Level::Game, layout.content, theme),
+            page: Page::new(QUICK_MENU_PAGE, Level::Game, content, metrics, theme),
             changes: [None; MAX_CHANGES],
             prompt: None,
             quitting: false,

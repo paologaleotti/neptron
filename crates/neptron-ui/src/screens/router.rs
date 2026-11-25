@@ -8,7 +8,7 @@ use crate::screensaver;
 use crate::snapshot::{GameSource, Level, PageId, SettingKey, Snapshot};
 use crate::theme::Theme;
 
-use super::chrome::{self, Layout};
+use super::chrome;
 use super::display::DisplayPanel;
 use super::game_list::GameList;
 use super::home::Home;
@@ -102,7 +102,7 @@ impl Screens {
     pub fn new(theme: Theme) -> Self {
         let metrics = Metrics::of(Form::Landscape, &theme);
         let mut stack = Vec::with_capacity(MAX_DEPTH);
-        stack.push(Screen::Home(Home::new(&Layout::of(&metrics), &theme)));
+        stack.push(Screen::Home(Home::new(&metrics, &theme)));
         Self {
             theme,
             metrics,
@@ -314,10 +314,10 @@ impl Screens {
             _ => {}
         }
         match self.stack.last_mut() {
-            Some(Screen::Games(list)) => list.sync(snap),
+            Some(Screen::Games(list)) => list.sync(snap, &self.metrics, &self.theme),
             Some(Screen::Options(options)) => options.sync(snap),
-            Some(Screen::Display(panel)) => panel.sync(snap, &self.theme),
-            Some(Screen::Page(panel)) => panel.sync(snap, &self.theme),
+            Some(Screen::Display(panel)) => panel.sync(snap, &self.metrics, &self.theme),
+            Some(Screen::Page(panel)) => panel.sync(snap, &self.metrics, &self.theme),
             _ => {}
         }
         self.confirm.follow(snap.confirm.as_ref());
@@ -392,7 +392,7 @@ impl Screens {
         if self.stack.len() >= MAX_DEPTH {
             return;
         }
-        let (layout, theme) = (&Layout::of(&self.metrics), &self.theme);
+        let (layout, theme) = (&self.metrics, &self.theme);
         let screen = match target {
             Target::Games(source) => Screen::Games(GameList::new(source, layout, theme)),
             Target::QuickMenu => Screen::QuickMenu(Box::new(QuickMenu::new(layout, theme))),

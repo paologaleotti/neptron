@@ -10,7 +10,7 @@ use crate::metrics::Metrics;
 use crate::snapshot::{GameSource, Level, Snapshot};
 use crate::text::StackText;
 use crate::theme::Theme;
-use crate::widgets::{List, ListEvent, ListItem};
+use crate::widgets::{LabelRule, List, ListEvent, ListItem};
 
 use super::SETTINGS_PAGE;
 use super::chrome::{self, Layout};
@@ -48,13 +48,13 @@ pub(super) struct Home {
 }
 
 impl Home {
-    pub(super) fn new(layout: &Layout, theme: &Theme) -> Self {
+    pub(super) fn new(metrics: &Metrics, theme: &Theme) -> Self {
         let row = theme.row_height_px();
-        let content = layout.content;
+        let content = Layout::of(metrics).content;
         let (list_box, list) = chrome::rows_box(content, theme, chrome::box_rows(content, theme));
         let (alone_box, alone) = chrome::rows_box_bottom(content, theme, 1);
         Self {
-            list: List::new(list, row),
+            list: List::new(list, row).with_labels(LabelRule::Wrap),
             list_box,
             alone: List::new(alone, row),
             alone_box,

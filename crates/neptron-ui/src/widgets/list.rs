@@ -383,8 +383,8 @@ impl List {
                 );
                 false
             }
-            LabelRule::Wrap => draw_wrapped(
-                frame,
+            LabelRule::Wrap => text::draw_lines(
+                &mut frame.scene,
                 columns.label,
                 lines,
                 self.row_height_px,
@@ -515,44 +515,6 @@ impl Columns {
             label,
         }
     }
-}
-
-/// Draws `label` on up to `lines` lines of `line_px` from `first`, the box
-/// of the label on the first line. Text left after the last line is
-/// shortened with an ellipsis there. Returns true when text was cut.
-pub(super) fn draw_wrapped(
-    frame: &mut UiFrame,
-    first: Rect,
-    lines: u32,
-    line_px: u32,
-    color: crate::geom::Color,
-    label: &str,
-) -> bool {
-    let mut parts = text::wrap(label, first.w);
-    for line in 0..lines.max(1) {
-        let rect = Rect::new(
-            first.x,
-            add(first.y, line.saturating_mul(line_px)),
-            first.w,
-            first.h,
-        );
-        let Some(part) = parts.next() else {
-            return false;
-        };
-        if line + 1 == lines.max(1) {
-            let rest = label.get(offset_in(label, part)..).unwrap_or(part);
-            return text::draw_in(&mut frame.scene, rect, Align::Left, color, rest.trim_end());
-        }
-        text::draw_in(&mut frame.scene, rect, Align::Left, color, part);
-    }
-    false
-}
-
-/// The byte offset of `part`, a slice of `text`, in `text`.
-fn offset_in(text: &str, part: &str) -> usize {
-    (part.as_ptr() as usize)
-        .saturating_sub(text.as_ptr() as usize)
-        .min(text.len())
 }
 
 #[cfg(test)]

@@ -8,7 +8,7 @@ use crate::input::UiAction;
 use crate::metrics::Metrics;
 use crate::snapshot::Level;
 use crate::theme::Theme;
-use crate::widgets::{HINT_OPEN, List, ListEvent, ListItem};
+use crate::widgets::{HINT_OPEN, LabelRule, List, ListEvent, ListItem};
 
 use super::SETTINGS_PANELS;
 use super::chrome::{self, Layout};
@@ -23,12 +23,12 @@ pub(super) struct SettingsMenu {
 
 impl SettingsMenu {
     /// The Settings page, opened from the row `label`.
-    pub(super) fn new(label: Crumb, layout: &Layout, theme: &Theme) -> Self {
-        let content = layout.content;
+    pub(super) fn new(label: Crumb, metrics: &Metrics, theme: &Theme) -> Self {
+        let content = Layout::of(metrics).content;
         let (list_box, list) = chrome::rows_box(content, theme, chrome::box_rows(content, theme));
         Self {
             label,
-            list: List::new(list, theme.row_height_px()),
+            list: List::new(list, theme.row_height_px()).with_labels(LabelRule::Wrap),
             list_box,
         }
     }

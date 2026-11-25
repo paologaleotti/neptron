@@ -10,6 +10,7 @@
 use crate::font;
 use crate::frame::UiFrame;
 use crate::geom::Rect;
+use crate::metrics::Metrics;
 use crate::snapshot::{Snapshot, VideoStatus};
 use crate::text::{self, Align};
 use crate::theme::Theme;
@@ -18,9 +19,11 @@ use crate::tree::{TreeRow, WidgetKind};
 use super::chrome;
 use super::{VIDEO_GAME_ROW, VIDEO_MODE_ROW, VIDEO_RESULT_ROW};
 
-/// The lines of the block: the heading, the game, the mode, and two lines
-/// for the result.
-const LINES: u32 = 5;
+/// The fewest lines of the result.
+const RESULT_LINES_MIN: u32 = 2;
+/// The lines of the block with one line for each fact: the heading, the
+/// game, the mode and the result.
+const BASE_LINES: u32 = 3 + RESULT_LINES_MIN;
 /// The height of a line of the block. It is one glyph box for every row
 /// height of the theme, so the block leaves room for the menu under it
 /// also with the tallest rows.
@@ -38,13 +41,13 @@ pub(super) fn status(snap: &Snapshot) -> Option<&VideoStatus> {
 
 /// True when a block at the top of `area` leaves room for
 /// [`MIN_PAGE_ROWS`] rows of a page under it.
-pub(super) fn fits(area: Rect, theme: &Theme) -> bool {
-    chrome::box_rows(below(area), theme) >= MIN_PAGE_ROWS
+pub(super) fn fits(area: Rect, metrics: &Metrics, theme: &Theme) -> bool {
+    chrome::box_rows(below(area, metrics), theme) >= MIN_PAGE_ROWS
 }
 
 /// The area under a block at the top of `area`.
-pub(super) fn below(area: Rect) -> Rect {
-    let (outer, _) = chrome::lines_box(area, LINE_PX, LINES);
+pub(super) fn below(area: Rect, metrics: &Metrics) -> Rect {
+    let (outer, _) = chrome::lines_box(area, LINE_PX, metrics.video_lines);
     let used = outer.h.saturating_add(GAP_PX).min(area.h);
     Rect::new(
         area.x,
@@ -56,8 +59,17 @@ pub(super) fn below(area: Rect) -> Rect {
 
 /// Draws the block at the top of `area`: a box with the heading and the
 /// lines of `status`. A line that does not fit in `area` is not drawn.
-pub(super) fn draw(frame: &mut UiFrame, theme: &Theme, area: Rect, status: &VideoStatus) {
-    let (outer, inner) = chrome::lines_box(area, LINE_PX, LINES);
+///
+/// A block with more lines than [`BASE_LINES`] gives a fact that does not
+/// fit its line a second line, the game first, and the rest to the result.
+pub(super) fn draw(
+    frame: &mut UiFrame,
+    theme: &Theme,
+    metrics: &Metrics,
+    area: Rect,
+    status: &VideoStatus,
+) {
+    let (outer, inner) = chrome::lines_box(area, LINE_PX, metrics.video_lines);
     chrome::boxed(frame, theme, outer);
     let inner = chrome::padded(inner, theme);
     let lines = inner.h / LINE_PX;
@@ -74,14 +86,28 @@ pub(super) fn draw(frame: &mut UiFrame, theme: &Theme, area: Rect, status: &Vide
     if let Some(rect) = line(0) {
         chrome::label(frame, rect, Align::Left, theme.colors.accent, "Video");
     }
-    if let Some(rect) = line(1) {
-        field(frame, theme, rect, "Game", VIDEO_GAME_ROW, &status.game);
+    let mut spare = lines.saturating_sub(BASE_LINES);
+    let mut next = 1;
+    for (name, id, value) in [
+        ("Game", VIDEO_GAME_ROW, status.game.as_str()),
+        ("Mode", VIDEO_MODE_ROW, status.mode.as_str()),
+    ] {
+        let Some(rect) = line(next) else {
+            return;
+        };
+        let (_, value_box) = columns(rect);
+        let fact_lines = if spare > 0 && font::text_width(value) > value_box.w {
+            spare -= 1;
+            2
+        } else {
+            1
+        };
+        field(frame, theme, rect, fact_lines, name, id, value);
+        next += fact_lines;
     }
-    if let Some(rect) = line(2) {
-        field(frame, theme, rect, "Mode", VIDEO_MODE_ROW, &status.mode);
-    }
-    if let Some(first) = line(3) {
-        result(frame, theme, first, line(4), status);
+    if let Some(first) = line(next) {
+        let more = (next + 1..lines).filter_map(line);
+        result(frame, theme, first, more, status);
     }
 }
 
@@ -98,9 +124,18 @@ fn columns(rect: Rect) -> (Rect, Rect) {
     (name, value)
 }
 
-/// Draws a named line of the block. The tree row has the stable `id` as its
-/// label and the whole text as its value.
-fn field(frame: &mut UiFrame, theme: &Theme, rect: Rect, name: &str, id: &str, value: &str) {
+/// Draws a named fact of the block on `lines` lines from `rect`, its first
+/// line. The tree row has the stable `id` as its label and the whole text
+/// as its value.
+fn field(
+    frame: &mut UiFrame,
+    theme: &Theme,
+    rect: Rect,
+    lines: u32,
+    name: &str,
+    id: &str,
+    value: &str,
+) {
     let (name_box, value_box) = columns(rect);
     text::draw_in(
         &mut frame.scene,
@@ -109,25 +144,27 @@ fn field(frame: &mut UiFrame, theme: &Theme, rect: Rect, name: &str, id: &str, v
         theme.colors.text_dim,
         name,
     );
-    let clipped = text::draw_in(
+    let clipped = text::draw_lines(
         &mut frame.scene,
         value_box,
-        Align::Left,
+        lines,
+        LINE_PX,
         theme.colors.text,
         value,
     );
-    push(frame, id, value, rect, clipped);
+    let whole = Rect::new(rect.x, rect.y, rect.w, rect.h.saturating_mul(lines));
+    push(frame, id, value, whole, clipped);
 }
 
 /// Draws the result in the value column of `first` and, when the text needs
-/// it and the block has it, of `second`. Text left over ends with an
-/// ellipsis. An alert result is drawn in the warning colour, which differs
-/// from the focus colour, so it never reads as a focused row.
+/// it, of the lines of `more`. Text left over ends with an ellipsis. An
+/// alert result is drawn in the warning colour, which differs from the
+/// focus colour, so it never reads as a focused row.
 fn result(
     frame: &mut UiFrame,
     theme: &Theme,
     first: Rect,
-    second: Option<Rect>,
+    more: impl Iterator<Item = Rect>,
     status: &VideoStatus,
 ) {
     let color = if status.alert {
@@ -142,15 +179,16 @@ fn result(
     if let Some(line) = lines.next() {
         clipped |= text::draw_in(&mut frame.scene, first_box, Align::Left, color, line);
     }
-    if let (Some(line), Some(second)) = (lines.peek().copied(), second) {
+    let mut more = more.peekable();
+    while let (Some(line), Some(next)) = (lines.peek().copied(), more.next()) {
         lines.next();
-        let (_, second_box) = columns(second);
-        if lines.peek().is_some() {
-            chrome::draw_cut(frame, second_box, color, line);
+        let (_, next_box) = columns(next);
+        if lines.peek().is_some() && more.peek().is_none() {
+            chrome::draw_cut(frame, next_box, color, line);
         } else {
-            clipped |= text::draw_in(&mut frame.scene, second_box, Align::Left, color, line);
+            clipped |= text::draw_in(&mut frame.scene, next_box, Align::Left, color, line);
         }
-        rect.h = rect.h.saturating_add(second.h);
+        rect.h = rect.h.saturating_add(next.h);
     }
     clipped |= lines.peek().is_some();
     push(frame, VIDEO_RESULT_ROW, &status.result, rect, clipped);

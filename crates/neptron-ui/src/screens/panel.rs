@@ -41,13 +41,14 @@ impl PagePanel {
         id: PageId,
         level: Level,
         label: Crumb,
-        layout: &Layout,
+        metrics: &Metrics,
         theme: &Theme,
     ) -> Self {
+        let content = Layout::of(metrics).content;
         Self {
-            page: Page::new(id, level, layout.content, theme),
+            page: Page::new(id, level, content, metrics, theme),
             label,
-            content: layout.content,
+            content,
             wants_video: id == VIDEO_PAGE,
             video: false,
             focus: None,
@@ -90,7 +91,7 @@ impl PagePanel {
     /// Puts the video block above the rows of a page that shows it, while
     /// the snapshot has a video status and the block leaves room for the
     /// rows, and removes it otherwise.
-    pub(super) fn sync(&mut self, snap: &Snapshot, theme: &Theme) {
+    pub(super) fn sync(&mut self, snap: &Snapshot, metrics: &Metrics, theme: &Theme) {
         self.page.follow(snap);
         if let Some(key) = self.focus {
             let rows = self.page.rows(snap);
@@ -101,14 +102,15 @@ impl PagePanel {
                 }
             }
         }
-        let video =
-            self.wants_video && video::status(snap).is_some() && video::fits(self.content, theme);
+        let video = self.wants_video
+            && video::status(snap).is_some()
+            && video::fits(self.content, metrics, theme);
         if video == self.video {
             return;
         }
         self.video = video;
         let area = if video {
-            video::below(self.content)
+            video::below(self.content, metrics)
         } else {
             self.content
         };
@@ -148,7 +150,7 @@ impl PagePanel {
             "Back: return",
         );
         if let Some(status) = video::status(snap).filter(|_| self.video) {
-            video::draw(frame, theme, self.content, status);
+            video::draw(frame, theme, metrics, self.content, status);
         }
         self.page.draw(snap, theme, metrics, frame);
     }

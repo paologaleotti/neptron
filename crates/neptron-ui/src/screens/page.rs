@@ -5,7 +5,7 @@ use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
 use crate::intent::Intent;
-use crate::metrics::Metrics;
+use crate::metrics::{Metrics, RowShape};
 use crate::snapshot::{
     ActionId, Confirmation, Level, MenuItem, PageId, SettingKey, SettingValue, Snapshot,
 };
@@ -63,6 +63,7 @@ pub(super) enum PageEvent {
 pub(super) struct Page {
     id: PageId,
     level: Level,
+    shape: RowShape,
     list: SettingsList,
     list_box: Rect,
     /// The confirm question of an action row while it shows.
@@ -79,13 +80,24 @@ struct Asking {
 }
 
 impl Page {
-    /// The page `id` in a box at the top of `area`, writing at `level`.
-    pub(super) fn new(id: PageId, level: Level, area: Rect, theme: &Theme) -> Self {
+    /// The page `id` in a box at the top of `area`, writing at `level`,
+    /// with the rows of the shape of `metrics`.
+    pub(super) fn new(
+        id: PageId,
+        level: Level,
+        area: Rect,
+        metrics: &Metrics,
+        theme: &Theme,
+    ) -> Self {
         let (list_box, list) = chrome::rows_box(area, theme, chrome::box_rows(area, theme));
+        let shape = metrics.settings_row;
         Self {
             id,
             level,
-            list: SettingsList::new(list, theme.row_height_px()).with_pickers(),
+            shape,
+            list: SettingsList::new(list, theme.row_height_px())
+                .with_pickers()
+                .with_shape(shape),
             list_box,
             asking: None,
         }
@@ -95,7 +107,9 @@ impl Page {
     pub(super) fn place(&mut self, area: Rect, theme: &Theme) {
         let (list_box, list) = chrome::rows_box(area, theme, chrome::box_rows(area, theme));
         let cursor = self.list.cursor();
-        self.list = SettingsList::new(list, theme.row_height_px()).with_pickers();
+        self.list = SettingsList::new(list, theme.row_height_px())
+            .with_pickers()
+            .with_shape(self.shape);
         // The rows may not be loaded now; the next action clamps the cursor
         // to the rows it sees, as without a move.
         self.list.select(cursor, usize::MAX);

@@ -25,12 +25,9 @@ use super::router::Nav;
 /// not fit half the row; the help line shows the reason in full.
 const NOT_AVAILABLE: &str = "Not available";
 
-/// Lines of the box under the list that shows the detail or the reason of
-/// the focused option in full.
-const HELP_LINES: u32 = 2;
-/// The longest help text, in bytes: more than the lines of the help box
-/// hold.
-const HELP_BYTES: usize = 192;
+/// The longest help text, in bytes: more than the lines of the largest
+/// help box hold.
+const HELP_BYTES: usize = 256;
 /// Space between the boxes, in pixels.
 const GAP_PX: u32 = 4;
 /// Width of the column that marks the option in use, in pixels.
@@ -59,11 +56,11 @@ impl Options {
         key: SettingKey,
         level: Level,
         label: Crumb,
-        layout: &Layout,
+        metrics: &Metrics,
         theme: &Theme,
     ) -> Self {
-        let content = layout.content;
-        let (help_box, help) = chrome::rows_box_bottom(content, theme, HELP_LINES);
+        let content = Layout::of(metrics).content;
+        let (help_box, help) = chrome::rows_box_bottom(content, theme, metrics.help_lines);
         let above = Rect::new(
             content.x,
             content.y,

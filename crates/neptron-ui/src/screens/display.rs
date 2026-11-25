@@ -52,15 +52,15 @@ struct Places {
 impl Places {
     /// The places with the video block when `video` is true and the block
     /// leaves room for the rows, else the places without it.
-    fn new(content: Rect, theme: &Theme, video: bool) -> Self {
+    fn new(content: Rect, metrics: &Metrics, theme: &Theme, video: bool) -> Self {
         if video {
             let (info_box, info, rest) = Self::info(content, theme, INFO_LINES_WITH_VIDEO);
-            if video::fits(rest, theme) {
+            if video::fits(rest, metrics, theme) {
                 return Self {
                     info_box,
                     info,
                     video: Some(rest),
-                    page: video::below(rest),
+                    page: video::below(rest, metrics),
                 };
             }
         }
@@ -90,11 +90,11 @@ impl Places {
 
 impl DisplayPanel {
     /// The display panel, opened from the row `label`.
-    pub(super) fn new(label: Crumb, layout: &Layout, theme: &Theme) -> Self {
-        let content = layout.content;
-        let places = Places::new(content, theme, false);
+    pub(super) fn new(label: Crumb, metrics: &Metrics, theme: &Theme) -> Self {
+        let content = Layout::of(metrics).content;
+        let places = Places::new(content, metrics, theme, false);
         Self {
-            page: Page::new(DISPLAY_PAGE, Level::Global, places.page, theme),
+            page: Page::new(DISPLAY_PAGE, Level::Global, places.page, metrics, theme),
             label,
             content,
             places,
@@ -103,8 +103,8 @@ impl DisplayPanel {
 
     /// Shows the video block while the snapshot has a video status and the
     /// block leaves room for the rows, and removes it otherwise.
-    pub(super) fn sync(&mut self, snap: &Snapshot, theme: &Theme) {
-        let places = Places::new(self.content, theme, video::status(snap).is_some());
+    pub(super) fn sync(&mut self, snap: &Snapshot, metrics: &Metrics, theme: &Theme) {
+        let places = Places::new(self.content, metrics, theme, video::status(snap).is_some());
         if places == self.places {
             return;
         }
@@ -183,7 +183,7 @@ impl DisplayPanel {
         match (places.video, video::status(snap)) {
             (Some(area), Some(status)) => {
                 chrome::field(frame, theme, line(1), "Monitor", monitor);
-                video::draw(frame, theme, area, status);
+                video::draw(frame, theme, metrics, area, status);
             }
             _ => {
                 chrome::field(frame, theme, line(1), "Mode", mode);

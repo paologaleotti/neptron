@@ -2122,7 +2122,15 @@ fn the_largest_skin_keeps_the_rows_in_their_box() {
         assert_eq!(run.screen(), "quick-menu/video");
         let block = if snap.video.is_some() { 4 } else { 0 };
         assert_eq!(video_rows(&run).len(), block, "{what}");
-        assert_eq!(rows(&run), 2, "{what}");
+        // The padding leaves a label column of 15 characters: the value
+        // rows stack, two lines each, and the box under the block holds
+        // three lines.
+        assert_eq!(
+            crate::Metrics::of(crate::Form::Landscape, &theme).settings_row,
+            crate::RowShape::Stacked
+        );
+        let page_rows = if snap.video.is_some() { 1 } else { 2 };
+        assert_eq!(rows(&run), page_rows, "{what}");
         for step in 0..3 {
             assert_rows_in_their_box(&run, &theme, &format!("video page {what} {step}"));
             run.step(&snap, &[Down]);
@@ -2459,8 +2467,7 @@ fn a_change_taken_back_while_the_prompt_is_open_is_not_moved() {
 
 #[test]
 fn a_change_whose_row_is_not_in_the_snapshot_stays_for_the_game() {
-    let layout = super::chrome::Layout::of(&crate::Metrics::default());
-    let mut menu = super::quick_menu::QuickMenu::new(&layout, &Theme::default());
+    let mut menu = super::quick_menu::QuickMenu::new(&crate::Metrics::default(), &Theme::default());
     let mut snap = in_game();
     snap.settings.rows.retain(|r| r.key != VOLUME);
     menu.record(&volume_75(Level::Game), &snap);

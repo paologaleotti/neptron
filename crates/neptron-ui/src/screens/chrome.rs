@@ -20,14 +20,69 @@ pub(super) struct Layout {
 }
 
 impl Layout {
+    /// The layout with a title band and a hint band of one line each.
     pub(super) fn of(metrics: &Metrics) -> Self {
+        Self::with_bands(metrics, 1, 1)
+    }
+
+    /// The layout with a title band of `title_lines` and a hint band of
+    /// `hint_lines` lines, 1 or 2 each. A second line of a band takes one
+    /// row from the content.
+    pub(super) fn with_bands(metrics: &Metrics, title_lines: u32, hint_lines: u32) -> Self {
+        let row = metrics.row_px;
+        let title_more = row.saturating_mul(title_lines.clamp(1, 2) - 1);
+        let hint_more = row.saturating_mul(hint_lines.clamp(1, 2) - 1);
+        let band = metrics.title_band;
+        let footer = metrics.hint_band;
+        let content = metrics.content;
         Self {
-            title: metrics.title_band,
-            content: metrics.content,
-            footer: metrics.hint_band,
+            title: Rect::new(band.x, band.y, band.w, band.h.saturating_add(title_more)),
+            content: Rect::new(
+                content.x,
+                offset(content.y, title_more),
+                content.w,
+                content.h.saturating_sub(title_more + hint_more),
+            ),
+            footer: Rect::new(
+                footer.x,
+                i32::try_from(i64::from(footer.y) - i64::from(hint_more)).unwrap_or(footer.y),
+                footer.w,
+                footer.h.saturating_add(hint_more),
+            ),
         }
     }
+
+    /// The layout of a screen whose title band holds `title` and `right`,
+    /// and whose hint band holds `hint_left` and `hint_right`.
+    pub(super) fn for_texts(
+        metrics: &Metrics,
+        title: &str,
+        right: &str,
+        hint_left: &str,
+        hint_right: &str,
+    ) -> Self {
+        Self::with_bands(
+            metrics,
+            band_lines(metrics, title, right),
+            band_lines(metrics, hint_left, hint_right),
+        )
+    }
 }
+
+/// The lines of a band that holds `left` and `right`: one when both fit
+/// one line with two characters between them, else two, with `right` on
+/// the second line.
+pub(super) fn band_lines(metrics: &Metrics, left: &str, right: &str) -> u32 {
+    if left.is_empty() || right.is_empty() {
+        return 1;
+    }
+    let room = font::chars_in(metrics.title_band.w.saturating_sub(2 * metrics.padding_px));
+    let need = left.chars().count() + BAND_GAP_CHARS + right.chars().count();
+    if need <= room { 1 } else { 2 }
+}
+
+/// The characters between the two texts of a band on one line.
+const BAND_GAP_CHARS: usize = 2;
 
 /// Fills the whole canvas with the background colour.
 pub(super) fn background(frame: &mut UiFrame, theme: &Theme, metrics: &Metrics) {
@@ -38,7 +93,8 @@ pub(super) fn background(frame: &mut UiFrame, theme: &Theme, metrics: &Metrics) 
 
 /// Draws the background, the title band with `title` on the left and
 /// `right` on the right, and the hint band with `hint_left` and
-/// `hint_right`.
+/// `hint_right`. A band whose two texts do not fit one line takes two
+/// lines. Returns the layout drawn.
 pub(super) fn frame(
     frame: &mut UiFrame,
     theme: &Theme,
@@ -47,11 +103,13 @@ pub(super) fn frame(
     right: &str,
     hint_left: &str,
     hint_right: &str,
-) {
-    let (inner, title_box) = bands(frame, theme, metrics, right);
+) -> Layout {
+    let layout = Layout::for_texts(metrics, title, right, hint_left, hint_right);
+    let (title_box, right_box) = bands(frame, theme, metrics, &layout, right);
     label(frame, title_box, Align::Left, theme.colors.text, title);
-    label(frame, inner, Align::Right, theme.colors.accent, right);
+    label(frame, right_box, Align::Right, theme.colors.accent, right);
     hints(frame, theme, metrics, hint_left, hint_right);
+    layout
 }
 
 /// Draws the frame as [`frame`] does, with the breadcrumb of `path` (the
@@ -67,8 +125,9 @@ pub(super) fn frame_path(
     right: &str,
     hint_left: &str,
     hint_right: &str,
-) {
-    let (inner, title_box) = bands(frame, theme, metrics, right);
+) -> Layout {
+    let layout = Layout::with_bands(metrics, 1, band_lines(metrics, hint_left, hint_right));
+    let (title_box, right_box) = bands(frame, theme, metrics, &layout, right);
     let mut shown = Breadcrumb::new();
     let short = breadcrumb::fit(path, font::chars_in(title_box.w), &mut shown);
     let mut whole = Breadcrumb::new();
@@ -94,15 +153,21 @@ pub(super) fn frame_path(
             clipped: false,
         });
     }
-    label(frame, inner, Align::Right, theme.colors.accent, right);
+    label(frame, right_box, Align::Right, theme.colors.accent, right);
     hints(frame, theme, metrics, hint_left, hint_right);
+    layout
 }
 
-/// Draws the background, the title band and the line under it. Returns
-/// the inside of the band and the box of the title, which leaves room for
-/// `right`.
-fn bands(frame: &mut UiFrame, theme: &Theme, metrics: &Metrics, right: &str) -> (Rect, Rect) {
-    let layout = Layout::of(metrics);
+/// Draws the background, the title band of `layout` and the line under
+/// it. Returns the box of the title and the box of `right`: on one line
+/// the title leaves room for `right`, on two lines `right` has the second.
+fn bands(
+    frame: &mut UiFrame,
+    theme: &Theme,
+    metrics: &Metrics,
+    layout: &Layout,
+    right: &str,
+) -> (Rect, Rect) {
     background(frame, theme, metrics);
     frame.scene.rect(layout.title, theme.colors.panel);
     let rule = Rect::new(
@@ -113,17 +178,24 @@ fn bands(frame: &mut UiFrame, theme: &Theme, metrics: &Metrics, right: &str) -> 
     );
     frame.scene.rect(rule, theme.colors.accent);
     let inner = padded(layout.title, theme);
+    let line_h = metrics.title_band.h;
+    if layout.title.h > line_h {
+        let first = Rect::new(inner.x, inner.y, inner.w, line_h);
+        let second = Rect::new(inner.x, offset(inner.y, metrics.row_px), inner.w, line_h);
+        return (first, second);
+    }
     let right_w = match right {
         "" => 0,
         text => font::text_width(text).saturating_add(2 * font::ADVANCE),
     };
     let title_box = Rect::new(inner.x, inner.y, inner.w.saturating_sub(right_w), inner.h);
-    (inner, title_box)
+    (title_box, inner)
 }
 
 /// Draws the hint band with `left` and `right`, over any hints drawn
 /// before. A dialog draws its own hints, so the band never names a button
-/// of the screen under it.
+/// of the screen under it. When the two hints do not fit one line, the
+/// band takes two lines, with `right` on the second, over the content.
 pub(super) fn hints(
     frame: &mut UiFrame,
     theme: &Theme,
@@ -131,11 +203,19 @@ pub(super) fn hints(
     left: &str,
     right: &str,
 ) {
-    let footer = Layout::of(metrics).footer;
+    let footer = Layout::with_bands(metrics, 1, band_lines(metrics, left, right)).footer;
     frame.scene.rect(footer, theme.colors.panel);
     let inner = padded(footer, theme);
-    label(frame, inner, Align::Left, theme.colors.text_dim, left);
-    label(frame, inner, Align::Right, theme.colors.text_dim, right);
+    let line_h = metrics.hint_band.h;
+    let first = Rect::new(inner.x, inner.y, inner.w, line_h);
+    let second = Rect::new(
+        inner.x,
+        offset(inner.y, inner.h.saturating_sub(line_h)),
+        inner.w,
+        line_h,
+    );
+    label(frame, first, Align::Left, theme.colors.text_dim, left);
+    label(frame, second, Align::Right, theme.colors.text_dim, right);
 }
 
 /// A framed box at the top of `area` that holds `rows` rows of the theme,

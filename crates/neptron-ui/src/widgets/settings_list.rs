@@ -9,7 +9,7 @@ use crate::text::{self, Align, StackText};
 use crate::theme::Theme;
 use crate::tree::{RowKind, TreeRow, WidgetKind};
 
-use super::list::{List, ListEvent, MAX_ROW_LINES, draw_wrapped};
+use super::list::{List, ListEvent, MAX_ROW_LINES};
 use super::{ARROW_COLUMN_PX, add, draw_arrow, step_value};
 
 /// What one action did to a [`SettingsList`].
@@ -319,7 +319,14 @@ fn draw_tall_row(
         }
         SettingValue::Action(_) | SettingValue::Page(_) => {
             arrow(frame, first);
-            let clipped = draw_wrapped(frame, inner1, MAX_ROW_LINES, line_px, color, &item.label);
+            let clipped = text::draw_lines(
+                &mut frame.scene,
+                inner1,
+                MAX_ROW_LINES,
+                line_px,
+                color,
+                &item.label,
+            );
             push(frame, item, kind, row, None, focused, clipped);
         }
         SettingValue::Toggle(_) | SettingValue::Number { .. } | SettingValue::Choice { .. } => {

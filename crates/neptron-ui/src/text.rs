@@ -98,6 +98,45 @@ pub fn draw_short(scene: &mut UiScene, rect: Rect, align: Align, color: Color, t
     draw_in(scene, rect, align, color, text);
 }
 
+/// Draws `text` wrapped on up to `lines` lines, `line_px` apart, from
+/// `first`, the box of the first line. Text left after the last line is
+/// cut there with [`ELLIPSIS`]. Returns true when text was cut.
+pub fn draw_lines(
+    scene: &mut UiScene,
+    first: Rect,
+    lines: u32,
+    line_px: u32,
+    color: Color,
+    text: &str,
+) -> bool {
+    let last = lines.max(1) - 1;
+    let mut parts = wrap(text, first.w);
+    for line in 0..=last {
+        let rect = Rect::new(
+            first.x,
+            offset(first.y, line.saturating_mul(line_px)),
+            first.w,
+            first.h,
+        );
+        let Some(part) = parts.next() else {
+            return false;
+        };
+        if line == last {
+            let rest = text.get(offset_in(text, part)..).unwrap_or(part);
+            return draw_in(scene, rect, Align::Left, color, rest.trim_end());
+        }
+        draw_in(scene, rect, Align::Left, color, part);
+    }
+    false
+}
+
+/// The byte offset of `part`, a slice of `text`, in `text`.
+fn offset_in(text: &str, part: &str) -> usize {
+    (part.as_ptr() as usize)
+        .saturating_sub(text.as_ptr() as usize)
+        .min(text.len())
+}
+
 /// Splits `text` into lines of at most `width_px`, at spaces where it can
 /// and inside a word where it must. A `\n` always ends a line. Each line is
 /// a slice of `text` without the spaces at its end. A line that starts

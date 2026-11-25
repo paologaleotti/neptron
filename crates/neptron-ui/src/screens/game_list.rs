@@ -20,7 +20,7 @@ use crate::snapshot::{GameEntry, GameId, GameSource, Snapshot};
 use crate::text::StackText;
 use crate::theme::Theme;
 use crate::tree::RowKind;
-use crate::widgets::{List, ListEvent, ListItem};
+use crate::widgets::{LabelRule, List, ListEvent, ListItem};
 
 use super::chrome::{self, Layout};
 use super::router::{Nav, Target};
@@ -31,11 +31,10 @@ pub const WINDOW_ROWS: usize = 128;
 /// before the screen stops asking.
 pub const PREFETCH_ROWS: usize = 32;
 
-/// Lines of the panel under the list that shows the full title of the
-/// focused game.
-const TITLE_LINES: u32 = 2;
 /// Space between the list and the title panel, in pixels.
 const GAP_PX: u32 = 4;
+/// The longest hint of accept, which decides the lines of the hint band.
+const WIDEST_ACCEPT: &str = "Accept: versions";
 /// The label of a row that the snapshot does not hold yet.
 const PENDING_ROW: &str = "...";
 
@@ -49,6 +48,36 @@ const BADGES: [&str; 16] = [
 /// The longest line of facts under the title, in bytes.
 const FACTS_BYTES: usize = 96;
 
+/// Where the boxes of the screen are.
+struct Places {
+    list_box: Rect,
+    list: Rect,
+    panel: Rect,
+    title: Rect,
+}
+
+impl Places {
+    /// The list at the top of the content of `layout`, and the box of the
+    /// title of the focused game under it.
+    fn new(layout: &Layout, metrics: &Metrics, theme: &Theme) -> Self {
+        let content = layout.content;
+        let (panel, title) = chrome::rows_box_bottom(content, theme, metrics.game_title_lines);
+        let above = Rect::new(
+            content.x,
+            content.y,
+            content.w,
+            content.h.saturating_sub(panel.h + GAP_PX),
+        );
+        let (list_box, list) = chrome::rows_box(above, theme, chrome::box_rows(above, theme));
+        Self {
+            list_box,
+            list,
+            panel,
+            title,
+        }
+    }
+}
+
 pub(super) struct GameList {
     source: GameSource,
     list: List,
@@ -59,27 +88,50 @@ pub(super) struct GameList {
     list_box: Rect,
     panel: Rect,
     title: Rect,
+    /// The layout of the boxes: the bands take one or two lines.
+    layout: Layout,
 }
 
 impl GameList {
-    pub(super) fn new(source: GameSource, layout: &Layout, theme: &Theme) -> Self {
-        let content = layout.content;
-        let (panel, title) = chrome::rows_box_bottom(content, theme, TITLE_LINES);
-        let above = Rect::new(
-            content.x,
-            content.y,
-            content.w,
-            content.h.saturating_sub(panel.h + GAP_PX),
-        );
-        let (list_box, list) = chrome::rows_box(above, theme, chrome::box_rows(above, theme));
+    pub(super) fn new(source: GameSource, metrics: &Metrics, theme: &Theme) -> Self {
+        let layout = Layout::of(metrics);
+        let places = Places::new(&layout, metrics, theme);
         Self {
             source,
-            list: List::new(list, theme.row_height_px()),
+            list: List::new(places.list, theme.row_height_px()).with_labels(LabelRule::Shorten),
             focused: None,
-            list_box,
-            panel,
-            title,
+            list_box: places.list_box,
+            panel: places.panel,
+            title: places.title,
+            layout,
         }
+    }
+
+    /// Lays the boxes out again when the bands of the screen change their
+    /// lines. The widest count of the list decides, so the boxes do not
+    /// move while the cursor moves.
+    fn place(&mut self, snap: &Snapshot, metrics: &Metrics, theme: &Theme) {
+        let mut widest = StackText::<32>::new();
+        if let Some(total) = self.total(snap).filter(|t| *t > 0) {
+            // `StackText` never fails; it drops what does not fit.
+            let _ = write!(widest, "{total}/{total}");
+        }
+        let layout = Layout::for_texts(
+            metrics,
+            self.title(snap),
+            widest.as_str(),
+            WIDEST_ACCEPT,
+            self.back(),
+        );
+        if layout == self.layout {
+            return;
+        }
+        let places = Places::new(&layout, metrics, theme);
+        self.list.set_rect(places.list);
+        self.list_box = places.list_box;
+        self.panel = places.panel;
+        self.title = places.title;
+        self.layout = layout;
     }
 
     /// Moves the cursor to `index` of a list of `len` rows.
@@ -96,7 +148,8 @@ impl GameList {
     /// under the cursor means the list moved. The cursor then goes to the
     /// focused game when the window holds it; a game that is gone, or out
     /// of the window, leaves the cursor at its index.
-    pub(super) fn sync(&mut self, snap: &Snapshot) {
+    pub(super) fn sync(&mut self, snap: &Snapshot, metrics: &Metrics, theme: &Theme) {
+        self.place(snap, metrics, theme);
         let Some(total) = self.total(snap) else {
             return;
         };
@@ -189,18 +242,14 @@ impl GameList {
             // `StackText` never fails; it drops what does not fit.
             let _ = write!(position, "{}/{}", self.list.cursor() + 1, total);
         }
-        let back = match self.source {
-            GameSource::System(_) => "Back: systems",
-            GameSource::Versions(_) => "Back: games",
-            GameSource::Favourites | GameSource::Recents => "Back: home",
-        };
+        let back = self.back();
         let focused = snap.games.get(self.list.cursor());
         let accept = match (total, focused) {
             (Some(1..), Some(entry)) if self.opens_versions(entry) => "Accept: versions",
             (Some(1..), _) => "Accept: play",
             _ => "",
         };
-        chrome::frame(
+        let layout = chrome::frame(
             frame,
             theme,
             metrics,
@@ -213,7 +262,7 @@ impl GameList {
             return;
         };
         if total == 0 {
-            let text = chrome::padded(metrics.content, theme);
+            let text = chrome::padded(layout.content, theme);
             chrome::paragraph(frame, theme, text, theme.colors.text, self.empty_text());
             return;
         }
@@ -296,6 +345,15 @@ impl GameList {
             source: self.source,
             first,
             count: WINDOW_ROWS,
+        }
+    }
+
+    /// The hint of back.
+    fn back(&self) -> &'static str {
+        match self.source {
+            GameSource::System(_) => "Back: systems",
+            GameSource::Versions(_) => "Back: games",
+            GameSource::Favourites | GameSource::Recents => "Back: home",
         }
     }
 
