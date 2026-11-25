@@ -412,7 +412,7 @@ The help lines of the scanline row, by display class:
 
 The one-time notice of a vertical game names the place of the choice:
 
-> This is a vertical game on a horizontal screen. It shows interlaced, with every pixel exact. Picture mode Fit, in Settings > Display or in Video in the quick menu, shows the whole picture as large as the screen allows, with no flicker. A screen turned on its side (TATE) comes in a later version.
+> This is a vertical game on a horizontal screen. It shows interlaced, with every pixel exact. Picture mode Fit, in Settings > Display or in Video in the quick menu, shows the whole picture as large as the screen allows, with no flicker. Settings > Display > Screen orientation turns the menus and the games for a screen on its side.
 
 ### 8.10 The cases
 

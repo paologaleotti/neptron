@@ -565,7 +565,7 @@ Since the picture mode (`docs/spec/video-policy-cases.md`, section 8), this key 
 
 The first time a vertical game gets the interlaced rung on a 15 kHz CRT or a TV with `display.vertical = exact`, the frontend shows this notice once (`VERTICAL_INTERLACED_TEXT` in `apps/neptron/src/notices.rs`):
 
-> This is a vertical game on a horizontal screen. It shows interlaced, with every pixel exact. Picture mode Fit, in Settings > Display or in Video in the quick menu, shows the whole picture as large as the screen allows, with no flicker. A screen turned on its side (TATE) comes in a later version.
+> This is a vertical game on a horizontal screen. It shows interlaced, with every pixel exact. Picture mode Fit, in Settings > Display or in Video in the quick menu, shows the whole picture as large as the screen allows, with no flicker. Settings > Display > Screen orientation turns the menus and the games for a screen on its side.
 
 The frontend keeps the notices already shown in `state/config/notices.toml` (open point A4). The writer thread of `apps/neptron/src/outbox.rs`, which does every file write of the frame loop, writes it as temp file, fsync, rename; the frame thread only sends the job. The menu process reads the file at boot with the settings. A deleted file shows the notice again and loses nothing.
 

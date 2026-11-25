@@ -9,12 +9,13 @@
 use std::path::Path;
 
 use neptron::NextRun;
+use neptron::notices::{HORIZONTAL_INTERLACED_TEXT, VERTICAL_INTERLACED_TEXT};
 use neptron::pages::ORIENTATION_IN_GAME;
 use neptron_testkit::preset::validated_mode;
 use neptron_types::{Control, MonitorKind, Orientation, Rotation};
 
 use crate::panel::{PANEL_1080P, sysfs_with_panel};
-use crate::rig::{Rig, in_child, in_children, test_name};
+use crate::rig::{Rig, in_child, in_child_with, in_children, test_name};
 use crate::tv::dismiss_notices;
 
 /// The displays of the tests: a preset id, or `None` for the 1080p panel.
@@ -435,5 +436,46 @@ fn the_blind_recovery_on_a_turned_screen_keeps_the_portrait_form() {
         assert_valid(&mut rig, Some("generic_15"));
         assert_one_form_per_frame(&rig);
         rig.finish();
+    });
+}
+
+/// The notices of the snapshot after the notice `after`, as id and text.
+fn notices_after(rig: &mut Rig, after: u32) -> Vec<(u32, String)> {
+    rig.shell()
+        .snapshot()
+        .notices
+        .iter()
+        .filter(|n| n.id.0 > after)
+        .map(|n| (n.id.0, n.text.clone()))
+        .collect()
+}
+
+/// A horizontal game across a turned 15 kHz tube shows interlaced with
+/// every pixel exact: the one-time notice of that case has its own text,
+/// not the text of a vertical game, and the notices file records its id.
+#[test]
+#[ignore = "tier 2"]
+fn an_interlaced_horizontal_game_on_a_turned_tube_has_its_own_one_time_notice() {
+    let name = test_name(
+        module_path!(),
+        "an_interlaced_horizontal_game_on_a_turned_tube_has_its_own_one_time_notice",
+    );
+    // A 320x240 board: its 320 samples across the turned tube are 320
+    // lines, which a 15 kHz tube shows only interlaced.
+    let board = "neptron-testcore 1\ngeometry 320 240 1333\ntiming 59940 48000\nrotation 0\n";
+    in_child_with(&name, board, |dir| {
+        let mut rig = turned_rig(dir, Some("generic_15"), Rotation::R90);
+        rig.boot(Some(game()));
+        rig.frames(30);
+        let mode = rig.display.active_mode().expect("a mode");
+        assert!(mode.interlace, "{mode:?}");
+        let shown = notices_after(&mut rig, 0);
+        let texts: Vec<&str> = shown.iter().map(|(_, t)| t.as_str()).collect();
+        assert!(texts.contains(&HORIZONTAL_INTERLACED_TEXT), "{texts:?}");
+        assert!(!texts.contains(&VERTICAL_INTERLACED_TEXT), "{texts:?}");
+        rig.finish();
+        let file = rig.state_file("config/notices.toml");
+        assert!(file.contains("\"horizontal_interlaced\""), "{file:?}");
+        assert!(!file.contains("vertical_interlaced"), "{file:?}");
     });
 }

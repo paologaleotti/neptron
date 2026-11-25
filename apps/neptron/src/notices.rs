@@ -13,7 +13,14 @@ use serde::{Deserialize, Serialize};
 pub const VERTICAL_INTERLACED: &str = "vertical_interlaced";
 
 /// The text of [`VERTICAL_INTERLACED`].
-pub const VERTICAL_INTERLACED_TEXT: &str = "This is a vertical game on a horizontal screen. It shows interlaced, with every pixel exact. Picture mode Fit, in Settings > Display or in Video in the quick menu, shows the whole picture as large as the screen allows, with no flicker. A screen turned on its side (TATE) comes in a later version.";
+pub const VERTICAL_INTERLACED_TEXT: &str = "This is a vertical game on a horizontal screen. It shows interlaced, with every pixel exact. Picture mode Fit, in Settings > Display or in Video in the quick menu, shows the whole picture as large as the screen allows, with no flicker. Settings > Display > Screen orientation turns the menus and the games for a screen on its side.";
+
+/// The notice of a horizontal game across a turned screen that shows
+/// interlaced, with every pixel exact, on a 15 kHz CRT or a TV.
+pub const HORIZONTAL_INTERLACED: &str = "horizontal_interlaced";
+
+/// The text of [`HORIZONTAL_INTERLACED`].
+pub const HORIZONTAL_INTERLACED_TEXT: &str = "This is a horizontal game on a turned screen. It shows interlaced, with every pixel exact. Picture mode Fit, in Settings > Display or in Video in the quick menu, shows the whole picture as large as the screen allows, with no flicker.";
 
 /// The version of the file format. The format only grows.
 const FORMAT: u32 = 1;

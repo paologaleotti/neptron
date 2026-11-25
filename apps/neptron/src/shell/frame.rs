@@ -21,7 +21,10 @@ use super::{
 
 use crate::library::{ScanKind, Scanned, changes_text};
 use crate::network::{NETWORK_REFRESH_NS, NetworkInfo};
-use crate::notices::{VERTICAL_INTERLACED, VERTICAL_INTERLACED_TEXT};
+use crate::notices::{
+    HORIZONTAL_INTERLACED, HORIZONTAL_INTERLACED_TEXT, VERTICAL_INTERLACED,
+    VERTICAL_INTERLACED_TEXT,
+};
 use crate::outbox::Job;
 use crate::pad_notes::{NoteKind, SET_UP_CONTROLLER, silent_text};
 use crate::start_failure;
@@ -455,9 +458,10 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     /// its own. Also, from the same `offer` as the menus: a stored mode or
     /// refresh choice that this display does not give, with what shows in
     /// its place, and scanlines that are on but not drawn, with why. The
-    /// first time a vertical game shows interlaced on a 15 kHz screen, also
-    /// the one-time notice that says how to change it; the writer thread
-    /// records it as shown.
+    /// first time a picture across the lines shows interlaced on a 15 kHz
+    /// screen, also the one-time notice that says how to change it, with
+    /// its own text for a horizontal game across a turned screen; the
+    /// writer thread records it as shown.
     fn notice_picture(&mut self) {
         let Stage::Game(game) = &self.stage else {
             return;
@@ -504,6 +508,11 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         {
             texts.push(text.to_owned());
         }
+        let turns = game
+            .session
+            .video()
+            .orientation()
+            .turns(game.session.source().rotation);
         let vertical = policy.map(|p| p.read_vertical());
         let first_vertical = vertical.is_some_and(|v| {
             vertical_interlaced(
@@ -513,11 +522,16 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 v,
             )
         });
+        let (once, once_text) = if turns.horizontal_on_turned_screen {
+            (HORIZONTAL_INTERLACED, HORIZONTAL_INTERLACED_TEXT)
+        } else {
+            (VERTICAL_INTERLACED, VERTICAL_INTERLACED_TEXT)
+        };
         if !texts.is_empty() {
             self.notice(NoticeKind::Warning, texts.join(" "));
         }
-        if first_vertical && self.shown_notices.insert(VERTICAL_INTERLACED) {
-            self.notice(NoticeKind::Info, VERTICAL_INTERLACED_TEXT.to_owned());
+        if first_vertical && self.shown_notices.insert(once) {
+            self.notice(NoticeKind::Info, once_text.to_owned());
             self.outbox.send(Job::Notices {
                 text: self.shown_notices.to_text(),
             });
