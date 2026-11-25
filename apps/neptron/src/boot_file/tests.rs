@@ -259,8 +259,12 @@ fn choices(comment: &str) -> Vec<String> {
 #[test]
 fn the_shipped_files_set_nothing_until_a_line_is_uncommented() {
     for (name, file, keys) in [
-        ("rpi", PI_FILE, &["output", "tv", "tv_width", "pi_dac"][..]),
-        ("pc", PC_FILE, &["output", "monitor"][..]),
+        (
+            "rpi",
+            PI_FILE,
+            &["output", "tv", "tv_width", "pi_dac", "orientation"][..],
+        ),
+        ("pc", PC_FILE, &["output", "monitor", "orientation"][..]),
     ] {
         let decision = decide_text(file, None);
         assert!(

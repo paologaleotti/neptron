@@ -5,3 +5,4 @@
 [display]
 # output  = "auto"    # auto | a connector, such as VGA-1, DVI-I-1 or HDMI-A-1
 # monitor = "auto"    # auto | a monitor profile, such as generic_15, arcade_15, ntsc, pal or pc_31_120
+# orientation = "0"   # 0 | 90 | 180 | 270

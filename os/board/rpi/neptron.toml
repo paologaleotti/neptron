@@ -7,3 +7,4 @@
 # tv       = "auto"     # auto (NTSC) | ntsc | ntsc_j | ntsc_443 | pal_60 | pal_m | pal | pal_n | secam | mono_60 | mono_50
 # tv_width = "aspect"   # aspect | integer | fill
 # pi_dac   = "none"     # none. GPIO DACs are not supported by this image.
+# orientation = "0"   # 0 | 90 | 180 | 270
