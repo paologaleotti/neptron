@@ -54,6 +54,7 @@ On macOS, xtask runs every command under `taskpolicy -c utility` and holds one o
 18. An ADR is only for a decision that changes the design: a contract change, a new crate, a change to a dependency rule, a licence decision, a change to a safety rule. A routine choice goes in the commit body or the crate README.
 19. Git safety. See the section below. It is binding for every agent.
 20. Ask the owner first. Before a large piece of work starts, the orchestrator asks the owner the questions about its logic and its product behaviour: what the user sees (a screen, a text, the picture, the sound, the controls) and which rule decides each case, with the options for each question. No implementer starts until the owner has answered the questions that shape the result. A design step (a spec, an ADR, mock pictures) can run before the answers; it lists its questions and writes no product code. Choices that are internal to the code stay with the orchestrator and go in the report.
+21. Look at the pictures. Before a change to what the screen shows merges (the picture of a game, a mode, an orientation, a menu layout), the orchestrator opens the pictures of its main cases itself, as a player sees them, and checks the shape and the position with numbers where the simulator gives them. A test frame for such a picture shows shape and direction; a noise pattern does not count. Such a change also gets a review.
 
 ## Git safety
 
