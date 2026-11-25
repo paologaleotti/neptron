@@ -104,7 +104,10 @@ pub struct Scene<'a> {
     /// The scanlines over the game picture. [`Scanlines::NONE`] leaves the
     /// picture as it is. The UI canvas is never darkened.
     pub scanlines: Scanlines,
-    /// The 320x240 UI canvas, drawn over the game, or `None` for no UI.
+    /// The UI canvas, upright for the player, drawn over the game, or
+    /// `None` for no UI. The canvas has the size of its `Frame`: the canvas
+    /// of a [`Form`](crate::Form), 320x240 or 240x320. A renderer draws a
+    /// canvas of any size by the rules of `ui_dest` and `ui_rotation`.
     pub ui: Option<Frame<'a>>,
     /// Where the whole UI canvas goes after the turn of `ui_rotation`, in
     /// pixels of the display mode. Each axis scales on its own, so the

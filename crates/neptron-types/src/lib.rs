@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 mod event;
+mod form;
 mod gpu;
 mod modeline;
 mod monitor;
@@ -20,6 +21,7 @@ mod source;
 mod tv;
 
 pub use event::{Control, FlipEvent, InputEvent};
+pub use form::Form;
 pub use gpu::GpuCaps;
 pub use modeline::Modeline;
 pub use monitor::{CrtRange, MonitorKind, MonitorProfile};
