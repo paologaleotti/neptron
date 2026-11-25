@@ -687,7 +687,7 @@ fn one_answer_per_frame_and_the_dialog_takes_input_again_while_it_stays() {
     // The app refused the keep: the same confirmation is still in the
     // snapshot, so the player can keep again.
     run.step(&snap, &[]);
-    assert!(message(&run).contains("comes back in 10 s."));
+    assert!(message(&run).contains("returns in 10 s."));
     assert_eq!(run.focused(), Some("Keep"));
     run.step(&snap, &[Accept]);
     assert_eq!(run.intents(), [Intent::KeepMode]);
@@ -796,9 +796,9 @@ fn more_time_left_with_the_same_id_is_the_same_confirmation() {
 #[test]
 fn the_countdown_comes_from_the_snapshot() {
     for (remaining_ns, text) in [
-        (10 * SECOND_NS, "comes back in 10 s."),
-        (2_400_000_000, "comes back in 3 s."),
-        (1, "comes back in 1 s."),
+        (10 * SECOND_NS, "returns in 10 s."),
+        (2_400_000_000, "returns in 3 s."),
+        (1, "returns in 1 s."),
         (0, "comes back now."),
     ] {
         let (run, _) = confirming(remaining_ns);

@@ -134,7 +134,7 @@ impl Confirm {
             ),
             (false, s) => write!(
                 message,
-                "{}\n\nThe old picture comes back in {s} s.",
+                "{}\n\nThe old picture returns in {s} s.",
                 pending.description
             ),
         };
