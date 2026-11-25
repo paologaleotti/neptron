@@ -19,3 +19,5 @@ display.vertical game,system,global choice exact|fit
 display.panel_scale game,system,global choice auto|integer
 display.screensaver global bool
 display.screensaver_minutes global choice 1|5|10|30
+display.orientation global choice 0|90|180|270
+display.rotation game choice auto|0|90|180|270

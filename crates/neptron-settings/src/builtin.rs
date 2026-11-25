@@ -102,7 +102,8 @@ pub const TV_WIDTHS: &[&str] = &["aspect", "integer", "fill"];
 /// The key of how a vertical game shows on a horizontal display: one of
 /// [`VERTICAL_MODES`]. An expert key: the picture modes `fit` and `sharp` are the menu choices.
 ///
-/// Help text: "How a vertical game shows on a horizontal screen. Exact shows every pixel
+/// Help text: "How a game shows when it stands across the lines of the screen: a vertical
+/// game on a normal screen, or a horizontal game on a turned screen. Exact shows every pixel
 /// exact, with black borders, and on a 15 kHz screen or a TV with flicker. Fit fills the
 /// height, with a soft picture."
 pub const DISPLAY_VERTICAL: &str = "display.vertical";
@@ -141,7 +142,27 @@ pub const DISPLAY_SCREENSAVER_MINUTES: &str = "display.screensaver_minutes";
 /// The choices of [`DISPLAY_SCREENSAVER_MINUTES`], in minutes, in menu order.
 pub const SCREENSAVER_MINUTES: &[&str] = &["1", "5", "10", "30"];
 
-static BUILTIN: [Entry; 15] = [
+/// The key of the screen orientation: how the display stands, in degrees counter-clockwise,
+/// one of [`SCREEN_ORIENTATIONS`]. The menus and the games turn with it.
+///
+/// Help text: "How the screen stands. Turn the menus and the games for a screen turned on its
+/// side, as in a vertical cabinet. Vertical games then fill the screen at their own lines."
+pub const DISPLAY_ORIENTATION: &str = "display.orientation";
+
+/// The choices of [`DISPLAY_ORIENTATION`], in menu order: degrees counter-clockwise.
+pub const SCREEN_ORIENTATIONS: &[&str] = &["0", "90", "180", "270"];
+
+/// The key of the game orientation: `auto` takes the turn that the game asks for, a value in
+/// degrees replaces it. One of [`GAME_ORIENTATIONS`]. A setting of one game only.
+///
+/// Help text: "How the game picture turns to stand upright. Auto takes it from the game.
+/// Change it only when a game shows on its side or upside down."
+pub const DISPLAY_ROTATION: &str = "display.rotation";
+
+/// The choices of [`DISPLAY_ROTATION`], in menu order.
+pub const GAME_ORIENTATIONS: &[&str] = &["auto", "0", "90", "180", "270"];
+
+static BUILTIN: [Entry; 17] = [
     Entry {
         key: DISPLAY_OUTPUT,
         label: "Output",
@@ -339,6 +360,32 @@ static BUILTIN: [Entry; 15] = [
         applies_to: AppliesTo::Every,
         expert: false,
     },
+    Entry {
+        key: DISPLAY_ORIENTATION,
+        label: "Screen orientation",
+        kind: Kind::Choice {
+            choices: SCREEN_ORIENTATIONS,
+            default: "0",
+        },
+        levels: Levels::GLOBAL,
+        live: true,
+        safety: Safety::Validated,
+        applies_to: AppliesTo::Every,
+        expert: false,
+    },
+    Entry {
+        key: DISPLAY_ROTATION,
+        label: "Game orientation",
+        kind: Kind::Choice {
+            choices: GAME_ORIENTATIONS,
+            default: "auto",
+        },
+        levels: Levels::new(true, false, false),
+        live: true,
+        safety: Safety::Validated,
+        applies_to: AppliesTo::Every,
+        expert: false,
+    },
 ];
 
 impl Schema {
@@ -417,6 +464,99 @@ mod tests {
         assert_eq!(default(DISPLAY_TV_WIDTH), "aspect");
         assert_eq!(default(DISPLAY_SCREENSAVER), "true");
         assert_eq!(default(DISPLAY_SCREENSAVER_MINUTES), "5");
+        assert_eq!(default(DISPLAY_ORIENTATION), "0");
+        assert_eq!(default(DISPLAY_ROTATION), "auto");
+    }
+
+    #[test]
+    fn the_screen_orientation_is_global_and_the_game_orientation_is_of_a_game() {
+        let schema = Schema::builtin();
+        let screen = schema.get(DISPLAY_ORIENTATION).unwrap();
+        assert_eq!(screen.levels, Levels::GLOBAL);
+        assert_eq!(screen.label, "Screen orientation");
+        let game = schema.get(DISPLAY_ROTATION).unwrap();
+        assert_eq!(game.levels, Levels::new(true, false, false));
+        assert_eq!(game.label, "Game orientation");
+        for entry in [screen, game] {
+            assert_eq!(entry.safety, Safety::Validated, "{}", entry.key);
+            assert_eq!(entry.applies_to, AppliesTo::Every, "{}", entry.key);
+            assert!(entry.live && !entry.expert, "{}", entry.key);
+        }
+    }
+
+    #[test]
+    fn the_orientations_round_trip_through_a_file_at_their_levels() {
+        let schema = Schema::builtin();
+        let global = edit(
+            &schema,
+            Level::Global,
+            "",
+            &[Change::Set {
+                key: DISPLAY_ORIENTATION,
+                value: Value::Text("270".into()),
+            }],
+        )
+        .unwrap();
+        assert_eq!(
+            global,
+            "schema_version = 1\n\n[display]\norientation = \"270\"\n"
+        );
+        let parsed = parse_layer(&schema, Level::Global, &global);
+        assert_eq!(parsed.issues, []);
+        let game = edit(
+            &schema,
+            Level::Game,
+            "",
+            &[Change::Set {
+                key: DISPLAY_ROTATION,
+                value: Value::Text("90".into()),
+            }],
+        )
+        .unwrap();
+        let game = parse_layer(&schema, Level::Game, &game);
+        assert_eq!(game.issues, []);
+        let layers = Layers::try_new(Some(&parsed.layer), None, Some(&game.layer)).unwrap();
+        for (key, value, source) in [
+            (DISPLAY_ORIENTATION, "270", Source::Global),
+            (DISPLAY_ROTATION, "90", Source::Game),
+        ] {
+            let resolved = resolve_key(&schema, &layers, key).unwrap();
+            assert_eq!(resolved.value, Value::Text(value.into()), "{key}");
+            assert_eq!(resolved.source, source, "{key}");
+        }
+    }
+
+    #[test]
+    fn the_orientations_refuse_another_level_and_a_value_out_of_the_choices() {
+        let schema = Schema::builtin();
+        for level in [Level::System, Level::Game] {
+            let parsed = parse_layer(&schema, level, "[display]\norientation = \"90\"\n");
+            assert_eq!(parsed.layer.get(DISPLAY_ORIENTATION), None);
+            assert_eq!(parsed.issues[0].kind, IssueKind::LevelNotAllowed { level });
+        }
+        for level in [Level::System, Level::Global] {
+            let parsed = parse_layer(&schema, level, "[display]\nrotation = \"90\"\n");
+            assert_eq!(parsed.layer.get(DISPLAY_ROTATION), None);
+            assert_eq!(parsed.issues[0].kind, IssueKind::LevelNotAllowed { level });
+        }
+        for (level, src) in [
+            (Level::Global, "[display]\norientation = \"45\"\n"),
+            (Level::Global, "[display]\norientation = \"auto\"\n"),
+            (Level::Game, "[display]\nrotation = \"360\"\n"),
+        ] {
+            let parsed = parse_layer(&schema, level, src);
+            assert!(parsed.layer.get(DISPLAY_ORIENTATION).is_none());
+            assert!(parsed.layer.get(DISPLAY_ROTATION).is_none());
+            assert!(
+                matches!(
+                    parsed.issues[0].kind,
+                    IssueKind::Invalid {
+                        reason: Invalid::NotAChoice { .. }
+                    }
+                ),
+                "{src}"
+            );
+        }
     }
 
     #[test]
