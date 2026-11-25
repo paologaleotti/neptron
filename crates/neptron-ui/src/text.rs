@@ -35,7 +35,8 @@ pub struct Fit<'a> {
 }
 
 /// Cuts `text` to fit `width_px`. A cut text ends with [`ELLIPSIS`] when
-/// the width has room for it; spaces before the ellipsis are dropped.
+/// the width has room for it; spaces and full stops before the ellipsis
+/// are dropped, so a text that already holds an ellipsis never shows two.
 pub fn fit(text: &str, width_px: u32) -> Fit<'_> {
     let room = font::chars_in(width_px);
     let count = text.chars().count();
@@ -55,7 +56,7 @@ pub fn fit(text: &str, width_px: u32) -> Fit<'_> {
     let shown = prefix(text, keep);
     Fit {
         shown: if ellipsis {
-            shown.trim_end_matches(' ')
+            shown.trim_end_matches([' ', '.'])
         } else {
             shown
         },
@@ -366,6 +367,12 @@ fn offset(x: i32, by: u32) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cut_after_an_ellipsis_shows_one_ellipsis() {
+        let cut = fit("Pro Contr... (away)", font::text_width("Pro Contr......"));
+        assert_eq!((cut.shown, cut.ellipsis), ("Pro Contr", true));
+    }
 
     #[test]
     fn push_cut_replaces_the_tail_when_a_full_text_drops_more() {
