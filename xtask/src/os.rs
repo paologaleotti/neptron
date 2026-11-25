@@ -365,8 +365,10 @@ pub const GLES_COMPARE: GuestCheck = GuestCheck {
     features: "gles",
     example: "gles_compare",
     export: "gles-compare",
-    // Software GL draws the largest scenes in seconds each.
-    default_timeout_secs: 600,
+    // Software GL draws the largest scenes in seconds each, and a CI
+    // runner emulates the guest CPU: the run with the turned canvas cases
+    // took more than 600 s there.
+    default_timeout_secs: 1200,
     guest_command: plain_command,
     lint: false,
 };
@@ -862,7 +864,7 @@ mod tests {
 
     #[test]
     fn gles_compare_runs_its_program_alone() {
-        assert_eq!(GLES_COMPARE.default_timeout_secs, 600);
+        assert_eq!(GLES_COMPARE.default_timeout_secs, 1200);
         assert_eq!(
             (GLES_COMPARE.guest_command)("/mnt/host/gles_compare"),
             ["/mnt/host/gles_compare"]
