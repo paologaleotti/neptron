@@ -541,3 +541,99 @@ fn an_interlaced_horizontal_game_on_a_turned_tube_has_its_own_one_time_notice() 
         assert!(!file.contains("vertical_interlaced"), "{file:?}");
     });
 }
+
+/// The screensaver under a turned menu bounces between the walls of the
+/// portrait canvas, as the player sees it: one canvas pixel per frame at
+/// 240p on a turned 15 kHz tube, the word inside the canvas at each step,
+/// and the canvas turned by the UI turn of the screen.
+#[test]
+#[ignore = "tier 2"]
+fn the_screensaver_under_a_turned_menu_bounces_in_the_portrait_canvas() {
+    use neptron_ui::screensaver::{WORDMARK_HEIGHT_PX, WORDMARK_WIDTH_PX, pose};
+    let name = test_name(
+        module_path!(),
+        "the_screensaver_under_a_turned_menu_bounces_in_the_portrait_canvas",
+    );
+    in_child(&name, |dir| {
+        let mut rig = turned_rig(dir, Some("generic_15"), Rotation::R270);
+        boot_list(&mut rig);
+        let modes = rig.display.mode_calls().len();
+        // The default time of the screensaver is 5 minutes.
+        let idle_frames = u32::try_from(5 * 60 * 1_000 / 16 + 600).expect("frames");
+        rig.until(idle_frames, "the screensaver", |r| {
+            r.shell().snapshot().screensaver.is_some()
+        });
+        let (w, h) = canvas_at(Rotation::R270);
+        let mut walls = 0;
+        for i in 0..400 {
+            rig.frames(1);
+            let step = rig.shell().snapshot().screensaver.expect("the screensaver");
+            let at = pose(step, w, h);
+            assert!(at.x + WORDMARK_WIDTH_PX <= w, "step {step}: {at:?}");
+            assert!(at.y + WORDMARK_HEIGHT_PX <= h, "step {step}: {at:?}");
+            walls = at.walls;
+            if i % 25 != 0 {
+                continue;
+            }
+            let canvas = rig.shell().canvas().canvas();
+            assert_eq!((canvas.size().width(), canvas.size().height()), (w, h));
+            let mut inside = 0;
+            for y in 0..h {
+                for x in 0..w {
+                    let pixel = canvas.pixel(x, y).expect("a pixel");
+                    let in_word = (at.x..at.x + WORDMARK_WIDTH_PX).contains(&x)
+                        && (at.y..at.y + WORDMARK_HEIGHT_PX).contains(&y);
+                    if pixel == at.color {
+                        assert!(in_word, "step {step}: ({x}, {y}) outside {at:?}");
+                        inside += 1;
+                    }
+                }
+            }
+            assert!(inside > 0, "step {step}: no word at {at:?}");
+            let last = rig.display.frames().last().expect("a frame").scene;
+            assert_eq!(last.ui, Some((240, 320)));
+            assert_eq!(last.ui_rotation, Rotation::R90);
+        }
+        assert!(walls > 0, "the word hit a wall of the portrait canvas");
+        assert_eq!(rig.display.mode_calls().len(), modes, "no new mode");
+        let mode = rig.display.active_mode().expect("a mode");
+        assert_eq!((mode.vactive, mode.interlace), (240, false), "{mode:?}");
+        rig.finish();
+    });
+}
+
+/// The core gets the directions unchanged at every screen orientation:
+/// the controls of a cabinet are mounted for the player, and the game
+/// stands upright for the player.
+#[test]
+#[ignore = "tier 2"]
+fn in_a_game_the_core_gets_the_directions_unchanged_at_each_orientation() {
+    let name = test_name(
+        module_path!(),
+        "in_a_game_the_core_gets_the_directions_unchanged_at_each_orientation",
+    );
+    let directions = [Control::Up, Control::Down, Control::Left, Control::Right];
+    in_children(&name, Rotation::ALL.len() as u32, |dir, stage| {
+        let screen = Rotation::ALL[stage as usize];
+        let mut rig = turned_rig(dir, Some("generic_15"), screen);
+        rig.boot(Some(game()));
+        rig.frames(30);
+        assert!(rig.shell().in_game());
+        for held in directions {
+            rig.hold(&[held]);
+            rig.frames(1);
+            let ports = rig.shell().ports().expect("ports");
+            for control in directions {
+                assert_eq!(
+                    ports.is_held(0, control),
+                    control == held,
+                    "at {}: {held:?} held, {control:?}",
+                    screen.degrees()
+                );
+            }
+            rig.release(&[held]);
+            rig.frames(1);
+        }
+        rig.finish();
+    });
+}
