@@ -731,7 +731,7 @@ name = "Release 0.1: clean builds of the release images, the version, the releas
 owns = ["os", ".github", "docs", "README.md"]
 needs = ["M12", "M13"]
 gate = "ci-ok green on the release commit; the release images boot on both machines"
-status = "pending"
+status = "merged"
 
 [[task]]
 id = "M16"
@@ -760,7 +760,7 @@ name = "TATE mode (spec first, with an ADR for the turned UI canvas): one system
 owns = ["crates/neptron-types", "crates/neptron-gfx", "crates/neptron-modeline", "crates/neptron-video", "crates/neptron-ui", "crates/neptron-settings", "crates/neptron-input", "apps/neptron", "docs/spec", "docs/adr"]
 needs = []
 gate = "T2; goldens of the turned UI and of a vertical and a horizontal game at each orientation on each display class; the crawler finds the settings; tier 3 GLES compare of the turned canvas"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "N02"
