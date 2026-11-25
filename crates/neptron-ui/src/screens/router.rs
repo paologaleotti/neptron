@@ -179,6 +179,11 @@ impl Screens {
         self.visible
     }
 
+    /// The metrics the screens lay out with.
+    pub fn metrics(&self) -> &Metrics {
+        &self.metrics
+    }
+
     /// The number of open screens, home included.
     pub fn depth(&self) -> usize {
         self.stack.len()

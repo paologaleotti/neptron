@@ -10,8 +10,8 @@ use crate::text::{self, Align};
 use crate::theme::Theme;
 use crate::tree::{TreeRow, WidgetKind};
 use crate::widgets::{
-    Dialog, DialogContent, DialogTone, Grid, GridCell, List, ListItem, SettingsList, Slider,
-    SliderValue,
+    Dialog, DialogContent, DialogTone, Grid, GridCell, LabelRule, List, ListItem, SettingsList,
+    Slider, SliderValue,
 };
 
 use super::SceneDef;
@@ -116,7 +116,8 @@ fn header(frame: &mut UiFrame, theme: &Theme, screen: &'static str, title: &str)
 
 fn list(frame: &mut UiFrame, theme: &Theme) {
     let metrics = header(frame, theme, "widgets/list", "Game list");
-    let mut list = List::new(content(&metrics), theme.row_height_px());
+    let mut list =
+        List::new(content(&metrics), theme.row_height_px()).with_labels(LabelRule::Shorten);
     list.select(4, GAMES.len());
     list.draw(frame, theme, GAMES.len(), |i| {
         let (label, detail) = GAMES[i % GAMES.len()];
@@ -206,7 +207,8 @@ fn settings_list(frame: &mut UiFrame, theme: &Theme) {
         ),
         setting(8, "Advanced", SettingValue::Page(PageId(1)), Level::Default),
     ];
-    let mut list = SettingsList::new(content(&metrics), theme.row_height_px());
+    let mut list =
+        SettingsList::new(content(&metrics), theme.row_height_px()).with_labels(LabelRule::Shorten);
     list.select(3, items.len());
     list.draw(frame, theme, &items);
 }

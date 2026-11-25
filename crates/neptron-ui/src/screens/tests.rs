@@ -25,6 +25,9 @@ use super::{
 pub(super) struct Run {
     pub screens: Screens,
     pub frame: UiFrame,
+    /// True for a test whose texts are cut on purpose: the check of each
+    /// frame then looks only for overlaps and texts outside the safe area.
+    pub cuts: bool,
 }
 
 impl Run {
@@ -32,11 +35,29 @@ impl Run {
         Self {
             screens: Screens::new(Theme::default()),
             frame: UiFrame::new(),
+            cuts: false,
         }
     }
 
+    /// The same run, for texts that are cut on purpose.
+    pub fn allowing_cuts(mut self) -> Self {
+        self.cuts = true;
+        self
+    }
+
+    /// Runs one frame and checks that it cuts no text and that no text
+    /// overlaps another or leaves the safe area.
     pub fn step(&mut self, snap: &Snapshot, actions: &[UiAction]) -> &UiFrame {
         self.screens.update(snap, actions, &mut self.frame);
+        let mut faults = crate::fit::check(&self.frame, self.screens.metrics()).faults;
+        if self.cuts {
+            faults.retain(|f| !matches!(f, crate::fit::Fault::Clipped { .. }));
+        }
+        assert!(
+            faults.is_empty(),
+            "{}: {faults:?}",
+            self.frame.tree.screen()
+        );
         &self.frame
     }
 
@@ -931,7 +952,11 @@ fn quick_menu() -> (Run, Snapshot) {
 /// run, the snapshot with the first page of the quick menu, and the
 /// snapshot with the video page.
 fn video_menu(status: Option<VideoStatus>) -> (Run, Snapshot, Snapshot) {
-    let mut run = Run::new();
+    video_menu_in(Run::new(), status)
+}
+
+/// The video page of the quick menu in `run`.
+fn video_menu_in(mut run: Run, status: Option<VideoStatus>) -> (Run, Snapshot, Snapshot) {
     let mut first = in_game();
     first.video = status;
     run.step(&first, &[]);
@@ -1475,7 +1500,8 @@ mod fuzz {
         let mut canvas = CpuCanvas::new();
         let mut keeps = 0;
         for _ in 0..RUNS {
-            let mut run = Run::new();
+            // Random names have no bound, so they are cut.
+            let mut run = Run::new().allowing_cuts();
             let mut snap = rng.snapshot();
             let mut keep = KeepModel::default();
             let mut idle_frames = 0;
@@ -1845,7 +1871,7 @@ fn the_video_page_shows_the_video_block_only_with_a_status() {
 #[test]
 fn the_fixture_columns_fit_the_value_column() {
     for status in [exact_status(), filtered_status(), long_status()] {
-        let (run, _, _) = video_menu(Some(status.clone()));
+        let (run, _, _) = video_menu_in(Run::new().allowing_cuts(), Some(status.clone()));
         let clipped: Vec<_> = run
             .frame
             .tree
@@ -1922,7 +1948,7 @@ fn long_video_text_is_cut_and_stays_in_its_line() {
     status.game = LONG.into();
     status.mode = LONG.into();
     status.result = format!("{LONG} {LONG}");
-    let (run, _, _) = video_menu(Some(status.clone()));
+    let (run, _, _) = video_menu_in(Run::new().allowing_cuts(), Some(status.clone()));
     let rows: Vec<_> = run
         .frame
         .tree
@@ -1971,7 +1997,7 @@ fn an_alert_result_has_the_warning_colour() {
         (exact_status(), theme.colors.text),
         (filtered_status(), theme.colors.warning),
     ] {
-        let (run, _, _) = video_menu(Some(status.clone()));
+        let (run, _, _) = video_menu_in(Run::new().allowing_cuts(), Some(status.clone()));
         let scene = &run.frame.scene;
         let drawn = scene.commands().iter().find_map(|c| match *c {
             crate::DrawCommand::Text { color, span, .. } if scene.text(span) == status.result => {
@@ -2096,9 +2122,12 @@ fn the_largest_skin_keeps_the_rows_in_their_box() {
         let what = if status.is_some() { "status" } else { "none" };
         let mut snap = in_game();
         snap.video = status;
+        // The padding leaves the mode line of the video block too narrow,
+        // so its text is cut.
         let mut run = Run {
             screens: Screens::new(theme.clone()),
             frame: UiFrame::new(),
+            cuts: true,
         };
         run.step(&snap, &[]);
         run.step(&snap, &[Menu]);

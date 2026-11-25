@@ -12,6 +12,7 @@
 #![forbid(unsafe_code)]
 
 pub mod canvas;
+pub mod fit;
 pub mod font;
 mod frame;
 mod geom;

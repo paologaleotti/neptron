@@ -91,6 +91,22 @@ mod tests {
     }
 
     #[test]
+    fn every_scene_fits() {
+        let metrics = crate::Metrics::default();
+        let mut failures = Vec::new();
+        let mut frame = UiFrame::new();
+        for scene in scenes() {
+            frame.clear();
+            (scene.build)(&mut frame, &Theme::default());
+            let report = crate::fit::check(&frame, &metrics);
+            for fault in report.faults {
+                failures.push(format!("{}: {fault:?}", scene.name));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
     fn rendering_is_repeatable() {
         for scene in scenes() {
             let mut frame = UiFrame::new();

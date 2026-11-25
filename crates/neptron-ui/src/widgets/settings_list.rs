@@ -9,7 +9,7 @@ use crate::text::{self, Align, StackText};
 use crate::theme::Theme;
 use crate::tree::{RowKind, TreeRow, WidgetKind};
 
-use super::list::{List, ListEvent, MAX_ROW_LINES};
+use super::list::{LabelRule, List, ListEvent, MAX_ROW_LINES};
 use super::{ARROW_COLUMN_PX, add, draw_arrow, step_value};
 
 /// What one action did to a [`SettingsList`].
@@ -58,6 +58,7 @@ pub struct SettingsList {
     list: List,
     pickers: bool,
     shape: RowShape,
+    labels: LabelRule,
 }
 
 /// The short name of a level, as the source column shows it.
@@ -88,7 +89,16 @@ impl SettingsList {
             list: List::new(rect, row_height_px).with_tall_rows(),
             pickers: false,
             shape: RowShape::OneLine,
+            labels: LabelRule::Cut,
         }
+    }
+
+    /// The same list with the rule `labels` for a label wider than its
+    /// column on a row of one line. [`LabelRule::Wrap`] acts as
+    /// [`LabelRule::Cut`] there: a row of one line has no second line.
+    pub fn with_labels(mut self, labels: LabelRule) -> Self {
+        self.labels = labels;
+        self
     }
 
     /// The same list with rows of `shape`.
@@ -200,7 +210,7 @@ impl SettingsList {
                 if row_lines > 1 {
                     draw_tall_row(frame, theme, row, line_px, item, kind, focused);
                 } else {
-                    draw_row(frame, theme, row, item, kind, focused);
+                    draw_row(frame, theme, row, item, kind, focused, self.labels);
                 }
             }
             shown += 1;
@@ -428,6 +438,7 @@ fn draw_row(
     item: &MenuItem,
     kind: RowKind,
     focused: bool,
+    labels: LabelRule,
 ) {
     let arrows = focused && kind == RowKind::Value;
     let (color, dim) = row_colors(frame, theme, row, item, kind, focused);
@@ -447,7 +458,7 @@ fn draw_row(
     if let (SettingValue::Action(_) | SettingValue::Page(_), None) =
         (&item.value, &item.unavailable)
     {
-        let clipped = text::draw_in(&mut frame.scene, inner, Align::Left, color, &item.label);
+        let clipped = draw_label(&mut frame.scene, inner, color, &item.label, labels);
         push(frame, item, kind, row, None, focused, clipped);
         return;
     }
@@ -465,8 +476,7 @@ fn draw_row(
         );
         let reason_clipped = text::draw_in(&mut frame.scene, reason_box, Align::Right, dim, reason);
         let label_box = Rect::new(inner.x, row.y, inner.w.saturating_sub(columns_w), row.h);
-        let label_clipped =
-            text::draw_in(&mut frame.scene, label_box, Align::Left, dim, &item.label);
+        let label_clipped = draw_label(&mut frame.scene, label_box, dim, &item.label, labels);
         push(
             frame,
             item,
@@ -501,7 +511,7 @@ fn draw_row(
     }
 
     let label_box = Rect::new(inner.x, row.y, inner.w.saturating_sub(columns_w), row.h);
-    let label_clipped = text::draw_in(&mut frame.scene, label_box, Align::Left, color, &item.label);
+    let label_clipped = draw_label(&mut frame.scene, label_box, color, &item.label, labels);
     push(
         frame,
         item,
@@ -511,6 +521,22 @@ fn draw_row(
         focused,
         label_clipped || value_clipped,
     );
+}
+
+/// Draws the label of a row of one line in `rect` by the rule `labels`.
+/// Returns true when it was cut as a fault.
+fn draw_label(
+    scene: &mut crate::scene::UiScene,
+    rect: Rect,
+    color: crate::geom::Color,
+    label: &str,
+    labels: LabelRule,
+) -> bool {
+    if labels == LabelRule::Shorten {
+        text::draw_short(scene, rect, Align::Left, color, label);
+        return false;
+    }
+    text::draw_in(scene, rect, Align::Left, color, label)
 }
 
 /// A row with a text that opens a page: the label at the left in its own
