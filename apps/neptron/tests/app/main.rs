@@ -35,5 +35,6 @@ mod screensaver;
 mod start;
 mod system;
 mod tate;
+mod turned_output;
 mod tv;
 mod vertical;
