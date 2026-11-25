@@ -51,6 +51,7 @@ fn main() -> ExitCode {
         .chain(extra_cases())
         .chain(turned_cases())
         .chain(turned_ui_cases())
+        .chain(portrait_ui_cases())
         .collect();
     for case in &cases {
         count += 1;
@@ -95,6 +96,10 @@ fn main() -> ExitCode {
         if !ui_uploads(&mut reference, turn) {
             failed = failed.saturating_add(1);
         }
+    }
+    count += 1;
+    if !ui_size_change(&mut reference) {
+        failed = failed.saturating_add(1);
     }
     count += 1;
     if !game_under_the_ui(&mut reference) {
@@ -237,6 +242,74 @@ fn ui_uploads(reference: &mut ReferenceRenderer, turn: Option<Rotation>) -> bool
     for (what, ui, rows, turn) in steps {
         let before = gles.ui_rows_uploaded();
         let same = compare(gles, reference, &case(ui, turn));
+        let sent = gles.ui_rows_uploaded() - before;
+        let step = same && sent == rows;
+        println!(
+            "{} {name}: {what}: {sent} rows sent, {rows} expected",
+            if step { "ok  " } else { "FAIL" }
+        );
+        ok &= step;
+    }
+    ok
+}
+
+/// A change of the canvas size between two scenes: the landscape and the
+/// portrait canvas in turn, each turned so that it fills a 240p mode. Each
+/// step must equal the reference, and a canvas of a new size goes whole:
+/// the rows of a canvas of the old size are not compared with it. Prints
+/// one line per step. True when every step holds.
+fn ui_size_change(reference: &mut ReferenceRenderer) -> bool {
+    let name = "ui_size_change";
+    let canvas = |w, h| Source::pattern(w, h, PixelFormat::Xrgb8888);
+    let case = |ui: Source, turn: Rotation| {
+        Case::game(
+            name,
+            Source::pattern(256, 224, PixelFormat::Rgb565),
+            rect(0, 0, 256, 224),
+            rect(32, 8, 256, 224),
+            Filter::Nearest,
+            (320, 240),
+        )
+        .with_ui(ui, rect(0, 0, 320, 240))
+        .with_ui_turned(turn, Filter::Nearest)
+    };
+    let steps = [
+        (
+            "a landscape canvas goes whole",
+            canvas(320, 240),
+            Rotation::R0,
+            240,
+        ),
+        (
+            "a portrait canvas goes whole",
+            canvas(240, 320),
+            Rotation::R270,
+            320,
+        ),
+        (
+            "the same portrait canvas sends no row",
+            canvas(240, 320),
+            Rotation::R90,
+            0,
+        ),
+        (
+            "the landscape canvas again goes whole",
+            canvas(320, 240),
+            Rotation::R180,
+            240,
+        ),
+    ];
+    let mut gles = match GlesRenderer::headless() {
+        Ok(r) => r,
+        Err(e) => {
+            println!("FAIL {name}: a new renderer: {e}");
+            return false;
+        }
+    };
+    let mut ok = true;
+    for (what, ui, turn, rows) in steps {
+        let before = gles.ui_rows_uploaded();
+        let same = compare(&mut gles, reference, &case(ui, turn));
         let sent = gles.ui_rows_uploaded() - before;
         let step = same && sent == rows;
         println!(
@@ -1181,6 +1254,65 @@ fn turned_ui_cases() -> Vec<Case> {
         .with_ui_turned(Rotation::R270, Nearest),
     );
     cases
+}
+
+/// The 240x320 portrait canvas at each `ui_rotation`, as the engine places
+/// it: upright or upside down on a portrait panel, and turned across the
+/// lines of a 240p mode, where it is 320x240 in scan-out and fills the
+/// active area 1:1, or of a 224-line game mode, where its lines scale
+/// below 1 with sharp bilinear.
+fn portrait_ui_cases() -> Vec<Case> {
+    use Filter::{Nearest, SharpBilinear};
+    use PixelFormat::{Rgb565, Xrgb1555, Xrgb8888};
+    let pattern = Source::pattern;
+    let game = |name, format| {
+        Case::game(
+            name,
+            pattern(256, 224, format),
+            rect(0, 0, 256, 224),
+            rect(32, 8, 256, 224),
+            Nearest,
+            (320, 240),
+        )
+    };
+    vec![
+        Case::game(
+            "ui_portrait_r0_nearest_2x_on_a_portrait_panel",
+            pattern(240, 320, Rgb565),
+            rect(0, 0, 240, 320),
+            rect(20, 0, 480, 640),
+            Nearest,
+            (520, 640),
+        )
+        .with_ui(pattern(240, 320, Xrgb8888), rect(20, 0, 480, 640))
+        .with_ui_turned(Rotation::R0, Nearest),
+        Case::game(
+            "ui_portrait_r180_sharp_bilinear_0_75",
+            pattern(40, 30, Xrgb1555),
+            rect(0, 0, 40, 30),
+            rect(0, 0, 240, 240),
+            Nearest,
+            (240, 240),
+        )
+        .with_ui(pattern(240, 320, Rgb565), rect(30, 0, 180, 240))
+        .with_ui_turned(Rotation::R180, SharpBilinear),
+        game("ui_portrait_r90_fills_240_lines_one_to_one", Rgb565)
+            .with_ui(pattern(240, 320, Xrgb8888), rect(0, 0, 320, 240))
+            .with_ui_turned(Rotation::R90, Nearest),
+        game("ui_portrait_r270_fills_240_lines_one_to_one", Xrgb1555)
+            .with_ui(pattern(240, 320, Xrgb1555), rect(0, 0, 320, 240))
+            .with_ui_turned(Rotation::R270, Nearest),
+        Case::game(
+            "ui_portrait_r90_sharp_bilinear_on_224_lines",
+            pattern(256, 224, Rgb565),
+            rect(0, 0, 256, 224),
+            rect(0, 0, 1280, 224),
+            Nearest,
+            (1280, 224),
+        )
+        .with_ui(pattern(240, 320, Xrgb8888), rect(0, 0, 1280, 224))
+        .with_ui_turned(Rotation::R90, SharpBilinear),
+    ]
 }
 
 /// An image with no pixel bytes and the given size and pitch.

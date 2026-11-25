@@ -47,6 +47,31 @@ fn each_ui_turn_at_scale_1_gives_the_pixel_rule() {
     }
 }
 
+/// A canvas taller than it is wide, as the portrait canvas is, follows the
+/// same pixel rule:
+///
+/// ```text
+/// 1 2
+/// 3 4
+/// 5 6
+/// ```
+#[test]
+fn a_portrait_canvas_gives_the_pixel_rule_at_each_turn() {
+    let data = xrgb(&[1, 2, 3, 4, 5, 6]);
+    let cases = [
+        (Rotation::R0, (2, 3), [1, 2, 3, 4, 5, 6]),
+        (Rotation::R90, (3, 2), [2, 4, 6, 1, 3, 5]),
+        (Rotation::R180, (2, 3), [6, 5, 4, 3, 2, 1]),
+        (Rotation::R270, (3, 2), [5, 3, 1, 6, 4, 2]),
+    ];
+    for (turn, (w, h), expected) in cases {
+        for filter in [Filter::Nearest, Filter::SharpBilinear] {
+            let s = turned_ui(frame(&data, 2, 3), rect(0, 0, w, h), turn, filter);
+            assert_eq!(render(&s, w, h), opaque(&expected), "{turn:?} {filter:?}");
+        }
+    }
+}
+
 #[test]
 fn each_ui_turn_at_scale_2_repeats_each_pixel() {
     let data = asymmetric();
