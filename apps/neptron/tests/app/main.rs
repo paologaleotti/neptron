@@ -34,5 +34,6 @@ mod saves;
 mod screensaver;
 mod start;
 mod system;
+mod tate;
 mod tv;
 mod vertical;
