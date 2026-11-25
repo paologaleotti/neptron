@@ -90,6 +90,14 @@ pub fn draw_in(scene: &mut UiScene, rect: Rect, align: Align, color: Color, text
     fitted.clipped
 }
 
+/// Draws `text` in `rect` as [`draw_in`] does, shortened with
+/// [`ELLIPSIS`] when it does not fit. The shortening is the rule for a text
+/// that shows whole in another place, or that has no bound, so it is not a
+/// fault: the result says nothing about it.
+pub fn draw_short(scene: &mut UiScene, rect: Rect, align: Align, color: Color, text: &str) {
+    draw_in(scene, rect, align, color, text);
+}
+
 /// Splits `text` into lines of at most `width_px`, at spaces where it can
 /// and inside a word where it must. A `\n` always ends a line. Each line is
 /// a slice of `text` without the spaces at its end. A line that starts
@@ -421,6 +429,22 @@ mod tests {
         assert_eq!(lines, ["abcde", "fghij", "kl", "xy"]);
         assert_eq!(wrap("", 30).count(), 0);
         assert_eq!(wrap("a\n\nb", 30).collect::<Vec<_>>(), ["a", "", "b"]);
+    }
+
+    #[test]
+    fn draw_short_draws_as_draw_in() {
+        let rect = Rect::new(0, 0, 36, 12);
+        let mut short = UiScene::new();
+        draw_short(&mut short, rect, Align::Left, Color::WHITE, "abcdefgh");
+        let mut cut = UiScene::new();
+        assert!(draw_in(
+            &mut cut,
+            rect,
+            Align::Left,
+            Color::WHITE,
+            "abcdefgh"
+        ));
+        assert_eq!(short, cut);
     }
 
     #[test]
