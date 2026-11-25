@@ -15,7 +15,7 @@ use crate::snapshot::{
 use crate::text::StackText;
 use crate::theme::Theme;
 use crate::tree::{RowKind, TreeRow, WidgetKind};
-use crate::widgets::{List, ListEvent, ListItem};
+use crate::widgets::{LabelRule, List, ListEvent, ListItem};
 
 use super::chrome::{self, Layout};
 use super::page::Crumb;
@@ -79,7 +79,7 @@ impl Options {
             page,
             key,
             level,
-            list: List::new(list, theme.row_height_px()),
+            list: List::new(list, theme.row_height_px()).with_labels(LabelRule::Wrap),
             list_box,
             help_box,
             help,
@@ -218,15 +218,22 @@ impl Options {
         let Some(option) = options.get(index) else {
             return;
         };
-        let top = self.list.top();
-        let Some(slot) = index
-            .checked_sub(top)
-            .filter(|s| *s < self.list.visible_rows())
+        let Some(slot) = index.checked_sub(self.list.top()) else {
+            return;
+        };
+        // The rows of the list are the only list rows of the screen, from
+        // the top of its window, and a row can have two lines.
+        let Some(at) = frame
+            .tree
+            .rows()
+            .filter(|r| r.widget == WidgetKind::List)
+            .nth(slot)
+            .map(|r| r.rect.y)
         else {
             return;
         };
         let row = theme.row_height_px();
-        let y = chrome::offset(self.list.rect().y, slot as u32 * row + (row - MARK_PX) / 2);
+        let y = chrome::offset(at, (row - MARK_PX) / 2);
         let x = self
             .list
             .rect()

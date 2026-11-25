@@ -9,7 +9,7 @@ use crate::input::UiAction;
 use crate::intent::Intent;
 use crate::metrics::Metrics;
 use crate::snapshot::{MappingId, MappingStage, PadMapping};
-use crate::text::{Align, StackText};
+use crate::text::{self, Align, StackText};
 use crate::theme::Theme;
 use crate::widgets::{Dialog, DialogContent, DialogEvent, DialogTone};
 
@@ -201,12 +201,31 @@ fn draw_prompt(
     );
     let content = metrics.content;
     let row = theme.row_height_px();
-    let rows = 11;
+    let mut countdown = StackText::<LINE_BYTES>::new();
+    // `StackText` never fails; it drops what does not fit.
+    let _ = write!(countdown, "No input: cancel in {seconds} s.");
+    let colors = &theme.colors;
+    let texts = [
+        (note, colors.warning),
+        (SKIP_HELP, colors.text),
+        (CANCEL_HELP, colors.text),
+        (countdown.as_str(), colors.text_dim),
+    ];
+    let width = chrome::padded(chrome::rows_box(content, theme, 1).1, theme).w;
+    let text_lines: u32 = texts
+        .iter()
+        .map(|(text, _)| {
+            u32::try_from(text::wrap(text, width).count())
+                .unwrap_or(1)
+                .max(1)
+        })
+        .sum();
+    // One empty line ends the box.
+    let rows = (FIRST_TEXT_LINE + text_lines + 1).min(chrome::box_rows(content, theme));
     let (outer, inner) = chrome::rows_box(content, theme, rows);
     chrome::boxed(frame, theme, outer);
     let inner = chrome::padded(inner, theme);
     let line = |n: u32| Rect::new(inner.x, offset(inner.y, n * row), inner.w, row);
-    let colors = &theme.colors;
     chrome::label(frame, line(0), Align::Left, colors.text_dim, &mapping.pad);
 
     let bar = Rect::new(inner.x, offset(inner.y, 2 * row), inner.w, 2 * row);
@@ -229,31 +248,22 @@ fn draw_prompt(
     );
     frame.scene.rect(filled, colors.accent);
 
-    if !note.is_empty() {
-        chrome::label(frame, line(6), Align::Left, colors.warning, note);
+    let mut next = FIRST_TEXT_LINE;
+    for (text, color) in texts {
+        let rest = Rect::new(
+            inner.x,
+            offset(inner.y, next * row),
+            inner.w,
+            rows.saturating_sub(next) * row,
+        );
+        next += chrome::paragraph(frame, theme, rest, color, text).max(1);
     }
-    chrome::label(
-        frame,
-        line(7),
-        Align::Left,
-        colors.text,
-        "Hold a button of this controller to skip it.",
-    );
-    chrome::label(
-        frame,
-        line(8),
-        Align::Left,
-        colors.text,
-        "Back on a keyboard or another pad: cancel.",
-    );
-    let mut countdown = StackText::<LINE_BYTES>::new();
-    // `StackText` never fails; it drops what does not fit.
-    let _ = write!(countdown, "No input: cancel in {seconds} s.");
-    chrome::label(
-        frame,
-        line(9),
-        Align::Left,
-        colors.text_dim,
-        countdown.as_str(),
-    );
 }
+
+/// The help line on how to skip a button.
+const SKIP_HELP: &str = "Hold a button of this controller to skip it.";
+/// The help line on how to cancel.
+const CANCEL_HELP: &str = "Back on a keyboard or another pad: cancel.";
+/// The line of the box where the texts under the progress start: under
+/// the pad, a gap, the bar of two lines, a gap and the progress.
+const FIRST_TEXT_LINE: u32 = 6;

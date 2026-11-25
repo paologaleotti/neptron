@@ -52,9 +52,18 @@ struct Places {
 impl Places {
     /// The places with the video block when `video` is true and the block
     /// leaves room for the rows, else the places without it.
-    fn new(content: Rect, metrics: &Metrics, theme: &Theme, video: bool) -> Self {
+    /// `extra` gives the lines that the facts need over one line each, with
+    /// the video block and without it.
+    fn new(
+        content: Rect,
+        metrics: &Metrics,
+        theme: &Theme,
+        video: bool,
+        extra: impl Fn(bool) -> u32,
+    ) -> Self {
         if video {
-            let (info_box, info, rest) = Self::info(content, theme, INFO_LINES_WITH_VIDEO);
+            let lines = INFO_LINES_WITH_VIDEO + extra(true);
+            let (info_box, info, rest) = Self::info(content, theme, lines);
             if video::fits(rest, metrics, theme) {
                 return Self {
                     info_box,
@@ -64,7 +73,7 @@ impl Places {
                 };
             }
         }
-        let (info_box, info, rest) = Self::info(content, theme, INFO_LINES);
+        let (info_box, info, rest) = Self::info(content, theme, INFO_LINES + extra(false));
         Self {
             info_box,
             info,
@@ -92,7 +101,7 @@ impl DisplayPanel {
     /// The display panel, opened from the row `label`.
     pub(super) fn new(label: Crumb, metrics: &Metrics, theme: &Theme) -> Self {
         let content = Layout::of(metrics).content;
-        let places = Places::new(content, metrics, theme, false);
+        let places = Places::new(content, metrics, theme, false, |_| 0);
         Self {
             page: Page::new(DISPLAY_PAGE, Level::Global, places.page, metrics, theme),
             label,
@@ -104,7 +113,16 @@ impl DisplayPanel {
     /// Shows the video block while the snapshot has a video status and the
     /// block leaves room for the rows, and removes it otherwise.
     pub(super) fn sync(&mut self, snap: &Snapshot, metrics: &Metrics, theme: &Theme) {
-        let places = Places::new(self.content, metrics, theme, video::status(snap).is_some());
+        let width = chrome::padded(chrome::rows_box(self.content, theme, 1).1, theme).w;
+        let extra = |video: bool| {
+            facts(snap, video)
+                .iter()
+                .flatten()
+                .map(|(_, value)| chrome::field_lines(width, value) - 1)
+                .sum()
+        };
+        let video = video::status(snap).is_some();
+        let places = Places::new(self.content, metrics, theme, video, extra);
         if places == self.places {
             return;
         }
@@ -152,21 +170,6 @@ impl DisplayPanel {
         );
         let places = &self.places;
         chrome::boxed(frame, theme, places.info_box);
-        let (output, mode) = snap
-            .display
-            .as_ref()
-            .map_or(("none", "none"), |d| (d.output.as_str(), d.mode.as_str()));
-        let monitor = snap
-            .active_profile
-            .and_then(|id| snap.profiles.iter().find(|p| p.id == id))
-            .map(|p| p.name.as_str())
-            .or_else(|| {
-                snap.display
-                    .as_ref()
-                    .map(|d| d.monitor.as_str())
-                    .filter(|m| !m.is_empty())
-            })
-            .unwrap_or("not set");
         let row = theme.row_height_px();
         let line = |i: u32| {
             chrome::padded(
@@ -179,17 +182,39 @@ impl DisplayPanel {
                 theme,
             )
         };
-        chrome::field(frame, theme, line(0), "Output", output);
-        match (places.video, video::status(snap)) {
-            (Some(area), Some(status)) => {
-                chrome::field(frame, theme, line(1), "Monitor", monitor);
-                video::draw(frame, theme, metrics, area, status);
-            }
-            _ => {
-                chrome::field(frame, theme, line(1), "Mode", mode);
-                chrome::field(frame, theme, line(2), "Monitor", monitor);
-            }
+        let shown = places.video.zip(video::status(snap));
+        let mut next = 0;
+        for (name, value) in facts(snap, shown.is_some()).into_iter().flatten() {
+            let lines = chrome::field_lines(line(next).w, value)
+                .min((places.info.h / row.max(1)).saturating_sub(next).max(1));
+            chrome::field_lines_in(frame, theme, line(next), lines, name, value);
+            next += lines;
+        }
+        if let Some((area, status)) = shown {
+            video::draw(frame, theme, metrics, area, status);
         }
         self.page.draw(snap, theme, metrics, frame);
     }
+}
+
+/// The facts of the info box: the output, the mode and the monitor. With
+/// the video block, which shows the mode, only the output and the monitor.
+fn facts(snap: &Snapshot, video: bool) -> [Option<(&'static str, &str)>; 3] {
+    let (output, mode) = snap
+        .display
+        .as_ref()
+        .map_or(("none", "none"), |d| (d.output.as_str(), d.mode.as_str()));
+    let monitor = snap
+        .active_profile
+        .and_then(|id| snap.profiles.iter().find(|p| p.id == id))
+        .map(|p| p.name.as_str())
+        .or_else(|| {
+            snap.display
+                .as_ref()
+                .map(|d| d.monitor.as_str())
+                .filter(|m| !m.is_empty())
+        })
+        .unwrap_or("not set");
+    let mode = (!video).then_some(("Mode", mode));
+    [Some(("Output", output)), mode, Some(("Monitor", monitor))]
 }

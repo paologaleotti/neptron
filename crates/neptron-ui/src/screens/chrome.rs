@@ -330,6 +330,66 @@ pub(super) fn field(frame: &mut UiFrame, theme: &Theme, rect: Rect, name: &str, 
     });
 }
 
+/// The lines of a [`field`] in a line of `width_px`: two when its value
+/// does not fit the value column.
+pub(super) fn field_lines(width_px: u32, value: &str) -> u32 {
+    let name_w = font::char_count_width(FIELD_NAME_CHARS).min(width_px);
+    if font::text_width(value) > width_px.saturating_sub(name_w) {
+        2
+    } else {
+        1
+    }
+}
+
+/// Draws a named value as [`field`] does, the value wrapped on `lines`
+/// lines of `rect.h` from `rect`, its first line.
+pub(super) fn field_lines_in(
+    frame: &mut UiFrame,
+    theme: &Theme,
+    rect: Rect,
+    lines: u32,
+    name: &str,
+    value: &str,
+) {
+    if lines <= 1 {
+        field(frame, theme, rect, name, value);
+        return;
+    }
+    let name_w = font::char_count_width(FIELD_NAME_CHARS).min(rect.w);
+    let name_box = Rect::new(rect.x, rect.y, name_w, rect.h);
+    let value_box = Rect::new(
+        offset(rect.x, name_w),
+        rect.y,
+        rect.w.saturating_sub(name_w),
+        rect.h,
+    );
+    let name_clipped = text::draw_in(
+        &mut frame.scene,
+        name_box,
+        Align::Left,
+        theme.colors.text_dim,
+        name,
+    );
+    let value_clipped = text::draw_lines(
+        &mut frame.scene,
+        value_box,
+        lines,
+        rect.h,
+        theme.colors.text,
+        value,
+    );
+    frame.tree.push(TreeRow {
+        widget: WidgetKind::Label,
+        kind: None,
+        label: name,
+        value: Some(value),
+        source: None,
+        rect: Rect::new(rect.x, rect.y, rect.w, rect.h.saturating_mul(lines)),
+        focused: false,
+        clipped: name_clipped || value_clipped,
+    });
+}
+
 /// Width of the name column of a [`field`], in characters.
 pub(super) const FIELD_NAME_CHARS: usize = 9;
 
@@ -434,6 +494,45 @@ mod tests {
                 assert!(l.content.bottom() < i64::from(l.footer.y));
             }
         }
+    }
+
+    #[test]
+    fn a_field_takes_a_second_line_when_its_value_does_not_fit() {
+        // 9 characters of name and 25 of value.
+        let width = 34 * 6;
+        assert_eq!(field_lines(width, "1920x1080 60.00 Hz"), 1);
+        assert_eq!(field_lines(width, "320x240 59.94 Hz (safe mode)"), 2);
+        let theme = Theme::default();
+        let mut frame = UiFrame::new();
+        let rect = Rect::new(12, 40, width, 12);
+        field_lines_in(
+            &mut frame,
+            &theme,
+            rect,
+            2,
+            "Mode",
+            "320x240 59.94 Hz (safe mode)",
+        );
+        let row = frame.tree.rows().next().expect("one row");
+        assert_eq!((row.rect.h, row.clipped), (24, false));
+        assert_eq!(row.value, Some("320x240 59.94 Hz (safe mode)"));
+    }
+
+    #[test]
+    fn a_band_takes_a_second_line_when_its_texts_do_not_fit() {
+        let portrait = Metrics::of(crate::Form::Portrait, &Theme::default());
+        let landscape = Metrics::default();
+        let (left, right) = ("Accept: revert", "Right, then Accept: keep");
+        assert_eq!(band_lines(&landscape, left, right), 1);
+        assert_eq!(band_lines(&portrait, left, right), 2);
+        assert_eq!(band_lines(&portrait, left, ""), 1);
+        let l = Layout::with_bands(&portrait, 2, 2);
+        let one = Layout::of(&portrait);
+        assert_eq!(l.title.h, one.title.h + 12);
+        assert_eq!(l.content.y, one.content.y + 12);
+        assert_eq!(l.content.h, one.content.h - 24);
+        assert_eq!(l.footer.y, one.footer.y - 12);
+        assert_eq!(l.footer.bottom(), one.footer.bottom());
     }
 
     #[test]

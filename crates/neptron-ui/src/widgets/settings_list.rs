@@ -208,7 +208,15 @@ impl SettingsList {
                 let focused = index == view.cursor;
                 let kind = self.kind(item);
                 if row_lines > 1 {
-                    draw_tall_row(frame, theme, row, line_px, item, kind, focused);
+                    draw_tall_row(
+                        frame,
+                        theme,
+                        row,
+                        line_px,
+                        item,
+                        (kind, focused),
+                        self.labels,
+                    );
                 } else {
                     draw_row(frame, theme, row, item, kind, focused, self.labels);
                 }
@@ -274,8 +282,8 @@ fn draw_tall_row(
     row: Rect,
     line_px: u32,
     item: &MenuItem,
-    kind: RowKind,
-    focused: bool,
+    (kind, focused): (RowKind, bool),
+    labels: LabelRule,
 ) {
     let (color, dim) = row_colors(frame, theme, row, item, kind, focused);
     let first = Rect::new(row.x, row.y, row.w, line_px);
@@ -285,7 +293,7 @@ fn draw_tall_row(
     let indent = font::char_count_width(STACKED_INDENT_CHARS);
     let after_indent = |r: Rect| Rect::new(add(r.x, indent), r.y, r.w.saturating_sub(indent), r.h);
     let label = |frame: &mut UiFrame, color| {
-        text::draw_in(&mut frame.scene, inner1, Align::Left, color, &item.label)
+        draw_label(&mut frame.scene, inner1, color, &item.label, labels)
     };
     let arrow = |frame: &mut UiFrame, line: Rect| {
         if kind == RowKind::Page {
@@ -310,13 +318,7 @@ fn draw_tall_row(
                 inner2
             };
             arrow(frame, second);
-            let text_clipped = text::draw_in(
-                &mut frame.scene,
-                after_indent(room),
-                Align::Right,
-                color,
-                text,
-            );
+            let text_clipped = draw_text(&mut frame.scene, after_indent(room), color, text, true);
             push(
                 frame,
                 item,
@@ -539,6 +541,26 @@ fn draw_label(
     text::draw_in(scene, rect, Align::Left, color, label)
 }
 
+/// Draws the text of an information row or a link, right-aligned. With
+/// `short`, a text that does not fit is shortened, and that is no fault:
+/// the text of a link names a device or a file and has no bound, and so
+/// does the text on the second line of an information row, which the app
+/// shortens for the line of a landscape row. Returns true when the text
+/// was cut as a fault.
+fn draw_text(
+    scene: &mut crate::scene::UiScene,
+    rect: Rect,
+    color: crate::geom::Color,
+    text: &str,
+    short: bool,
+) -> bool {
+    if short {
+        text::draw_short(scene, rect, Align::Right, color, text);
+        return false;
+    }
+    text::draw_in(scene, rect, Align::Right, color, text)
+}
+
 /// A row with a text that opens a page: the label at the left in its own
 /// width, and the text right-aligned in the rest of the row after one
 /// character of space, before the arrow column.
@@ -556,7 +578,7 @@ fn draw_link(
     let label_clipped = text::draw_in(&mut frame.scene, label_box, Align::Left, color, &item.label);
     let gap = label_w.saturating_add(font::ADVANCE);
     let text_box = Rect::new(add(inner.x, gap), row.y, inner.w.saturating_sub(gap), row.h);
-    let text_clipped = text::draw_in(&mut frame.scene, text_box, Align::Right, color, text);
+    let text_clipped = draw_text(&mut frame.scene, text_box, color, text, true);
     push(
         frame,
         item,
@@ -1430,14 +1452,15 @@ mod tests {
     }
 
     #[test]
-    fn an_information_row_that_does_not_fit_is_cut_and_marked_clipped() {
+    fn an_information_row_that_does_not_fit_takes_two_lines_and_shortens_its_text() {
         let long = "smb://a-very-long-host-name-for-this-row.local/share";
         let items = vec![info(1, "macOS, Linux", long)];
         let l = SettingsList::new(Rect::new(16, 12, 288, 48), 12);
         let mut frame = UiFrame::new();
         l.draw(&mut frame, &Theme::default(), &items);
         let row = frame.tree.rows().next().expect("a row");
-        assert!(row.clipped);
+        assert_eq!(row.rect.h, 24);
+        assert!(!row.clipped, "a text with no bound is shortened by rule");
         assert_eq!(row.value, Some(long), "the tree has the whole text");
         let texts: Vec<_> = frame
             .scene

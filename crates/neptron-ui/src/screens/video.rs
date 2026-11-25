@@ -12,7 +12,7 @@ use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::metrics::Metrics;
 use crate::snapshot::{Snapshot, VideoStatus};
-use crate::text::{self, Align};
+use crate::text::{self, Align, StackText};
 use crate::theme::Theme;
 use crate::tree::{TreeRow, WidgetKind};
 
@@ -87,6 +87,7 @@ pub(super) fn draw(
         chrome::label(frame, rect, Align::Left, theme.colors.accent, "Video");
     }
     let mut spare = lines.saturating_sub(BASE_LINES);
+    let roomy = spare > 0;
     let mut next = 1;
     for (name, id, value) in [
         ("Game", VIDEO_GAME_ROW, status.game.as_str()),
@@ -96,18 +97,43 @@ pub(super) fn draw(
             return;
         };
         let (_, value_box) = columns(rect);
-        let fact_lines = if spare > 0 && font::text_width(value) > value_box.w {
+        let mut compact = StackText::<FACT_BYTES>::new();
+        let shown = if roomy && font::text_width(value) > value_box.w {
+            single_spaces(value, &mut compact);
+            compact.as_str()
+        } else {
+            value
+        };
+        let fact_lines = if spare > 0 && font::text_width(shown) > value_box.w {
             spare -= 1;
             2
         } else {
             1
         };
-        field(frame, theme, rect, fact_lines, name, id, value);
+        field(frame, theme, rect, fact_lines, (name, id), (value, shown));
         next += fact_lines;
     }
     if let Some(first) = line(next) {
         let more = (next + 1..lines).filter_map(line);
         result(frame, theme, first, more, status);
+    }
+}
+
+/// The longest fact that a block with room writes with single spaces, in
+/// bytes. The formatter writes fewer than 48.
+const FACT_BYTES: usize = 96;
+
+/// Writes `text` into `out` with each run of spaces made one space. The
+/// fixed columns of the formatter line up the two facts on a wide line;
+/// on a narrow line they would only push a fact on to a second line.
+fn single_spaces<const N: usize>(text: &str, out: &mut StackText<N>) {
+    let mut words = text.split(' ').filter(|w| !w.is_empty());
+    if let Some(first) = words.next() {
+        out.push_cut(first);
+    }
+    for word in words {
+        out.push_cut(" ");
+        out.push_cut(word);
     }
 }
 
@@ -124,17 +150,16 @@ fn columns(rect: Rect) -> (Rect, Rect) {
     (name, value)
 }
 
-/// Draws a named fact of the block on `lines` lines from `rect`, its first
-/// line. The tree row has the stable `id` as its label and the whole text
-/// as its value.
+/// Draws the fact `name` of the block as `shown` on `lines` lines from
+/// `rect`, its first line. The tree row has the stable `id` as its label
+/// and the whole text, `value`, as its value.
 fn field(
     frame: &mut UiFrame,
     theme: &Theme,
     rect: Rect,
     lines: u32,
-    name: &str,
-    id: &str,
-    value: &str,
+    (name, id): (&str, &str),
+    (value, shown): (&str, &str),
 ) {
     let (name_box, value_box) = columns(rect);
     text::draw_in(
@@ -150,7 +175,7 @@ fn field(
         lines,
         LINE_PX,
         theme.colors.text,
-        value,
+        shown,
     );
     let whole = Rect::new(rect.x, rect.y, rect.w, rect.h.saturating_mul(lines));
     push(frame, id, value, whole, clipped);
@@ -205,4 +230,61 @@ fn push(frame: &mut UiFrame, id: &str, value: &str, rect: Rect, clipped: bool) {
         focused: false,
         clipped,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::metrics::Form;
+
+    #[test]
+    fn single_spaces_join_the_words_with_one_space() {
+        let mut out = StackText::<FACT_BYTES>::new();
+        single_spaces("768x448p  30.05 kHz 60.099 Hz  2x", &mut out);
+        assert_eq!(out.as_str(), "768x448p 30.05 kHz 60.099 Hz 2x");
+        let mut empty = StackText::<FACT_BYTES>::new();
+        single_spaces("   ", &mut empty);
+        assert_eq!(empty.as_str(), "");
+    }
+
+    fn status() -> VideoStatus {
+        VideoStatus {
+            game: "256x224             60.099 Hz".into(),
+            mode: "768x448p  30.05 kHz 60.099 Hz  2x".into(),
+            result: "[!] cropped 2 lines, speed (60.099 to 59.940 Hz)".into(),
+            ..VideoStatus::default()
+        }
+    }
+
+    #[test]
+    fn a_block_with_room_gives_a_long_fact_a_second_line_and_cuts_nothing() {
+        let theme = Theme::default();
+        let metrics = Metrics::of(Form::Portrait, &theme);
+        let mut frame = UiFrame::new();
+        draw(&mut frame, &theme, &metrics, metrics.content, &status());
+        let rows: Vec<_> = frame
+            .tree
+            .rows()
+            .map(|r| (r.label, r.rect.h / LINE_PX, r.clipped))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("Video", 1, false),
+                (VIDEO_GAME_ROW, 1, false),
+                (VIDEO_MODE_ROW, 2, false),
+                (VIDEO_RESULT_ROW, 3, false)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_block_of_five_lines_keeps_one_line_for_each_fact() {
+        let theme = Theme::default();
+        let metrics = Metrics::of(Form::Landscape, &theme);
+        let mut frame = UiFrame::new();
+        draw(&mut frame, &theme, &metrics, metrics.content, &status());
+        let lines: Vec<_> = frame.tree.rows().map(|r| r.rect.h / LINE_PX).collect();
+        assert_eq!(lines, [1, 1, 1, 2]);
+    }
 }
