@@ -401,3 +401,39 @@ fn the_boot_file_sets_the_screen_orientation_of_the_first_frame() {
         );
     });
 }
+
+#[test]
+#[ignore = "tier 2"]
+fn the_blind_recovery_on_a_turned_screen_keeps_the_portrait_form() {
+    let name = test_name(
+        module_path!(),
+        "the_blind_recovery_on_a_turned_screen_keeps_the_portrait_form",
+    );
+    in_child(&name, |dir| {
+        use neptron_video::{Phase, SafeReason};
+        let hold_frames = (neptron_input::BLIND_RECOVERY_HOLD_NS / 16_000_000) as u32 + 30;
+        let mut rig = turned_rig(dir, Some("generic_15"), Rotation::R90);
+        boot_list(&mut rig);
+        assert_eq!(canvas(&mut rig), (240, 320));
+        rig.hold(&[Control::Select, Control::Start]);
+        rig.until(hold_frames, "the recovery", |r| {
+            r.shell().guard().phase() == Phase::Safe(SafeReason::Recovery)
+        });
+        rig.release(&[Control::Select, Control::Start]);
+        rig.frames(2);
+        dismiss_notices(&mut rig);
+        assert_eq!(canvas(&mut rig), (240, 320), "the portrait form stays");
+        let turned = Orientation {
+            screen: Rotation::R90,
+            game_override: None,
+        };
+        assert_eq!(rig.shell().config().orientation(), turned);
+        let engine = rig.shell().engine().expect("the engine").orientation();
+        assert_eq!(engine.screen, Rotation::R90);
+        let last = rig.display.frames().last().expect("a frame").scene;
+        assert_eq!(last.ui_rotation, turned.ui_turn());
+        assert_valid(&mut rig, Some("generic_15"));
+        assert_one_form_per_frame(&rig);
+        rig.finish();
+    });
+}

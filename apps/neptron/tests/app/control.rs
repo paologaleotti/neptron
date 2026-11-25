@@ -181,3 +181,44 @@ fn the_output_cannot_be_set_over_the_protocol() {
     assert!(result.is_err(), "{result:?}");
     rig.finish();
 }
+
+#[test]
+#[ignore = "tier 2"]
+fn the_screen_orientation_cannot_be_set_over_the_protocol_in_a_game() {
+    crate::rig::in_child(
+        &crate::rig::test_name(
+            module_path!(),
+            "the_screen_orientation_cannot_be_set_over_the_protocol_in_a_game",
+        ),
+        |dir| {
+            let mut rig = Rig::new(dir);
+            rig.boot(Some(neptron::NextRun {
+                pads: Vec::new(),
+                game: Some(neptron::relaunch::GameRef {
+                    system: "nes".to_owned(),
+                    path: "nes/Test Game.nes".to_owned(),
+                }),
+                notice: None,
+            }));
+            rig.frames(30);
+            assert!(rig.shell().in_game());
+            let result = rig.shell().set_from_protocol(
+                "display.orientation",
+                neptron_settings::Level::Global,
+                &serde_json::Value::String("90".to_owned()),
+            );
+            assert!(result.is_err(), "{result:?}");
+            rig.frames(2);
+            let normal = neptron_types::Orientation::NORMAL;
+            assert_eq!(rig.shell().config().orientation(), normal);
+            let engine = rig.shell().engine().expect("the engine").orientation();
+            assert_eq!(engine, normal);
+            rig.finish();
+            assert!(
+                !rig.state_file("config/global.toml").contains("orientation"),
+                "{}",
+                rig.state_file("config/global.toml")
+            );
+        },
+    );
+}
