@@ -5,7 +5,8 @@
 
 use crate::{DisplayOptions, FakeDisplay, Render, SimClock};
 use neptron_types::{
-    Filter, Frame, Modeline, MonitorKind, PixelFormat, Rect, Rotation, Scanlines, SourceGeometry,
+    Filter, Frame, Modeline, MonitorKind, Orientation, PixelFormat, Rect, Rotation, Scanlines,
+    SourceGeometry,
 };
 use neptron_video::{
     Monitor, Notice, Offer, PolicySettings, Proposal, Rung, ScanlineSettings, VideoEngine,
@@ -85,8 +86,10 @@ pub enum WireError {
 }
 
 /// Runs the engine of the app for one core frame of `source` with the
-/// picture `frame` on `screen`, and returns the frame buffer of the mode
-/// and what the engine decided.
+/// picture `frame` on `screen` at `orientation`, and returns the frame
+/// buffer of the mode and what the engine decided. `source` is the source
+/// as the core sends it: the engine plans with the display source of the
+/// orientation, as in the app.
 ///
 /// # Errors
 ///
@@ -97,6 +100,7 @@ pub fn run(
     source: &SourceGeometry,
     settings: PolicySettings,
     scanlines: ScanlineSettings,
+    orientation: Orientation,
     frame: &Rgb,
 ) -> Result<Wire, WireError> {
     if frame.width != u32::from(source.width) || frame.height != u32::from(source.height) {
@@ -120,6 +124,7 @@ pub fn run(
     let monitor = Monitor::Profile(screen.profile.clone());
     let mut engine = VideoEngine::new(display, monitor, settings);
     engine.set_scanlines(scanlines);
+    engine.set_orientation(orientation);
     let offer = engine.offer(source).map_err(|e| e.to_string());
     let data = frame.to_xrgb8888();
     let game = Frame {

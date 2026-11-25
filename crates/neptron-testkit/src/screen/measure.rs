@@ -2,14 +2,16 @@
 //! what is cut and what is black, how much of the screen the picture
 //! fills, its shape and its speed. Pure.
 
-use neptron_types::{Rect, Rotation, ScanlineKind, SourceGeometry};
+use neptron_types::{Orientation, Rect, Rotation, ScanlineKind, SourceGeometry};
 use neptron_video::{
     Notice, Rung, TV_525_CONSOLE_WIDTH_SAMPLES, TV_525_PICTURE_LINES, TV_625_CONSOLE_WIDTH_SAMPLES,
     TV_CONSOLE_LINES_MIN,
 };
 
 use super::glass::{Glass, Tube, TubeClass};
+use super::image::Rgb;
 use super::json::{Json, object};
+use super::pattern::CORNERS;
 use super::wire::{Shown, Wire};
 
 /// A value at each edge of a picture.
@@ -46,6 +48,47 @@ pub struct ModeFacts {
     pub interlace: bool,
     /// Each line sent twice.
     pub doublescan: bool,
+}
+
+/// The game picture as the player sees it, in front of a screen that
+/// stands at its orientation: the measures that assert TATE mode. They
+/// read the source of the core and the game orientation, not the display
+/// source of the engine, so a wrong turn or a wrong aspect shows here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Player {
+    /// The screen orientation, in degrees counter-clockwise.
+    pub screen_degrees: u16,
+    /// The width to height of the picture for the player, in thousandths:
+    /// the shape in the mode, turned with the screen.
+    pub aspect_milli: u32,
+    /// The width to height of the upright game, in thousandths: its
+    /// display aspect, the crop and the turn of the source applied.
+    pub aspect_asked_milli: u32,
+    /// Shown over asked, less 1, in per mille.
+    pub aspect_error_permille: i64,
+    /// The part of the width of the screen, for the player, that the
+    /// picture fills, in per mille.
+    pub fill_w_permille: u32,
+    /// The part of the height of the screen, for the player, that the
+    /// picture fills, in per mille.
+    pub fill_h_permille: u32,
+    /// The test pattern stands upright for the player: the corner mark
+    /// at the top-left corner of the picture is the mark of the top-left
+    /// corner of the upright game. `None` when no corner mark shows, or
+    /// the frame is not the test pattern.
+    pub upright: Option<bool>,
+}
+
+/// How the player stands in front of the screen, for [`measure`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct View<'a> {
+    /// The screen orientation and the game override that the engine has.
+    pub orientation: Orientation,
+    /// The source as the core sends it, before the screen turn.
+    pub core_source: &'a SourceGeometry,
+    /// The frame is the built-in test pattern, so its corner marks tell
+    /// whether the picture is upright.
+    pub pattern: bool,
 }
 
 /// The measures of a case that shows a picture.
@@ -128,6 +171,8 @@ pub struct Picture {
     pub scanlines: String,
     /// The notice of the policy, one entry per part.
     pub notices: Vec<String>,
+    /// The picture as the player sees it.
+    pub player: Player,
 }
 
 /// The measures of one case.
@@ -170,14 +215,17 @@ pub struct Names<'a> {
     pub arcade: bool,
 }
 
-/// The measures of `wire` for `source`. `glass` is the glass of the case
-/// and the same glass with no overscan; `None` with no picture.
+/// The measures of `wire` for the source of `view`. `glass` is the glass
+/// of the case and the same glass with no overscan; `None` with no
+/// picture. The measures of the mode read the display source, the source
+/// that the engine plans with; [`Player`] reads the source of the core.
 pub fn measure(
     names: Names<'_>,
-    source: &SourceGeometry,
+    view: View<'_>,
     wire: &Wire,
     glass: Option<(&Glass, &Glass)>,
 ) -> Measures {
+    let source = &view.orientation.display_source(view.core_source);
     let offer = match &wire.offer {
         Ok(Ok(_)) => "offered".to_owned(),
         Ok(Err(declined)) => format!("declined: {:?}", declined.reason),
@@ -187,7 +235,11 @@ pub fn measure(
         .shown
         .as_ref()
         .zip(glass)
-        .map(|(shown, (glass, bare))| picture(source, names.arcade, shown, glass, bare));
+        .map(|(shown, (glass, bare))| {
+            let mut p = picture(source, names.arcade, shown, glass, bare);
+            p.player = player(&view, shown, &p);
+            p
+        });
     Measures {
         display: names.display.to_owned(),
         class: names.class.to_owned(),
@@ -355,7 +407,112 @@ fn picture(
             ScanlineKind::Black => format!("black {}%", scene.scanlines.strength_percent),
         },
         notices: shown.notice.as_ref().map(notice_parts).unwrap_or_default(),
+        player: Player::default(),
     }
+}
+
+/// The picture of `shown` as the player of `view` sees it, from the
+/// measures `p` in the mode.
+fn player(view: &View<'_>, shown: &Shown, p: &Picture) -> Player {
+    let screen = view.orientation.screen;
+    // The truth is the turn that the core asks for: the source draws its
+    // frame for that turn. A game override that differs shows as an error.
+    let game = view.core_source.rotation;
+    let asked = asked_aspect(view.core_source, &p.crop, game);
+    let shown_aspect = f64::from(p.aspect_shown_milli) / 1000.0;
+    let seen = match screen {
+        Rotation::R90 | Rotation::R270 if shown_aspect > 0.0 => 1.0 / shown_aspect,
+        _ => shown_aspect,
+    };
+    let (fill_w_permille, fill_h_permille) = if screen.across() {
+        (p.fill_h_permille, p.fill_w_permille)
+    } else {
+        (p.fill_w_permille, p.fill_h_permille)
+    };
+    let upright = view
+        .pattern
+        .then(|| corner_seen_top_left(shown, screen))
+        .flatten()
+        .map(|corner| corner == upright_top_left(game));
+    Player {
+        screen_degrees: screen.degrees(),
+        aspect_milli: (seen * 1000.0).round() as u32,
+        aspect_asked_milli: (asked * 1000.0).round() as u32,
+        aspect_error_permille: if asked > 0.0 {
+            ((seen / asked - 1.0) * 1000.0).round() as i64
+        } else {
+            0
+        },
+        fill_w_permille,
+        fill_h_permille,
+        upright,
+    }
+}
+
+/// A channel of a pixel within this of a corner mark counts as that mark:
+/// the filter blends the 1-pixel arms of a mark with their neighbours.
+const CORNER_MATCH_MAX: u8 = 40;
+
+/// The corner marks lie within this many frame pixels of their corner.
+const CORNER_REACH_PX: u32 = 9;
+
+/// The index in [`CORNERS`] of the frame corner that a turn of the
+/// upright game by `game` puts at the top left. The turn is
+/// counter-clockwise: at 90 the top-right corner of the frame comes to
+/// the top left.
+fn upright_top_left(game: Rotation) -> usize {
+    match game {
+        Rotation::R0 => 0,
+        Rotation::R90 => 1,
+        Rotation::R180 => 3,
+        Rotation::R270 => 2,
+    }
+}
+
+/// The index in [`CORNERS`] of the corner mark that shows at the corner of
+/// the picture that the player of a screen at `screen` sees at the top
+/// left, or `None` when no mark shows there.
+fn corner_seen_top_left(shown: &Shown, screen: Rotation) -> Option<usize> {
+    let fb = &shown.frame_buffer;
+    let dest = shown.scene.dest;
+    let (tw, th) = turned(&shown.scene.crop, shown.scene.rotation);
+    let reach = |size: u32, units: u32| {
+        (u64::from(size) * u64::from(CORNER_REACH_PX)).div_ceil(u64::from(units.max(1))) as i64
+    };
+    let (rw, rh) = (reach(dest.w, tw), reach(dest.h, th));
+    let (x0, y0) = (i64::from(dest.x), i64::from(dest.y));
+    let (x1, y1) = (x0 + i64::from(dest.w), y0 + i64::from(dest.h));
+    // The screen turns counter-clockwise by `screen`: at 90 the top-right
+    // corner of the mode is at the top left for the player.
+    let (xs, ys) = match screen {
+        Rotation::R0 => (x0..x0 + rw, y0..y0 + rh),
+        Rotation::R90 => (x1 - rw..x1, y0..y0 + rh),
+        Rotation::R180 => (x1 - rw..x1, y1 - rh..y1),
+        Rotation::R270 => (x0..x0 + rw, y1 - rh..y1),
+    };
+    let mut counts = [0_u32; 4];
+    for y in ys.filter(|&y| (0..i64::from(fb.height)).contains(&y)) {
+        for x in xs
+            .clone()
+            .filter(|&x| (0..i64::from(fb.width)).contains(&x))
+        {
+            if let Some(i) = corner_mark(fb, x as u32, y as u32) {
+                counts[i] += 1;
+            }
+        }
+    }
+    let (best, &n) = counts.iter().enumerate().max_by_key(|(_, n)| **n)?;
+    (n > 0).then_some(best)
+}
+
+/// The corner mark that pixel `(x, y)` of `fb` shows, if any.
+fn corner_mark(fb: &Rgb, x: u32, y: u32) -> Option<usize> {
+    let px = fb.get(x, y);
+    CORNERS.iter().position(|mark| {
+        mark.iter()
+            .zip(px)
+            .all(|(a, b)| a.abs_diff(b) <= CORNER_MATCH_MAX)
+    })
 }
 
 /// The console width of the policy, in samples, for a console picture on a
@@ -580,7 +737,7 @@ impl Measures {
     }
 
     /// The header of [`Self::row`].
-    pub const HEADER: &'static str = "| display | source | settings | mode | kHz | Hz | dest | scale x/y | cropped t/b/l/r | borders t/b/l/r | fill w/h | aspect | speed | scanlines | hidden by glass t/b/l/r | notices | offer |";
+    pub const HEADER: &'static str = "| display | source | settings | mode | kHz | Hz | dest | scale x/y | cropped t/b/l/r | borders t/b/l/r | fill w/h | aspect | speed | scanlines | hidden by glass t/b/l/r | notices | offer | player |";
 
     /// The measures as one row of a Markdown table.
     pub fn row(&self) -> String {
@@ -588,13 +745,13 @@ impl Measures {
         let Some(p) = &self.picture else {
             let why = self.no_picture.as_deref().unwrap_or("no picture");
             return format!(
-                "{names} no picture | | | | | | | | | | | | {why} | {} |",
+                "{names} no picture | | | | | | | | | | | | {why} | {} | |",
                 self.offer
             );
         };
         let m = &p.mode;
         format!(
-            "{names} {}x{}{} | {} | {} | {}x{}+{}+{} | {}/{} | {} | {} | {}/{} | {} | {} | {} | {} | {} | {} |",
+            "{names} {}x{}{} | {} | {} | {}x{}+{}+{} | {}/{} | {} | {} | {}/{} | {} | {} | {} | {} | {} | {} | {} |",
             m.hactive,
             m.vactive,
             scan_letter(m.interlace, m.doublescan),
@@ -620,8 +777,26 @@ impl Measures {
                 p.notices.join(", ")
             },
             self.offer,
+            player_text(&p.player),
         )
     }
+}
+
+/// The player measures of a row: the screen orientation, the shape error,
+/// the fill across and down, and whether the picture is upright.
+fn player_text(p: &Player) -> String {
+    let upright = match p.upright {
+        Some(true) => "upright",
+        Some(false) => "NOT UPRIGHT",
+        None => "upright ?",
+    };
+    format!(
+        "{} deg {} {}/{} {upright}",
+        p.screen_degrees,
+        signed_permille_text(p.aspect_error_permille),
+        permille_text(i64::from(p.fill_w_permille)),
+        permille_text(i64::from(p.fill_h_permille)),
+    )
 }
 
 impl Picture {
@@ -676,6 +851,21 @@ impl Picture {
             ("speed_alert", self.speed_alert.into()),
             ("scanlines", (&self.scanlines).into()),
             ("notices", self.notices.clone().into()),
+            ("player", self.player.to_json()),
+        ])
+    }
+}
+
+impl Player {
+    fn to_json(self) -> Json {
+        object([
+            ("screen_orientation", self.screen_degrees.into()),
+            ("aspect_milli", self.aspect_milli.into()),
+            ("aspect_asked_milli", self.aspect_asked_milli.into()),
+            ("aspect_error_permille", self.aspect_error_permille.into()),
+            ("fill_w_permille", self.fill_w_permille.into()),
+            ("fill_h_permille", self.fill_h_permille.into()),
+            ("upright", self.upright.into()),
         ])
     }
 }
@@ -849,5 +1039,17 @@ mod tests {
         assert_eq!(signed_permille_text(-62), "-6.2 %");
         assert_eq!(permille_text(1000), "100.0 %");
         assert_eq!(scale_text(1_833, false), "1.833");
+        let player = Player {
+            screen_degrees: 90,
+            aspect_error_permille: -4,
+            fill_w_permille: 1000,
+            fill_h_permille: 750,
+            upright: Some(false),
+            ..Player::default()
+        };
+        assert_eq!(
+            player_text(&player),
+            "90 deg -0.4 % 100.0 %/75.0 % NOT UPRIGHT"
+        );
     }
 }

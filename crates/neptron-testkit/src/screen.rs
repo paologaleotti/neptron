@@ -33,13 +33,13 @@ pub use glass::{
 pub use image::{Rgb, Turn};
 pub use json::{Json, object};
 pub use measure::{
-    Edges, Measures, ModeFacts, Names, Picture, measure, milli_text, notice_parts, scan_letter,
-    turned,
+    Edges, Measures, ModeFacts, Names, Picture, Player, View, measure, milli_text, notice_parts,
+    scan_letter, turned,
 };
 pub use pattern::test_pattern;
 pub use run::{
     ARCADE_TABLE, Case, GlassOptions, Outcome, RunError, SurveyRun, Tables, class_of, pattern_of,
-    simulate, survey_rows,
+    player_turn, simulate, survey_rows,
 };
 pub use survey::{
     ASPECT_ERROR_MAX_PERMILLE, Counts, DISPLAYS, EXTRA_SOURCES, Flag, LABEL_ADVANCE_PX,

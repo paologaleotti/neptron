@@ -8,7 +8,8 @@ use std::fmt;
 use neptron_platform::Matrix;
 use neptron_settings::Schema;
 use neptron_types::{
-    GpuCaps, Modeline, MonitorKind, MonitorProfile, Rotation, SourceGeometry, TvStandard,
+    GpuCaps, Modeline, MonitorKind, MonitorProfile, Orientation, Rotation, SourceGeometry,
+    TvStandard,
 };
 use neptron_video::{
     PolicySettings, REFERENCE_SOURCES, ScanlineSettings, SettingsError, policy_settings,
@@ -40,8 +41,10 @@ pub const REFERENCE_NAMES: [&str; 10] = [
 /// `neogeo`.
 const REFERENCE_BOARDS: [&str; 3] = ["neogeo", "mk", "ddonpach"];
 
-/// The settings the policy reads, by their key in the settings schema.
-pub const SETTING_KEYS: [&str; 7] = [
+/// The display settings the tool reads, by their key in the settings
+/// schema: the settings of the policy, then the screen orientation and the
+/// game orientation, which the engine reads.
+pub const SETTING_KEYS: [&str; 9] = [
     "display.style",
     "display.refresh_policy",
     "display.tv_width",
@@ -49,6 +52,8 @@ pub const SETTING_KEYS: [&str; 7] = [
     "display.panel_scale",
     "display.scanlines",
     "display.scanline_strength",
+    "display.orientation",
+    "display.rotation",
 ];
 
 /// The horizontal blank of a panel mode, in pixels: the 80 pixels of CVT
@@ -505,6 +510,26 @@ impl Settings {
         Ok(scanline_settings(self.get("display.scanlines"), strength)?)
     }
 
+    /// The screen orientation and the game orientation, as the app makes
+    /// them from the same two settings: the screen at `display.orientation`
+    /// degrees counter-clockwise, the game at Auto for
+    /// `display.rotation = auto`, else at that turn.
+    ///
+    /// # Errors
+    ///
+    /// [`CaseError::BadRotation`] for a value that is not a turn.
+    pub fn orientation(&self) -> Result<Orientation, CaseError> {
+        let screen = rotation_of(self.get("display.orientation"))?;
+        let game_override = match self.get("display.rotation") {
+            "auto" => None,
+            text => Some(rotation_of(text)?),
+        };
+        Ok(Orientation {
+            screen,
+            game_override,
+        })
+    }
+
     /// The settings that differ from `defaults`, as `key=value` without
     /// `display.`, joined by spaces; the style and refresh rate always.
     pub fn label(&self, defaults: &Self) -> String {
@@ -730,6 +755,35 @@ mod tests {
         assert!(matches!(s.policy(false), Err(CaseError::Value(_))));
         s.set("scanline_strength=x").unwrap();
         assert!(s.scanlines().is_err());
+    }
+
+    #[test]
+    fn the_orientation_settings_make_an_orientation() {
+        let schema = Schema::builtin();
+        let defaults = Settings::defaults(&schema);
+        assert_eq!(defaults.orientation(), Ok(Orientation::NORMAL));
+        let mut s = defaults.clone();
+        s.set("orientation=90").unwrap();
+        s.set("display.rotation=270").unwrap();
+        assert_eq!(
+            s.orientation(),
+            Ok(Orientation {
+                screen: Rotation::R90,
+                game_override: Some(Rotation::R270),
+            })
+        );
+        assert_eq!(s.label(&defaults), "auto/exact orientation=90 rotation=270");
+        s.set("orientation=45").unwrap();
+        assert!(matches!(
+            s.orientation(),
+            Err(CaseError::BadRotation { .. })
+        ));
+        let mut s = defaults;
+        s.set("rotation=up").unwrap();
+        assert!(matches!(
+            s.orientation(),
+            Err(CaseError::BadRotation { .. })
+        ));
     }
 
     #[test]

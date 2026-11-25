@@ -51,6 +51,110 @@ pub const GOLDEN_CASES: [(&str, &str, &str, &[&str]); 10] = [
     ("rtype-pal-fit", "pal", "rtype", &["style=fit"]),
 ];
 
+/// The reference cases of TATE mode with a golden glass: DoDonPachi (a
+/// vertical board) and Power Instinct 2 (a horizontal board of the same
+/// size and rate) on a 15 kHz arcade tube, a PC monitor, an NTSC TV and a
+/// 1080p panel, with the screen at 0 and at 90. Name, display, source and
+/// settings, as [`GOLDEN_CASES`].
+pub const TATE_CASES: [(&str, &str, &str, &[&str]); 16] = [
+    (
+        "ddonpach-arcade_15-o0",
+        "arcade_15",
+        "ddonpach",
+        &["orientation=0"],
+    ),
+    (
+        "ddonpach-arcade_15-o90",
+        "arcade_15",
+        "ddonpach",
+        &["orientation=90"],
+    ),
+    (
+        "pwrinst2-arcade_15-o0",
+        "arcade_15",
+        "pwrinst2",
+        &["orientation=0"],
+    ),
+    (
+        "pwrinst2-arcade_15-o90",
+        "arcade_15",
+        "pwrinst2",
+        &["orientation=90"],
+    ),
+    (
+        "ddonpach-pc_31_120-o0",
+        "pc_31_120",
+        "ddonpach",
+        &["orientation=0"],
+    ),
+    (
+        "ddonpach-pc_31_120-o90",
+        "pc_31_120",
+        "ddonpach",
+        &["orientation=90"],
+    ),
+    (
+        "pwrinst2-pc_31_120-o0",
+        "pc_31_120",
+        "pwrinst2",
+        &["orientation=0"],
+    ),
+    (
+        "pwrinst2-pc_31_120-o90",
+        "pc_31_120",
+        "pwrinst2",
+        &["orientation=90"],
+    ),
+    ("ddonpach-ntsc-o0", "ntsc", "ddonpach", &["orientation=0"]),
+    ("ddonpach-ntsc-o90", "ntsc", "ddonpach", &["orientation=90"]),
+    ("pwrinst2-ntsc-o0", "ntsc", "pwrinst2", &["orientation=0"]),
+    ("pwrinst2-ntsc-o90", "ntsc", "pwrinst2", &["orientation=90"]),
+    (
+        "ddonpach-panel_1080-o0",
+        "1920x1080@60",
+        "ddonpach",
+        &["orientation=0"],
+    ),
+    (
+        "ddonpach-panel_1080-o90",
+        "1920x1080@60",
+        "ddonpach",
+        &["orientation=90"],
+    ),
+    (
+        "pwrinst2-panel_1080-o0",
+        "1920x1080@60",
+        "pwrinst2",
+        &["orientation=0"],
+    ),
+    (
+        "pwrinst2-panel_1080-o90",
+        "1920x1080@60",
+        "pwrinst2",
+        &["orientation=90"],
+    ),
+];
+
+/// The case of golden `index`: [`GOLDEN_CASES`], then [`TATE_CASES`].
+fn golden_case(
+    index: usize,
+) -> (
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static [&'static str],
+) {
+    let all = GOLDEN_CASES.len() + TATE_CASES.len();
+    let i = index % all;
+    match GOLDEN_CASES.get(i) {
+        Some(case) => *case,
+        None => TATE_CASES[i - GOLDEN_CASES.len()],
+    }
+}
+
+/// The number of goldens: [`GOLDEN_CASES`] and [`TATE_CASES`].
+pub const GOLDEN_COUNT: usize = GOLDEN_CASES.len() + TATE_CASES.len();
+
 const USAGE: &str = "\
 usage: screen --display D --source S [--gpu ID] [--set KEY=VALUE]... [--aspect A]
               [--rotate 0|90|180|270] [--interlaced] [--arcade] [--frame FILE.ppm]
@@ -228,7 +332,8 @@ fn run_golden(root: &Path, tables: &Tables, args: &[&str]) -> Result<ExitCode, C
         root.join(OUT_DIR).join("golden-actual"),
     );
     let mut failed = 0;
-    for (i, (name, ..)) in GOLDEN_CASES.iter().enumerate() {
+    for i in 0..GOLDEN_COUNT {
+        let (name, ..) = golden_case(i);
         let (image, _) = golden_glass(tables, i)?;
         write_ppm(
             &root
@@ -264,13 +369,15 @@ fn run_golden(root: &Path, tables: &Tables, args: &[&str]) -> Result<ExitCode, C
     })
 }
 
-/// The glass of golden case `index`, at [`GOLDEN_SIZE`], and its measures.
+/// The glass of golden case `index` ([`GOLDEN_CASES`], then
+/// [`TATE_CASES`]), at [`GOLDEN_SIZE`] turned as the player sees it, and
+/// its measures.
 ///
 /// # Errors
 ///
 /// [`RunError`] when the case does not run.
 pub fn golden_glass(tables: &Tables, index: usize) -> Result<(Rgb, Measures), RunError> {
-    let (_, display, source, sets) = GOLDEN_CASES[index % GOLDEN_CASES.len()];
+    let (_, display, source, sets) = golden_case(index);
     let case = tables.named_case(display, source, sets)?;
     let options = GlassOptions {
         overscan_permille: None,
@@ -843,5 +950,172 @@ mod tests {
         assert!(!fit.flags.contains(&Flag::SameAs("native".into())));
         assert!(!fit.flags.contains(&Flag::FillNotLarger));
         assert!(!fit.look(), "{:?}", fit.flags);
+    }
+
+    /// The measures of a TATE case: the mode, `dest` in the mode, and the
+    /// part of the width and the height of the screen that the picture
+    /// fills for the player.
+    type Tate = ((u16, u16), (i32, i32, u32, u32), (u32, u32));
+
+    /// The measures of [`TATE_CASES`], in its order. A vertical board on a
+    /// screen at 90 gets the mode of the horizontal board at 0, and the
+    /// other way round: the engine plans the lines that the display scans.
+    const TATE_EXPECTED: [Tate; 16] = [
+        // DoDonPachi at 0: 320 lines in 256, 3:4 on the face.
+        ((1440, 256), (315, 0, 810, 256), (563, 1000)),
+        // At 90: its own 240 lines, the full height of the turned tube.
+        ((1280, 240), (0, 0, 1280, 240), (975, 999)),
+        ((1280, 240), (0, 0, 1280, 240), (999, 975)),
+        ((1440, 256), (315, 0, 810, 256), (1000, 563)),
+        // The PC monitor at 0: DoDonPachi at 1x, 240x320 (Auto).
+        ((683, 512), (221, 96, 240, 320), (352, 606)),
+        ((640, 480), (0, 0, 640, 480), (909, 1000)),
+        ((640, 480), (0, 0, 640, 480), (1000, 909)),
+        ((683, 512), (221, 96, 240, 320), (606, 352)),
+        // NTSC: 320 lines in 480i at 0; 240p at 90, 704 samples.
+        ((720, 480), (228, 80, 264, 320), (417, 741)),
+        ((720, 240), (8, 0, 704, 240), (1000, 1000)),
+        ((720, 240), (8, 0, 704, 240), (1000, 1000)),
+        ((720, 480), (228, 80, 264, 320), (741, 417)),
+        // The panel at 90: 1440x1080 on the wire, 1080x1440 for the
+        // player, the full width of the turned panel.
+        ((1920, 1080), (600, 60, 720, 960), (375, 889)),
+        ((1920, 1080), (240, 0, 1440, 1080), (1000, 750)),
+        ((1920, 1080), (240, 0, 1440, 1080), (750, 1000)),
+        ((1920, 1080), (600, 60, 720, 960), (889, 375)),
+    ];
+
+    /// The largest error of the shape of the game as the player sees it,
+    /// in per mille.
+    const PLAYER_SHAPE_MAX_PERMILLE: i64 = 10;
+
+    /// A game at the orientation of the screen fills one side of it.
+    const ONE_SIDE_MIN_PERMILLE: u32 = 990;
+
+    #[test]
+    fn the_tate_cases_match_their_goldens_and_measures() {
+        let root = workspace_root();
+        let tables = Tables::load(&root).unwrap();
+        let golden = Golden::new(
+            root.join(GOLDEN_DIR),
+            root.join(OUT_DIR).join("golden-actual"),
+        );
+        for (i, ((mode, dest, fill), case)) in TATE_EXPECTED.iter().zip(TATE_CASES).enumerate() {
+            let name = case.0;
+            let (image, m) = golden_glass(&tables, GOLDEN_CASES.len() + i).unwrap();
+            golden
+                .check(name, &to_rgb_image(&image).unwrap())
+                .unwrap_or_else(|e| panic!("{e}"));
+            let p = m.picture.as_ref().unwrap();
+            let q = p.player;
+            assert_eq!((p.mode.hactive, p.mode.vactive), *mode, "{name}");
+            let (x, y, w, h) = *dest;
+            assert_eq!(p.dest, Rect { x, y, w, h }, "{name}");
+            assert_eq!((q.fill_w_permille, q.fill_h_permille), *fill, "{name}");
+            assert!(
+                q.aspect_error_permille.abs() <= PLAYER_SHAPE_MAX_PERMILLE,
+                "{name}: {}",
+                q.aspect_error_permille
+            );
+            assert_eq!(q.upright, Some(true), "{name}");
+            let turned = q.screen_degrees == 90;
+            assert_eq!(turned, name.ends_with("-o90"), "{name}");
+            let vertical = case.2 == "ddonpach";
+            if vertical == turned {
+                assert!(
+                    q.fill_w_permille.max(q.fill_h_permille) >= ONE_SIDE_MIN_PERMILLE,
+                    "{name}: {fill:?}"
+                );
+            }
+            assert_eq!(
+                image.height > image.width,
+                turned,
+                "{name}: the glass stands as the player sees it"
+            );
+        }
+    }
+
+    /// Every display class at every screen orientation, a vertical and a
+    /// horizontal board: the game has its own shape for the player and
+    /// stands upright.
+    #[test]
+    fn every_class_shows_the_game_upright_at_its_shape_at_every_orientation() {
+        let tables = Tables::load(&workspace_root()).unwrap();
+        let options = GlassOptions {
+            overscan_permille: None,
+            size: (64, 48),
+            turn: Turn::R0,
+        };
+        let displays = [
+            "generic_15",
+            "arcade_15",
+            "arcade_31",
+            "pc_31_120",
+            "ntsc",
+            "pal",
+            "1920x1080@60",
+        ];
+        for display in displays {
+            for source in ["ddonpach", "pwrinst2"] {
+                for degrees in [0, 90, 180, 270] {
+                    let set = format!("orientation={degrees}");
+                    let case = tables.named_case(display, source, &[&set]).unwrap();
+                    let out = simulate(&case, &pattern_of(&case.source), &options).unwrap();
+                    let what = format!("{source} on {display} at {degrees}");
+                    let q = out
+                        .measures
+                        .picture
+                        .unwrap_or_else(|| panic!("{what}"))
+                        .player;
+                    assert_eq!(q.screen_degrees, degrees, "{what}");
+                    assert!(
+                        q.aspect_error_permille.abs() <= PLAYER_SHAPE_MAX_PERMILLE,
+                        "{what}: {}",
+                        q.aspect_error_permille
+                    );
+                    let want = if source == "ddonpach" { 750 } else { 1_333 };
+                    assert_eq!(q.aspect_asked_milli, want, "{what}");
+                    assert_eq!(q.upright, Some(true), "{what}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_glass_turns_with_the_screen_and_then_with_turn() {
+        use super::super::run::player_turn;
+        use neptron_types::Rotation;
+        assert_eq!(player_turn(Rotation::R0, Turn::R0), Turn::R0);
+        assert_eq!(player_turn(Rotation::R90, Turn::R0), Turn::R270);
+        assert_eq!(player_turn(Rotation::R270, Turn::R0), Turn::R90);
+        assert_eq!(player_turn(Rotation::R90, Turn::R90), Turn::R0);
+        assert_eq!(player_turn(Rotation::R180, Turn::R270), Turn::R90);
+    }
+
+    /// A game override that turns the picture the wrong way is not
+    /// upright, and a frame of its own has no corner marks to read.
+    #[test]
+    fn a_wrong_game_turn_shows_as_not_upright() {
+        let tables = Tables::load(&workspace_root()).unwrap();
+        let options = GlassOptions {
+            overscan_permille: None,
+            size: (64, 48),
+            turn: Turn::R0,
+        };
+        let case = tables
+            .named_case(
+                "1920x1080@60",
+                "ddonpach",
+                &["orientation=90", "rotation=270"],
+            )
+            .unwrap();
+        let frame = pattern_of(&case.source);
+        let out = simulate(&case, &frame, &options).unwrap();
+        let q = out.measures.picture.unwrap().player;
+        assert_eq!(q.upright, Some(false));
+        let mut own = frame;
+        own.put(0, 0, [1, 2, 3]);
+        let out = simulate(&case, &own, &options).unwrap();
+        assert_eq!(out.measures.picture.unwrap().player.upright, None);
     }
 }

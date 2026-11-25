@@ -6,12 +6,12 @@ use std::{fs, io};
 
 use neptron_platform::Matrix;
 use neptron_settings::Schema;
-use neptron_types::{MonitorKind, MonitorProfile};
+use neptron_types::{MonitorKind, MonitorProfile, Rotation};
 
 use super::case::{self, Board, CaseError, DisplaySpec, Screen, Settings, Source};
 use super::glass::Glass;
 use super::image::{Rgb, Turn};
-use super::measure::{self, Measures, Names};
+use super::measure::{self, Measures, Names, View};
 use super::pattern::test_pattern;
 use super::survey::{self, Row};
 use super::wire::{self, Wire, WireError};
@@ -51,7 +51,8 @@ pub struct GlassOptions {
     pub overscan_permille: Option<u32>,
     /// The size of the glass picture box, in pixels.
     pub size: (u32, u32),
-    /// The turn of the monitor.
+    /// A turn of the output, clockwise, after the turn of the screen
+    /// orientation. It changes no decision: it is not TATE mode.
     pub turn: Turn,
 }
 
@@ -168,7 +169,16 @@ pub fn simulate(case: &Case, frame: &Rgb, options: &GlassOptions) -> Result<Outc
     let geometry = case.source.geometry;
     let settings = case.settings.policy(case.source.arcade)?;
     let scanlines = case.settings.scanlines()?;
-    let wire = wire::run(&case.screen, &geometry, settings, scanlines, frame)?;
+    let orientation = case.settings.orientation()?;
+    let wire = wire::run(
+        &case.screen,
+        &geometry,
+        settings,
+        scanlines,
+        orientation,
+        frame,
+    )?;
+    let turn = player_turn(orientation.screen, options.turn);
     let glass = wire
         .shown
         .as_ref()
@@ -177,7 +187,7 @@ pub fn simulate(case: &Case, frame: &Rgb, options: &GlassOptions) -> Result<Outc
     let glass_image = wire.shown.as_ref().zip(glass.as_ref()).map(|(shown, g)| {
         let size = g.picture_size(options.size);
         g.render(&shown.mode, &shown.frame_buffer, size)
-            .turned(options.turn)
+            .turned(turn)
     });
     let names = Names {
         display: &case.screen.name,
@@ -187,12 +197,31 @@ pub fn simulate(case: &Case, frame: &Rgb, options: &GlassOptions) -> Result<Outc
         settings: &case.label,
         arcade: case.source.arcade,
     };
-    let measures = measure::measure(names, &geometry, &wire, glass.as_ref().zip(bare.as_ref()));
+    let view = View {
+        orientation,
+        core_source: &geometry,
+        pattern: *frame == pattern_of(&case.source),
+    };
+    let measures = measure::measure(names, view, &wire, glass.as_ref().zip(bare.as_ref()));
     Ok(Outcome {
         wire,
         glass_image,
         measures,
     })
+}
+
+/// The clockwise turn of the glass picture: the screen at `screen`
+/// degrees counter-clockwise, as the player sees it, then `extra`.
+pub fn player_turn(screen: Rotation, extra: Turn) -> Turn {
+    let extra_degrees: u16 = match extra {
+        Turn::R0 => 0,
+        Turn::R90 => 90,
+        Turn::R180 => 180,
+        Turn::R270 => 270,
+    };
+    let degrees = (360 - screen.degrees() + extra_degrees) % 360;
+    // The sum of two quarter turns is a quarter turn.
+    Turn::from_degrees(u32::from(degrees)).unwrap_or(Turn::R0)
 }
 
 /// The test picture of `source`.

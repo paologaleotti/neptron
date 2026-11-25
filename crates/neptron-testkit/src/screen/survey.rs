@@ -658,6 +658,7 @@ mod tests {
             notice_cropped_lines: 0,
             console_picture: false,
             placed_area_permille: 1_000,
+            player: super::super::measure::Player::default(),
             glass_hidden: Edges::default(),
             overscan_hidden: None,
             speed_ppm: 0,
