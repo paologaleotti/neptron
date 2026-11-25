@@ -54,9 +54,9 @@ pub struct SceneInputs<'p> {
 ///
 /// The UI canvas turns by `inputs.ui_turn`, and goes where
 /// `neptron_modeline::policy::ui_placement` places the canvas after that
-/// turn, of the size of its frame, in the mode of the scene. Turned by 90
-/// or 270 it takes the filter of that function; upright or upside down it
-/// takes nearest.
+/// turn, of the size of its frame, in the mode of the scene, with the
+/// filter of that function at every turn: nearest when each axis scales
+/// by 1 or more, sharp bilinear when an axis is below 1.
 ///
 /// The scanlines come from `neptron_types::scanlines_for` with the
 /// settings, the whole vertical multiple from the lines of the turned
@@ -108,10 +108,7 @@ fn ui_place(inputs: &SceneInputs<'_>, ui: Option<&Frame<'_>>) -> (Rect, Filter) 
         (width, height)
     };
     let placed = ui_placement(inputs.monitor, inputs.mode, turned);
-    match inputs.ui_turn {
-        Rotation::R0 | Rotation::R180 => (placed.dest, Filter::Nearest),
-        Rotation::R90 | Rotation::R270 => (placed.dest, placed.filter),
-    }
+    (placed.dest, placed.filter)
 }
 
 /// The frame has the size of the placement's source, and the crop lies

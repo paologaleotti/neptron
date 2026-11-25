@@ -720,6 +720,10 @@ These need a 15 kHz display (a SCART TV or an arcade monitor) on a PC output. Th
   - Do: play it on an arcade monitor.
   - Expect: the mode runs at 16.181 kHz and the picture locks.
   - Record: what the crop hides.
+- [ ] `needs-hardware` **The quick menu over a 224-line game is soft and whole.** (L4, `docs/spec/ui-layout.md` section 6.4.1)
+  - Do: on `generic_15`, play a SNES or Mega Drive game at 224 lines and open the quick menu, then a dialog of the quick menu.
+  - Expect: every line of each glyph shows, a little soft (`SharpBilinear` on 240 canvas lines in 224 lines). No line of a glyph is missing, and the text is readable.
+  - Record: a photo of the quick menu, and how soft the text looks at a normal distance.
 - [ ] `needs-hardware` **A SCART TV.** (MVP exit, not required for the MVP)
   - Do: with a 15 kHz profile, show 288p at 50 Hz and 240p at 60 Hz. 576i needs interlace: it is checked on the Pi composite output (section 6, "TV standard on Composite-1 (P05)").
   - Expect: each mode is stable.

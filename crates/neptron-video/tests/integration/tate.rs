@@ -115,16 +115,13 @@ fn shown(
     (rig.engine.current().unwrap().read_back, last_scene(&rig))
 }
 
-/// The destination and the filter of the canvas turned by `ui` in `mode`
-/// on `kind`: the canvas of the form after its turn is 320x240 in
-/// scan-out on a landscape display, at every turn.
-fn expected_ui(kind: &MonitorKind, mode: &Modeline, ui: Rotation) -> (Rect, Filter) {
+/// The destination and the filter of the canvas in `mode` on `kind`: the
+/// canvas of the form after its turn is 320x240 in scan-out on a
+/// landscape display, at every turn, and its filter follows its scale at
+/// every turn.
+fn expected_ui(kind: &MonitorKind, mode: &Modeline) -> (Rect, Filter) {
     let placed = ui_placement(kind, mode, (320, 240));
-    if ui.across() {
-        (placed.dest, placed.filter)
-    } else {
-        (placed.dest, Filter::Nearest)
-    }
+    (placed.dest, placed.filter)
 }
 
 /// The side of the red mark, in frame pixels: large enough that a
@@ -269,7 +266,7 @@ fn every_screen_orientation_turns_the_game_and_the_canvas_as_the_spec_says() {
                     assert_eq!(scene.filter, want.filter, "{case}");
                     let u = ui_turn(screen);
                     assert_eq!(scene.ui_rotation, u, "{case}");
-                    let (ui_dest, ui_filter) = expected_ui(&kind, &mode, u);
+                    let (ui_dest, ui_filter) = expected_ui(&kind, &mode);
                     assert_eq!(scene.ui_dest, ui_dest, "{case}");
                     assert_eq!(
                         scene.ui_dest, want.ui_dest,
@@ -328,9 +325,12 @@ fn the_normal_orientation_gives_the_scenes_of_an_engine_with_none() {
             let scene = last_scene(&rig);
             assert_eq!(scene, last_scene(&plain), "{case}");
             assert_eq!(scene.rotation, source.rotation, "{case}");
+            assert_eq!(scene.ui_rotation, Rotation::R0, "{case}");
+            let mode = rig.engine.current().unwrap().read_back;
+            let kind = monitor.profile().kind.clone();
             assert_eq!(
-                (scene.ui_rotation, scene.ui_filter),
-                (Rotation::R0, Filter::Nearest),
+                (scene.ui_dest, scene.ui_filter),
+                expected_ui(&kind, &mode),
                 "{case}"
             );
             assert_eq!(
