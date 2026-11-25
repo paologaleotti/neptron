@@ -98,9 +98,14 @@ pub(super) enum Screen {
 }
 
 impl Screens {
-    /// The home screen, drawn with `theme`.
+    /// The home screen, drawn with `theme` on a landscape canvas.
     pub fn new(theme: Theme) -> Self {
-        let metrics = Metrics::of(Form::Landscape, &theme);
+        Self::with_form(theme, Form::Landscape)
+    }
+
+    /// The home screen, drawn with `theme` on a canvas of `form`.
+    pub fn with_form(theme: Theme, form: Form) -> Self {
+        let metrics = Metrics::of(form, &theme);
         let mut stack = Vec::with_capacity(MAX_DEPTH);
         stack.push(Screen::Home(Home::new(&metrics, &theme)));
         Self {

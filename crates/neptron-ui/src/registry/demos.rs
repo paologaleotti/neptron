@@ -14,32 +14,38 @@ use crate::widgets::{
     Slider, SliderValue,
 };
 
-use super::SceneDef;
+use super::{BOTH, LANDSCAPE, SceneDef};
 
 pub(super) static SCENES: &[SceneDef] = &[
     SceneDef {
         name: "widgets/list",
         build: list,
+        forms: BOTH,
     },
     SceneDef {
         name: "widgets/settings-list",
         build: settings_list,
+        forms: BOTH,
     },
     SceneDef {
         name: "widgets/dialog",
         build: dialog,
+        forms: BOTH,
     },
     SceneDef {
         name: "widgets/grid",
         build: grid,
+        forms: BOTH,
     },
     SceneDef {
         name: "widgets/slider",
         build: slider,
+        forms: BOTH,
     },
     SceneDef {
         name: "font/ascii",
         build: font,
+        forms: LANDSCAPE,
     },
 ];
 
@@ -71,11 +77,6 @@ const GAMES: &[(&str, Option<&str>)] = &[
     ("Tundra Rally", Some("1996")),
 ];
 
-/// The metrics the widget scenes lay out with.
-fn landscape(theme: &Theme) -> Metrics {
-    Metrics::of(Form::Landscape, theme)
-}
-
 fn content(metrics: &Metrics) -> Rect {
     let safe = metrics.safe;
     let top = safe.y + HEADER_HEIGHT_PX as i32;
@@ -84,8 +85,14 @@ fn content(metrics: &Metrics) -> Rect {
 
 /// Draws the background and the title of a widget scene, and returns the
 /// metrics of the scene.
-fn header(frame: &mut UiFrame, theme: &Theme, screen: &'static str, title: &str) -> Metrics {
-    let metrics = landscape(theme);
+fn header(
+    frame: &mut UiFrame,
+    theme: &Theme,
+    form: Form,
+    screen: &'static str,
+    title: &str,
+) -> Metrics {
+    let metrics = Metrics::of(form, theme);
     let safe = metrics.safe;
     frame.tree.set_screen(screen);
     frame
@@ -114,8 +121,8 @@ fn header(frame: &mut UiFrame, theme: &Theme, screen: &'static str, title: &str)
     metrics
 }
 
-fn list(frame: &mut UiFrame, theme: &Theme) {
-    let metrics = header(frame, theme, "widgets/list", "Game list");
+fn list(frame: &mut UiFrame, theme: &Theme, form: Form) {
+    let metrics = header(frame, theme, form, "widgets/list", "Game list");
     let mut list =
         List::new(content(&metrics), theme.row_height_px()).with_labels(LabelRule::Shorten);
     list.select(4, GAMES.len());
@@ -165,8 +172,8 @@ fn number(value: i64, min: i64, max: i64, unit: &str) -> SettingValue {
     }
 }
 
-fn settings_list(frame: &mut UiFrame, theme: &Theme) {
-    let metrics = header(frame, theme, "widgets/settings-list", "Display");
+fn settings_list(frame: &mut UiFrame, theme: &Theme, form: Form) {
+    let metrics = header(frame, theme, form, "widgets/settings-list", "Display");
     let items = [
         setting(
             1,
@@ -207,14 +214,15 @@ fn settings_list(frame: &mut UiFrame, theme: &Theme) {
         ),
         setting(8, "Advanced", SettingValue::Page(PageId(1)), Level::Default),
     ];
-    let mut list =
-        SettingsList::new(content(&metrics), theme.row_height_px()).with_labels(LabelRule::Shorten);
+    let mut list = SettingsList::new(content(&metrics), theme.row_height_px())
+        .with_labels(LabelRule::Shorten)
+        .with_shape(metrics.settings_row);
     list.select(3, items.len());
     list.draw(frame, theme, &items);
 }
 
-fn dialog(frame: &mut UiFrame, theme: &Theme) {
-    let metrics = header(frame, theme, "widgets/dialog", "Display");
+fn dialog(frame: &mut UiFrame, theme: &Theme, form: Form) {
+    let metrics = header(frame, theme, form, "widgets/dialog", "Display");
     let content = DialogContent {
         title: "Keep this video mode?",
         message: "320x240 at 59.92 Hz on VGA-1.\nThe old mode comes back in 10 seconds.",
@@ -224,8 +232,8 @@ fn dialog(frame: &mut UiFrame, theme: &Theme) {
     Dialog::new(1).draw(frame, theme, &metrics, &content);
 }
 
-fn grid(frame: &mut UiFrame, theme: &Theme) {
-    let metrics = header(frame, theme, "widgets/grid", "Home");
+fn grid(frame: &mut UiFrame, theme: &Theme, form: Form) {
+    let metrics = header(frame, theme, form, "widgets/grid", "Home");
     let cells = [
         "NES",
         "SNES",
@@ -243,8 +251,8 @@ fn grid(frame: &mut UiFrame, theme: &Theme) {
     });
 }
 
-fn slider(frame: &mut UiFrame, theme: &Theme) {
-    let metrics = header(frame, theme, "widgets/slider", "Audio");
+fn slider(frame: &mut UiFrame, theme: &Theme, form: Form) {
+    let metrics = header(frame, theme, form, "widgets/slider", "Audio");
     let area = content(&metrics);
     let sliders = [
         ("Volume", 70, 0, 100, "%"),
@@ -265,8 +273,8 @@ fn slider(frame: &mut UiFrame, theme: &Theme) {
     }
 }
 
-fn font(frame: &mut UiFrame, theme: &Theme) {
-    let metrics = header(frame, theme, "font/ascii", "Font");
+fn font(frame: &mut UiFrame, theme: &Theme, form: Form) {
+    let metrics = header(frame, theme, form, "font/ascii", "Font");
     let area = content(&metrics);
     let lines = [
         " !\"#$%&'()*+,-./0123456789:;<=>?",

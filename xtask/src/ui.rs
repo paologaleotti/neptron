@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use neptron_ui::golden::{GOLDEN_DIR, GOLDEN_EXTENSION, GoldenError, Image};
-use neptron_ui::registry::{self, SceneDef};
-use neptron_ui::{CpuCanvas, Theme, UiFrame};
+use neptron_ui::registry::{self, Shot};
+use neptron_ui::{CpuCanvas, Form, Theme, UiFrame};
 
 use crate::repo::Repo;
 
@@ -81,15 +81,16 @@ pub fn font(args: &[&str]) -> Result<ExitCode, UiError> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// Runs `cargo xtask shot <scene>`: one PNG at 1x and one at 4x.
+/// Runs `cargo xtask shot <scene>`: one PNG at 1x and one at 4x. A name
+/// that starts with `portrait/` renders the scene in the portrait form.
 pub fn shot(args: &[&str]) -> Result<ExitCode, UiError> {
     let [name] = args else {
-        return Err(UiError::Usage("cargo xtask shot <scene>"));
+        return Err(UiError::Usage("cargo xtask shot [portrait/]<scene>"));
     };
-    let scene = find(name)?;
+    let shot = find(name)?;
     let root = Repo::discover()?.root;
-    let image = render(scene);
-    let base = root.join(OUT_DIR).join("shot").join(scene.name);
+    let image = render(&shot);
+    let base = root.join(OUT_DIR).join("shot").join(shot.id());
     let plain = base.with_extension("png");
     let large = with_suffix(&base, &format!("@{SHOT_SCALE}x.png"));
     write(
@@ -105,54 +106,65 @@ pub fn shot(args: &[&str]) -> Result<ExitCode, UiError> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// Runs `cargo xtask gallery`: every scene on one contact sheet.
+/// Runs `cargo xtask gallery`: the shots of each form on a contact sheet
+/// of their own, `gallery.png` and `gallery-portrait.png`.
 pub fn gallery(args: &[&str]) -> Result<ExitCode, UiError> {
     if !args.is_empty() {
         return Err(UiError::Usage("cargo xtask gallery"));
     }
     let root = Repo::discover()?.root;
-    let tiles: Vec<(&str, Image)> = registry::scenes().map(|s| (s.name, render(s))).collect();
-    let sheet = image::contact_sheet(&tiles);
-    let path = root.join(OUT_DIR).join("gallery.png");
-    write(&path, &png::encode(sheet.width, sheet.height, &sheet.rgb))?;
-    println!("{} ({} scenes)", path.display(), tiles.len());
+    for (form, file) in [
+        (Form::Landscape, "gallery.png"),
+        (Form::Portrait, "gallery-portrait.png"),
+    ] {
+        let tiles: Vec<(&str, Image)> = registry::shots()
+            .filter(|shot| shot.form == form)
+            .map(|shot| (shot.scene.name, render(&shot)))
+            .collect();
+        let sheet = image::contact_sheet(&tiles);
+        let path = root.join(OUT_DIR).join(file);
+        write(&path, &png::encode(sheet.width, sheet.height, &sheet.rgb))?;
+        println!("{} ({} scenes)", path.display(), tiles.len());
+    }
     Ok(ExitCode::SUCCESS)
 }
 
-/// Runs `cargo xtask golden [--bless] [scene...]`. Without `--bless` it
-/// compares each scene with its golden image, byte for byte, and fails on
-/// any difference. With `--bless` it writes the golden image of each scene
-/// that differs or has none.
+/// Runs `cargo xtask golden [--bless] [shot...]`. Without `--bless` it
+/// compares each shot with its golden image, byte for byte, and fails on
+/// any difference. With `--bless` it writes the golden image of each shot
+/// that differs or has none. A shot is a scene name in landscape, or
+/// `portrait/` and a scene name.
 pub fn golden(args: &[&str]) -> Result<ExitCode, UiError> {
     let bless = args.contains(&"--bless");
     let names: Vec<&str> = args.iter().copied().filter(|a| *a != "--bless").collect();
     if names.iter().any(|n| n.starts_with('-')) {
-        return Err(UiError::Usage("cargo xtask golden [--bless] [scene...]"));
+        return Err(UiError::Usage("cargo xtask golden [--bless] [shot...]"));
     }
-    let scenes: Vec<&SceneDef> = if names.is_empty() {
-        registry::scenes().collect()
+    let shots: Vec<Shot> = if names.is_empty() {
+        registry::shots().collect()
     } else {
         names.iter().map(|n| find(n)).collect::<Result<_, _>>()?
     };
     let root = Repo::discover()?.root;
     let golden_dir = root.join(UI_CRATE).join(GOLDEN_DIR);
     let mut failures = 0;
-    for scene in &scenes {
-        let path = golden_path(&golden_dir, scene.name);
-        let actual = render(scene);
+    for shot in &shots {
+        let id = shot.id();
+        let path = golden_path(&golden_dir, &id);
+        let actual = render(shot);
         let verdict = compare(&path, &actual)?;
         match (&verdict, bless) {
-            (Verdict::Same, _) => println!("same     {}", scene.name),
+            (Verdict::Same, _) => println!("same     {id}"),
             (_, true) => {
                 write(&path, &actual.to_ppm())?;
-                println!("blessed  {} ({})", scene.name, verdict.summary());
+                println!("blessed  {id} ({})", verdict.summary());
             }
             (_, false) => {
                 failures += 1;
-                println!("FAILED   {}: {}", scene.name, verdict.summary());
+                println!("FAILED   {id}: {}", verdict.summary());
                 if let Verdict::Differs(expected, _) = &verdict {
                     let dir = root.join(OUT_DIR).join("golden");
-                    report_images(&dir, scene.name, expected, &actual)?;
+                    report_images(&dir, &id, expected, &actual)?;
                 }
             }
         }
@@ -243,8 +255,8 @@ pub(crate) fn write_report_images(
 fn stale_goldens(dir: &Path) -> Result<Vec<PathBuf>, UiError> {
     let mut found = Vec::new();
     collect_goldens(dir, &mut found)?;
-    let known: Vec<PathBuf> = registry::scenes()
-        .map(|s| golden_path(dir, s.name))
+    let known: Vec<PathBuf> = registry::shots()
+        .map(|s| golden_path(dir, &s.id()))
         .collect();
     found.retain(|p| !known.contains(p));
     found.sort();
@@ -278,8 +290,8 @@ fn collect_goldens(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), UiError> {
     Ok(())
 }
 
-fn find(name: &str) -> Result<&'static SceneDef, UiError> {
-    registry::find(name).ok_or_else(|| UiError::UnknownScene {
+fn find(name: &str) -> Result<Shot, UiError> {
+    registry::find_shot(name).ok_or_else(|| UiError::UnknownScene {
         name: name.to_owned(),
         known: registry::scenes()
             .map(|s| s.name)
@@ -288,10 +300,16 @@ fn find(name: &str) -> Result<&'static SceneDef, UiError> {
     })
 }
 
-fn render(scene: &SceneDef) -> Image {
+fn render(shot: &Shot) -> Image {
     let mut frame = UiFrame::new();
-    let mut canvas = CpuCanvas::new();
-    registry::render(scene, &Theme::default(), &mut frame, &mut canvas);
+    let mut canvas = CpuCanvas::with_size(shot.form.size());
+    registry::render(
+        shot.scene,
+        &Theme::default(),
+        shot.form,
+        &mut frame,
+        &mut canvas,
+    );
     Image::from_canvas(&canvas)
 }
 
@@ -344,8 +362,19 @@ mod tests {
     }
 
     #[test]
+    fn a_portrait_shot_renders_the_portrait_canvas() {
+        let shot = find("portrait/screens/home").expect("registered");
+        let image = render(&shot);
+        assert_eq!((image.width(), image.height()), (240, 320));
+        assert_eq!(
+            golden_path(Path::new("/g"), &shot.id()),
+            Path::new("/g/portrait/screens/home.ppm")
+        );
+    }
+
+    #[test]
     fn a_missing_golden_is_reported_not_an_error() {
-        let actual = render(find("widgets/list").expect("registered"));
+        let actual = render(&find("widgets/list").expect("registered"));
         let verdict = compare(Path::new("/nonexistent/golden.ppm"), &actual).expect("no io error");
         assert!(matches!(verdict, Verdict::Missing));
     }

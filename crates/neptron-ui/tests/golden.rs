@@ -1,4 +1,5 @@
-//! Every registered scene matches its golden image byte for byte. The
+//! Every shot of the registry (a scene in a form) matches its golden
+//! image byte for byte. The
 //! pixel path uses integer maths only, so every host gives the same bytes.
 //! `cargo xtask golden` shows the difference and blesses a new golden.
 
@@ -11,15 +12,22 @@ use neptron_ui::registry;
 use neptron_ui::{CpuCanvas, Theme, UiFrame};
 
 #[test]
-fn every_scene_matches_its_golden() {
+fn every_shot_matches_its_golden() {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(GOLDEN_DIR);
     let mut failures = Vec::new();
     let mut frame = UiFrame::new();
     let mut canvas = CpuCanvas::new();
-    for scene in registry::scenes() {
-        registry::render(scene, &Theme::default(), &mut frame, &mut canvas);
+    for shot in registry::shots() {
+        let id = shot.id();
+        registry::render(
+            shot.scene,
+            &Theme::default(),
+            shot.form,
+            &mut frame,
+            &mut canvas,
+        );
         let actual = Image::from_canvas(&canvas);
-        let path = dir.join(scene.name).with_extension(GOLDEN_EXTENSION);
+        let path = dir.join(&id).with_extension(GOLDEN_EXTENSION);
         let verdict = match std::fs::read(&path) {
             Err(e) => format!("cannot read {}: {e}", path.display()),
             Ok(bytes) => match Image::from_ppm(&bytes) {
@@ -30,11 +38,11 @@ fn every_scene_matches_its_golden() {
                 },
             },
         };
-        failures.push(format!("{}: {verdict}", scene.name));
+        failures.push(format!("{id}: {verdict}"));
     }
     assert!(
         failures.is_empty(),
-        "{} scene(s) do not match their golden; run `cargo xtask golden` for diff images:\n{}",
+        "{} shot(s) do not match their golden; run `cargo xtask golden` for diff images:\n{}",
         failures.len(),
         failures.join("\n")
     );
