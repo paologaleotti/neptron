@@ -1,4 +1,5 @@
-use neptron_types::{Orientation, Rotation, SourceGeometry};
+use neptron_modeline::Aspect;
+use neptron_types::{Form, MonitorKind, Rotation, SourceGeometry};
 
 /// What an engine shows, which sets the source that the policy plans.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -7,54 +8,64 @@ pub enum Content {
     /// with the screen orientation and the game override.
     #[default]
     Game,
-    /// The menu: the source is the source of the menu canvas, and the
-    /// engine reads no game override. The mode of the menu on a turned
-    /// screen follows the choice.
-    Menu(TurnedMenuMode),
+    /// The menu: the policy plans the raster of the canvas after its turn
+    /// ([`menu_source`]), and the engine reads no game override.
+    Menu,
 }
 
-/// The mode of the menu on a screen turned by 90 or 270 degrees: 320
-/// canvas columns across the lines of the display.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TurnedMenuMode {
-    /// The policy's answer for the turned menu source. On a 15 kHz CRT
-    /// and on a TV it has 320 lines or more, so it is interlaced, and the
-    /// canvas is 1:1, sharp, with flicker.
-    Interlaced,
-    /// The mode of the menu on a screen at 0. On a 15 kHz CRT and on a TV
-    /// it has 240 or 288 progressive lines, and the canvas is squeezed
-    /// into them with sharp bilinear, soft, with no flicker.
-    Progressive,
+/// The form of the UI on a display of `kind` at the screen orientation
+/// `screen`, by [`Form::of`]. The face in scan-out is `crt_face` on a CRT,
+/// 4:3 on a TV, and the first (preferred) mode on a flat panel; a panel
+/// with no mode counts as 4:3.
+pub fn form_of(kind: &MonitorKind, crt_face: Aspect, screen: Rotation) -> Form {
+    let face = match kind {
+        MonitorKind::Crt { .. } => (u32::from(crt_face.width), u32::from(crt_face.height)),
+        MonitorKind::Tv { .. } => standard_face(),
+        MonitorKind::FlatPanel { modes } => modes.first().map_or_else(standard_face, |m| {
+            (u32::from(m.hactive), u32::from(m.vactive))
+        }),
+    };
+    Form::of(face.0, face.1, screen)
 }
 
-/// The mode of the turned menu that the app uses: the proposed default
-/// of question T3 of `docs/spec/tate.md`. It is an interim placement
-/// until the portrait canvas of the UI exists.
-pub const TURNED_MENU_MODE: TurnedMenuMode = TurnedMenuMode::Interlaced;
+/// The canvas of `form` after the turn `ui_turn`, in scan-out pixels:
+/// width, then lines. This is `T`, the size that the UI placement takes.
+pub fn turned_canvas(form: Form, ui_turn: Rotation) -> (u16, u16) {
+    let (width, height) = form.canvas();
+    if ui_turn.across() {
+        (height, width)
+    } else {
+        (width, height)
+    }
+}
 
-/// The source that the policy plans for the menu source `menu` on a
-/// screen at `screen`, with the mode of the turned menu `choice`. The
-/// canvas turns with the screen in every case; only the mode changes.
-/// It is an interim placement until the portrait canvas of the UI exists.
-pub const fn menu_plan_source(
-    choice: TurnedMenuMode,
-    screen: Rotation,
-    menu: &SourceGeometry,
-) -> SourceGeometry {
-    let turned = Orientation {
-        screen,
-        game_override: None,
+/// The source that the policy plans for the menu: the raster of `T`, the
+/// canvas of `form` after the turn `ui_turn`, progressive, not turned, at
+/// the rate of `menu`, with square canvas pixels. On a CRT, a TV and a
+/// landscape panel `T` is 320x240 at every orientation, so the menu has
+/// the same mode at every orientation.
+pub fn menu_source(form: Form, ui_turn: Rotation, menu: &SourceGeometry) -> SourceGeometry {
+    let (width, height) = turned_canvas(form, ui_turn);
+    let aspect = u64::from(width) * 1_000 / u64::from(height.max(1));
+    SourceGeometry {
+        width,
+        height,
+        aspect_milli: u32::try_from(aspect).unwrap_or(u32::MAX),
+        interlaced: false,
+        rotation: Rotation::R0,
+        ..*menu
     }
-    .display_source(menu);
-    match choice {
-        TurnedMenuMode::Interlaced => turned,
-        TurnedMenuMode::Progressive if screen.across() => *menu,
-        TurnedMenuMode::Progressive => turned,
-    }
+}
+
+fn standard_face() -> (u32, u32) {
+    let face = Aspect::STANDARD_CRT;
+    (u32::from(face.width), u32::from(face.height))
 }
 
 #[cfg(test)]
 mod tests {
+    use neptron_types::{Modeline, Orientation, TvStandard};
+
     use super::*;
 
     const MENU: SourceGeometry = SourceGeometry {
@@ -66,39 +77,88 @@ mod tests {
         rotation: Rotation::R0,
     };
 
-    fn planned(choice: TurnedMenuMode, screen: Rotation) -> Rotation {
-        let source = menu_plan_source(choice, screen, &MENU);
-        assert_eq!(
-            SourceGeometry {
-                rotation: Rotation::R0,
-                ..source
-            },
-            MENU,
-            "only the turn changes"
-        );
-        source.rotation
+    fn panel(hactive: u16, vactive: u16) -> MonitorKind {
+        MonitorKind::FlatPanel {
+            modes: vec![Modeline {
+                hactive,
+                vactive,
+                ..neptron_types::TV_525_240P
+            }],
+        }
+    }
+
+    fn crt() -> MonitorKind {
+        MonitorKind::Crt { ranges: Vec::new() }
+    }
+
+    fn form(kind: &MonitorKind, screen: Rotation) -> Form {
+        form_of(kind, Aspect::STANDARD_CRT, screen)
     }
 
     #[test]
-    fn interlaced_plans_the_menu_turned_with_the_screen() {
-        let turns = Rotation::ALL.map(|s| planned(TurnedMenuMode::Interlaced, s));
-        assert_eq!(
-            turns,
-            [Rotation::R0, Rotation::R270, Rotation::R180, Rotation::R90]
-        );
+    fn a_crt_a_tv_and_a_landscape_panel_are_portrait_only_when_turned_across() {
+        let tv = TvStandard::Pal.profile().kind;
+        for kind in [crt(), tv, panel(1_920, 1_080)] {
+            for screen in Rotation::ALL {
+                let want = if screen.across() {
+                    Form::Portrait
+                } else {
+                    Form::Landscape
+                };
+                assert_eq!(form(&kind, screen), want, "{kind:?} {screen:?}");
+            }
+        }
     }
 
     #[test]
-    fn progressive_plans_the_menu_of_a_screen_at_0_on_a_turned_screen() {
-        let turns = Rotation::ALL.map(|s| planned(TurnedMenuMode::Progressive, s));
-        assert_eq!(
-            turns,
-            [Rotation::R0, Rotation::R0, Rotation::R180, Rotation::R0]
-        );
+    fn a_portrait_panel_is_portrait_at_0_and_180() {
+        let kind = panel(1_080, 1_920);
+        assert_eq!(form(&kind, Rotation::R0), Form::Portrait);
+        assert_eq!(form(&kind, Rotation::R180), Form::Portrait);
+        assert_eq!(form(&kind, Rotation::R90), Form::Landscape);
+        assert_eq!(form(&kind, Rotation::R270), Form::Landscape);
     }
 
     #[test]
-    fn the_proposed_default_is_interlaced() {
-        assert_eq!(TURNED_MENU_MODE, TurnedMenuMode::Interlaced);
+    fn a_panel_with_no_mode_counts_as_4_3() {
+        let kind = MonitorKind::FlatPanel { modes: Vec::new() };
+        assert_eq!(form(&kind, Rotation::R0), Form::Landscape);
+        assert_eq!(form(&kind, Rotation::R90), Form::Portrait);
+    }
+
+    /// The claim of `docs/spec/ui-layout.md`, section 6.3: on a CRT, a TV
+    /// and a landscape panel the menu source is the menu source of a
+    /// screen at 0 at every orientation.
+    #[test]
+    fn the_menu_source_is_the_same_at_every_orientation_of_a_crt() {
+        for screen in Rotation::ALL {
+            let orientation = Orientation {
+                screen,
+                game_override: None,
+            };
+            let form = form(&crt(), screen);
+            assert_eq!(
+                menu_source(form, orientation.ui_turn(), &MENU),
+                MENU,
+                "{screen:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_portrait_panel_plans_the_portrait_raster() {
+        let source = menu_source(Form::Portrait, Rotation::R0, &MENU);
+        assert_eq!((source.width, source.height), (240, 320));
+        assert_eq!(source.aspect_milli, 750);
+        assert_eq!(source.rotation, Rotation::R0);
+        assert_eq!(source.refresh_mhz, MENU.refresh_mhz);
+    }
+
+    #[test]
+    fn the_turned_canvas_swaps_its_sides_across() {
+        assert_eq!(turned_canvas(Form::Portrait, Rotation::R270), (320, 240));
+        assert_eq!(turned_canvas(Form::Portrait, Rotation::R0), (240, 320));
+        assert_eq!(turned_canvas(Form::Landscape, Rotation::R180), (320, 240));
+        assert_eq!(turned_canvas(Form::Landscape, Rotation::R90), (240, 320));
     }
 }

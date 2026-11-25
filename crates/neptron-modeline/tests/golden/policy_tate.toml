@@ -12,13 +12,12 @@
 # strategy) after choose() with neptron_safety::validate. The policy does
 # not change for TATE; only its source carries the turn.
 #
-# Each menu case is "menu <display> s<S>": the menu source (320x240,
-# 60 Hz, 4:3, R0) as a display source, with the default settings, then
-# "ui WxH+X+Y filter", the place of the turned 240x320 canvas in the
-# winner's mode (ui_dest_turned). These cases are data. They record the
-# answer of the policy for the turned menu source, and decide nothing
-# about the mode of the turned menu, which is an open question (T3 of the
-# spec).
+# Each menu case is "menu <display> s<S>": the raster of T, the 240x320
+# portrait canvas turned across the lines (320x240, 60 Hz, 4:3, R0), with
+# the default settings, then "ui WxH+X+Y filter", the place of T in the
+# winner's mode (ui_placement). This is the menu of a screen at 0
+# (docs/spec/ui-layout.md, section 6.3), and a test holds each menu case
+# equal to it.
 #
 # Where the values come from: computed by the policy with Switchres at
 # commit 87d93d8a0f, recorded on macOS arm64. No source independent of the
@@ -26,8 +25,8 @@
 # vertical board at S = 90 or 270 gives the decision of its raster at R0
 # (DoDonPachi is 320x240p at 57.55 Hz on generic_15, as Power Instinct 2
 # at S = 0), a horizontal board is across the lines with the rules of a
-# turned source, and the turned canvas of the menu is 320 lines 1:1 on a
-# CRT and a TV and 3x on the 1080p panel (section 6.2).
+# turned source, and the menu is 240p with T 1:1 on a 15 kHz CRT and a
+# TV and 4x on the 1080p panel (docs/spec/ui-layout.md, section 6.3).
 #
 # A changed value is a change in what NEPTRON sends to a display. Check it
 # against the rules in crates/neptron-modeline/README.md and
@@ -188,20 +187,20 @@
 "littlerb tv_ntsc s90" = "interlaced 1:1 TV field rate 720x480i 15.734kHz 59.940Hz game 279x338+220+70 sharp"
 "littlerb tv_pal s270" = "interlaced 1:1 TV field rate 720x576i 15.625kHz 50.000Hz game 232x338+244+118 sharp speed"
 "littlerb tv_pal s90" = "interlaced 1:1 TV field rate 720x576i 15.625kHz 50.000Hz game 232x338+244+118 sharp speed"
-"menu arcade_25 s270" = "native exact 512x384p 24.959kHz 60.000Hz game 240x320+136+32 nearest ui 240x320+136+32 nearest"
-"menu arcade_25 s90" = "native exact 512x384p 24.959kHz 60.000Hz game 240x320+136+32 nearest ui 240x320+136+32 nearest"
-"menu arcade_31 s270" = "native exact 639x479p 31.439kHz 60.000Hz game 240x320+199+79 nearest ui 240x320+199+79 nearest"
-"menu arcade_31 s90" = "native exact 639x479p 31.439kHz 60.000Hz game 240x320+199+79 nearest ui 240x320+199+79 nearest"
-"menu d9800 s270" = "native exact 427x320p 21.300kHz 60.000Hz game 240x320+93+0 nearest ui 240x320+93+0 nearest"
-"menu d9800 s90" = "native exact 427x320p 21.300kHz 60.000Hz game 240x320+93+0 nearest ui 240x320+93+0 nearest"
-"menu generic_15 s270" = "interlaced 1:1 exact 597x448i 15.689kHz 60.000Hz game 240x320+178+64 nearest ui 240x320+178+64 nearest"
-"menu generic_15 s90" = "interlaced 1:1 exact 597x448i 15.689kHz 60.000Hz game 240x320+178+64 nearest ui 240x320+178+64 nearest"
-"menu panel_1080 s270" = "panel panel rate 1920x1080p 67.500kHz 60.000Hz game 720x960+600+60 nearest ui 720x960+600+60 nearest"
-"menu panel_1080 s90" = "panel panel rate 1920x1080p 67.500kHz 60.000Hz game 720x960+600+60 nearest ui 720x960+600+60 nearest"
-"menu tv_ntsc s270" = "interlaced 1:1 TV field rate 720x480i 15.734kHz 59.940Hz game 264x320+228+80 sharp ui 240x320+240+80 nearest"
-"menu tv_ntsc s90" = "interlaced 1:1 TV field rate 720x480i 15.734kHz 59.940Hz game 264x320+228+80 sharp ui 240x320+240+80 nearest"
-"menu tv_pal s270" = "interlaced 1:1 TV field rate 720x576i 15.625kHz 50.000Hz game 220x320+250+128 sharp speed ui 240x320+240+128 nearest"
-"menu tv_pal s90" = "interlaced 1:1 TV field rate 720x576i 15.625kHz 50.000Hz game 220x320+250+128 sharp speed ui 240x320+240+128 nearest"
+"menu arcade_25 s270" = "native exact 512x384p 24.959kHz 60.000Hz game 320x240+96+72 nearest ui 512x384+0+0 nearest"
+"menu arcade_25 s90" = "native exact 512x384p 24.959kHz 60.000Hz game 320x240+96+72 nearest ui 512x384+0+0 nearest"
+"menu arcade_31 s270" = "2x exact 320x480p 31.500kHz 60.000Hz game 320x480+0+0 nearest ui 320x480+0+0 nearest"
+"menu arcade_31 s90" = "2x exact 320x480p 31.500kHz 60.000Hz game 320x480+0+0 nearest ui 320x480+0+0 nearest"
+"menu d9800 s270" = "native exact 320x240p 15.719kHz 60.000Hz game 320x240+0+0 nearest ui 320x240+0+0 nearest"
+"menu d9800 s90" = "native exact 320x240p 15.719kHz 60.000Hz game 320x240+0+0 nearest ui 320x240+0+0 nearest"
+"menu generic_15 s270" = "native exact 320x240p 15.660kHz 60.001Hz game 320x240+0+0 nearest ui 320x240+0+0 nearest"
+"menu generic_15 s90" = "native exact 320x240p 15.660kHz 60.001Hz game 320x240+0+0 nearest ui 320x240+0+0 nearest"
+"menu panel_1080 s270" = "panel panel rate 1920x1080p 67.500kHz 60.000Hz game 1440x1080+240+0 sharp ui 1280x960+320+60 nearest"
+"menu panel_1080 s90" = "panel panel rate 1920x1080p 67.500kHz 60.000Hz game 1440x1080+240+0 sharp ui 1280x960+320+60 nearest"
+"menu tv_ntsc s270" = "native TV field rate 720x240p 15.734kHz 60.054Hz game 640x240+40+0 nearest ui 640x240+40+0 nearest"
+"menu tv_ntsc s90" = "native TV field rate 720x240p 15.734kHz 60.054Hz game 640x240+40+0 nearest ui 640x240+40+0 nearest"
+"menu tv_pal s270" = "native TV field rate 720x288p 15.625kHz 50.080Hz game 640x240+40+24 nearest speed ui 640x240+40+24 nearest"
+"menu tv_pal s90" = "native TV field rate 720x288p 15.625kHz 50.080Hz game 640x240+40+24 nearest speed ui 640x240+40+24 nearest"
 "mk arcade_25 s270" = "native exact 455x400p 24.943kHz 54.700Hz game 256x400+99+0 nearest"
 "mk arcade_25 s90" = "native exact 455x400p 24.943kHz 54.700Hz game 256x400+99+0 nearest"
 "mk arcade_31 s270" = "native exact 455x400p 31.452kHz 54.700Hz game 256x400+99+0 nearest"

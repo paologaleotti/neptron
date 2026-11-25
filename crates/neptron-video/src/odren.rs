@@ -2,7 +2,7 @@ use neptron_backend::DisplayError;
 use neptron_modeline::policy::{PolicySettings, Proposal, Switch, panel_scanlines, switch_for};
 use neptron_safety::{Rejection, ValidatedMode, validate};
 use neptron_types::{
-    FlipEvent, Frame, GpuCaps, Modeline, Orientation, Scene, SourceGeometry, Turns,
+    FlipEvent, Form, Frame, GpuCaps, Modeline, Orientation, Scene, SourceGeometry, Turns,
 };
 
 use crate::answers::{AnswerCache, AnswerRequest};
@@ -11,7 +11,7 @@ use crate::decision::{Decision, Inputs};
 use crate::{
     Chosen, Content, Monitor, Outcome, READ_BACK_RATE_NOTICE_MHZ, ScanlineSettings, SceneInputs,
     StatusInputs, SwitchRecord, SwitchTrace, Trigger, Unshowable, Veto, VideoStatusText,
-    build_scene, menu_plan_source, write_video_status,
+    build_scene, form_of, menu_source, write_video_status,
 };
 
 /// A source that asks for a new mode must stay the same for this many core
@@ -287,9 +287,9 @@ impl Odren {
     }
 
     /// What the engine shows: [`Content::Game`] by default. The menu
-    /// engine sets [`Content::Menu`], so that the mode of the menu on a
-    /// turned screen follows its choice, and so that the picture answers
-    /// of Settings > Display read no game override. A change is taken as
+    /// engine sets [`Content::Menu`], so that the policy plans the raster
+    /// of the canvas after its turn, and so that the picture answers of
+    /// Settings > Display read no game override. A change is taken as
     /// [`Odren::set_orientation`] takes one.
     pub fn set_content(&mut self, content: Content) {
         if content != self.content {
@@ -303,11 +303,21 @@ impl Odren {
         self.content
     }
 
+    /// The form of the UI on the monitor at the screen orientation
+    /// ([`form_of`]). The app draws the canvas of this form.
+    pub fn form(&self) -> Form {
+        form_of(
+            &self.inputs.monitor.profile().kind,
+            self.inputs.settings.solver.monitor_aspect,
+            self.orientation.screen,
+        )
+    }
+
     /// The source that the policy plans for the core source `source`.
     fn plan_source(&self, source: &SourceGeometry) -> SourceGeometry {
         match self.content {
             Content::Game => self.orientation.display_source(source),
-            Content::Menu(choice) => menu_plan_source(choice, self.orientation.screen, source),
+            Content::Menu => menu_source(self.form(), self.orientation.ui_turn(), source),
         }
     }
 
@@ -316,7 +326,7 @@ impl Odren {
     fn answer_orientation(&self) -> Orientation {
         match self.content {
             Content::Game => self.orientation,
-            Content::Menu(_) => Orientation {
+            Content::Menu => Orientation {
                 game_override: None,
                 ..self.orientation
             },
@@ -341,7 +351,7 @@ impl Odren {
             mode: &current.read_back,
             scanlines: self.scanlines,
             ui_turn: self.orientation.ui_turn(),
-            face: self.inputs.settings.solver.monitor_aspect,
+            form: self.form(),
         };
         Some(build_scene(&inputs, game, ui))
     }
@@ -365,7 +375,7 @@ impl Odren {
             mode: &proposal.mode,
             scanlines: self.scanlines,
             ui_turn: self.orientation.ui_turn(),
-            face: self.inputs.settings.solver.monitor_aspect,
+            form: self.form(),
         };
         build_scene(&inputs, game, ui)
     }

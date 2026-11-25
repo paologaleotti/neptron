@@ -1,5 +1,4 @@
-use neptron_modeline::Aspect;
-use neptron_modeline::policy::{Placement, ui_dest_turned, ui_placement, whole_multiple};
+use neptron_modeline::policy::{Placement, ui_placement, whole_multiple};
 use neptron_types::{
     Filter, Form, Frame, Modeline, MonitorKind, Rect, Rotation, Scene, ScreenClass, SourceGeometry,
     scanlines_for,
@@ -24,9 +23,9 @@ pub struct SceneInputs<'p> {
     /// The turn of the UI canvas relative to the scan-out: the value of
     /// `Scene::ui_rotation`.
     pub ui_turn: Rotation,
-    /// The shape of the face of a CRT (`PolicySettings::solver`), which
-    /// keeps the shape of a canvas turned across the lines.
-    pub face: Aspect,
+    /// The form of the UI: its canvas is the size that the scene places
+    /// when it has no canvas.
+    pub form: Form,
 }
 
 /// The one place where the engine builds a `Scene`: the run and the preview
@@ -53,12 +52,11 @@ pub struct SceneInputs<'p> {
 /// same step; a frame taller than the destination shows its middle lines
 /// once each. Only the picture mode Fit scales lines by a fraction.
 ///
-/// The UI canvas turns by `inputs.ui_turn`. Upright or upside down, it
-/// goes where `neptron_modeline::policy::ui_placement` places a canvas of
-/// its size in the mode of the scene, with nearest: a half turn keeps its
-/// shape. Turned by 90 or 270, it goes where
-/// `neptron_modeline::policy::ui_dest_turned` places the turned canvas in
-/// the mode of the scene, with the filter of that function.
+/// The UI canvas turns by `inputs.ui_turn`, and goes where
+/// `neptron_modeline::policy::ui_placement` places the canvas after that
+/// turn, of the size of its frame, in the mode of the scene. Turned by 90
+/// or 270 it takes the filter of that function; upright or upside down it
+/// takes nearest.
 ///
 /// The scanlines come from `neptron_types::scanlines_for` with the
 /// settings, the whole vertical multiple from the lines of the turned
@@ -100,19 +98,19 @@ pub fn build_scene<'a>(
     }
 }
 
-/// The destination and the filter of the UI canvas `ui` (the landscape
-/// canvas when the scene has none) after the turn of the inputs.
+/// The destination and the filter of the UI canvas `ui` (the canvas of
+/// the form when the scene has none) after the turn of the inputs.
 fn ui_place(inputs: &SceneInputs<'_>, ui: Option<&Frame<'_>>) -> (Rect, Filter) {
-    let (width, height) = ui.map_or(Form::Landscape.canvas(), |f| (f.width, f.height));
+    let (width, height) = ui.map_or(inputs.form.canvas(), |f| (f.width, f.height));
+    let turned = if inputs.ui_turn.across() {
+        (height, width)
+    } else {
+        (width, height)
+    };
+    let placed = ui_placement(inputs.monitor, inputs.mode, turned);
     match inputs.ui_turn {
-        Rotation::R0 | Rotation::R180 => {
-            let placed = ui_placement(inputs.monitor, inputs.mode, (width, height));
-            (placed.dest, Filter::Nearest)
-        }
-        Rotation::R90 | Rotation::R270 => {
-            let placed = ui_dest_turned(inputs.monitor, inputs.mode, (height, width), inputs.face);
-            (placed.dest, placed.filter)
-        }
+        Rotation::R0 | Rotation::R180 => (placed.dest, Filter::Nearest),
+        Rotation::R90 | Rotation::R270 => (placed.dest, placed.filter),
     }
 }
 
@@ -307,13 +305,14 @@ mod tests {
                 strength_percent: 75,
             },
             ui_turn: Rotation::R0,
-            face: Aspect::STANDARD_CRT,
+            form: Form::Landscape,
         };
         build_scene(&inputs, game, ui)
     }
 
     /// The scene of `p` with the canvas turned by `ui_turn` in `mode` on
-    /// `monitor`.
+    /// `monitor`, with the portrait form across and the landscape form
+    /// else.
     fn build_turned<'a>(
         monitor: &MonitorKind,
         mode: &Modeline,
@@ -328,7 +327,11 @@ mod tests {
             mode,
             scanlines: ScanlineSettings::OFF,
             ui_turn,
-            face: Aspect::STANDARD_CRT,
+            form: if ui_turn.across() {
+                Form::Portrait
+            } else {
+                Form::Landscape
+            },
         };
         build_scene(&inputs, Some(frame(256, 224)), ui)
     }
@@ -346,34 +349,46 @@ mod tests {
         Rect { x, y, w, h }
     }
 
-    /// 320 lines of the turned canvas fit 480 interlaced lines once: 1:1
-    /// lines, and the width of a 3:4 shape on the 4:3 face of 640 columns.
+    /// The portrait canvas turned across the lines is 320x240 in scan-out:
+    /// it fills the active area of a CRT mode, as the landscape canvas
+    /// does on a screen at 0.
     #[test]
-    fn a_canvas_turned_across_an_interlaced_crt_mode_is_one_to_one() {
+    fn a_portrait_canvas_turned_across_a_crt_mode_fills_it() {
         for turn in [Rotation::R90, Rotation::R270] {
-            let scene = build_turned(&crt(), &mode(640, 480, true), turn, Some(frame(320, 240)));
-            assert_eq!(scene.ui_rotation, turn);
-            assert_eq!(scene.ui_dest, rect(200, 80, 240, 320));
-            assert_eq!(scene.ui_filter, Filter::Nearest);
+            for m in [mode(640, 480, true), mode(640, 240, false)] {
+                let scene = build_turned(&crt(), &m, turn, Some(frame(240, 320)));
+                assert_eq!(scene.ui_rotation, turn);
+                let full = rect(0, 0, 640, u32::from(m.vactive));
+                assert_eq!(scene.ui_dest, full);
+                assert_eq!(scene.ui_filter, Filter::Nearest);
+            }
         }
     }
 
-    /// 320 canvas columns on 240 lines are below a scale of 1: sharp
-    /// bilinear, so no column of a glyph is dropped.
+    /// A landscape canvas turned across 240 lines puts 320 canvas columns
+    /// on 240 lines, below a scale of 1: sharp bilinear, so no column of
+    /// a glyph is dropped. The placement follows the size of the frame.
     #[test]
-    fn a_canvas_turned_across_240_lines_is_squeezed_with_sharp_bilinear() {
-        let scene = build_turned(&crt(), &mode(640, 240, false), Rotation::R90, None);
-        assert_eq!(scene.ui_dest, rect(140, 0, 360, 240));
+    fn a_landscape_canvas_turned_across_240_lines_is_soft() {
+        let scene = build_turned(
+            &crt(),
+            &mode(640, 240, false),
+            Rotation::R90,
+            Some(frame(320, 240)),
+        );
+        assert_eq!(scene.ui_dest, rect(0, 0, 640, 240));
         assert_eq!(scene.ui_filter, Filter::SharpBilinear);
     }
 
+    /// With no canvas the scene places the canvas of the form: the
+    /// portrait canvas turned is 320x240, 4x in 1080p.
     #[test]
     fn a_canvas_turned_on_a_flat_panel_takes_the_largest_whole_scale() {
         let panel = MonitorKind::FlatPanel {
             modes: vec![mode(1_920, 1_080, false)],
         };
         let scene = build_turned(&panel, &mode(1_920, 1_080, false), Rotation::R270, None);
-        assert_eq!(scene.ui_dest, rect(600, 60, 720, 960));
+        assert_eq!(scene.ui_dest, rect(320, 60, 1_280, 960));
         assert_eq!(scene.ui_filter, Filter::Nearest);
     }
 

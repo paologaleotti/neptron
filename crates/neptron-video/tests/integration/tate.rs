@@ -5,20 +5,21 @@
 //! `R = (G' - S) mod 360` in degrees, the turn of the canvas is
 //! `U = (0 - S) mod 360`, the policy plans the frame as drawn with the
 //! turn `R` (the mode and the placement of a normal engine for that
-//! source), and a canvas turned across the lines goes where
-//! `ui_dest_turned` places it in the mode on screen.
+//! source), and the canvas of the form (portrait at 90 and 270) goes where
+//! `ui_placement` places it after its turn in the mode on screen: 320x240
+//! in scan-out at every turn on these landscape displays.
 
-use neptron_modeline::policy::ui_dest_turned;
+use neptron_modeline::policy::ui_placement;
 use neptron_testkit::SceneSummary;
 use neptron_types::{
     Filter, Frame, Modeline, MonitorKind, Orientation, PixelFormat, Rect, Rotation, SourceGeometry,
 };
-use neptron_video::{Content, Directive, Monitor, Outcome, PolicySettings, TURNED_MENU_MODE};
+use neptron_video::{Content, Directive, Monitor, Outcome, PolicySettings};
 
 use crate::faults::refuse_all;
 use crate::guard_rig::{FRAME_NS, GuardRig, crt_15, crt_31};
 use crate::harness::{Rig, SNES, frame, generic_15};
-use crate::menu_turned::MENU_SOURCE;
+use crate::menu_turned::{MENU_SOURCE, canvas_of};
 use crate::panel::{mode, panel};
 
 /// DoDonPachi: a 320x240 frame on its side at 57.55 Hz, `R90`.
@@ -90,9 +91,8 @@ fn monitors() -> Vec<(&'static str, Monitor)> {
 /// wait.
 pub fn frame_with_ui(rig: &mut Rig, source: SourceGeometry) -> Directive {
     let directive = rig.engine.begin_frame(source);
-    rig.engine
-        .present(Some(frame(&source)), Some(canvas()))
-        .unwrap();
+    let ui = canvas_of(rig.engine.form());
+    rig.engine.present(Some(frame(&source)), Some(ui)).unwrap();
     rig.engine.wait_flip().unwrap();
     directive
 }
@@ -116,18 +116,14 @@ fn shown(
 }
 
 /// The destination and the filter of the canvas turned by `ui` in `mode`
-/// on `kind`, with the upright destination `upright` of the placement.
-fn expected_ui(kind: &MonitorKind, mode: &Modeline, ui: Rotation, upright: Rect) -> (Rect, Filter) {
+/// on `kind`: the canvas of the form after its turn is 320x240 in
+/// scan-out on a landscape display, at every turn.
+fn expected_ui(kind: &MonitorKind, mode: &Modeline, ui: Rotation) -> (Rect, Filter) {
+    let placed = ui_placement(kind, mode, (320, 240));
     if ui.across() {
-        let placed = ui_dest_turned(
-            kind,
-            mode,
-            (240, 320),
-            PolicySettings::default().solver.monitor_aspect,
-        );
         (placed.dest, placed.filter)
     } else {
-        (upright, Filter::Nearest)
+        (placed.dest, Filter::Nearest)
     }
 }
 
@@ -195,7 +191,8 @@ fn marked_corners(screen: Rotation, source: SourceGeometry) -> (Corner, Corner) 
     let mut rig = Rig::new(generic_15(), PolicySettings::default());
     rig.engine.set_orientation(at(screen, None));
     let game = marked(source.width, source.height);
-    let ui = marked(320, 240);
+    let (ui_w, ui_h) = rig.engine.form().canvas();
+    let ui = marked(ui_w, ui_h);
     for _ in 0..2 {
         rig.engine.begin_frame(source);
         rig.engine
@@ -207,7 +204,7 @@ fn marked_corners(screen: Rotation, source: SourceGeometry) -> (Corner, Corner) 
     let game_corner = red_corner(&rig.fake.screen().unwrap(), dest);
     rig.engine.begin_frame(source);
     rig.engine
-        .present(None, Some(frame_of(&ui, 320, 240)))
+        .present(None, Some(frame_of(&ui, ui_w, ui_h)))
         .unwrap();
     rig.engine.wait_flip().unwrap();
     let ui_dest = last_scene(&rig).ui_dest;
@@ -225,7 +222,8 @@ fn a_corner_mark_lands_in_the_named_corner_of_the_scan_out() {
     // S=90: the display is turned a quarter turn to the left. Its top edge
     // is at the player's left and its right edge at the player's top, so
     // the player's top left is the display's top right. SF2 is drawn
-    // upright, and so is the canvas: both marks are at the top right.
+    // upright, and so is the portrait canvas: both marks are at the top
+    // right.
     assert_eq!(
         marked_corners(Rotation::R90, SF2),
         (Corner::TopRight, Corner::TopRight)
@@ -271,8 +269,12 @@ fn every_screen_orientation_turns_the_game_and_the_canvas_as_the_spec_says() {
                     assert_eq!(scene.filter, want.filter, "{case}");
                     let u = ui_turn(screen);
                     assert_eq!(scene.ui_rotation, u, "{case}");
-                    let (ui_dest, ui_filter) = expected_ui(&kind, &mode, u, want.ui_dest);
+                    let (ui_dest, ui_filter) = expected_ui(&kind, &mode, u);
                     assert_eq!(scene.ui_dest, ui_dest, "{case}");
+                    assert_eq!(
+                        scene.ui_dest, want.ui_dest,
+                        "{case}: the place of the canvas at 0"
+                    );
                     assert_eq!(scene.ui_filter, ui_filter, "{case}");
                 }
             }
@@ -285,7 +287,8 @@ fn every_screen_orientation_turns_the_game_and_the_canvas_as_the_spec_says() {
 fn content_frame(rig: &mut Rig, content: Content, source: SourceGeometry) {
     rig.engine.begin_frame(source);
     let game = (content == Content::Game).then(|| frame(&source));
-    rig.engine.present(game, Some(canvas())).unwrap();
+    let ui = canvas_of(rig.engine.form());
+    rig.engine.present(game, Some(ui)).unwrap();
     rig.engine.wait_flip().unwrap();
 }
 
@@ -294,7 +297,7 @@ fn content_frame(rig: &mut Rig, content: Content, source: SourceGeometry) {
 /// never had an orientation set, for games and for the menu.
 #[test]
 fn the_normal_orientation_gives_the_scenes_of_an_engine_with_none() {
-    let menu = (Content::Menu(TURNED_MENU_MODE), MENU_SOURCE);
+    let menu = (Content::Menu, MENU_SOURCE);
     for (name, monitor) in monitors() {
         let cases = [DDONPACH, SF2, SNES]
             .map(|s| (Content::Game, s))
@@ -369,9 +372,9 @@ fn dodonpachi_on_a_turned_15khz_tube_runs_240p_at_its_own_rate_full_screen() {
 }
 
 /// The quick menu over DoDonPachi at 240 lines on a turned 15 kHz tube:
-/// the mode stays the game's, and the canvas is squeezed into the 240
-/// lines with sharp bilinear, in the middle of the game picture, which
-/// shows at both sides of it.
+/// the mode stays the game's, and the portrait canvas turned across the
+/// lines fills the active area 1:1 with nearest (docs/spec/ui-layout.md,
+/// section 6.4). The canvas is opaque and covers the game.
 #[test]
 fn the_quick_menu_over_a_game_on_a_turned_screen_keeps_the_game_mode() {
     let mut rig = Rig::new(generic_15(), PolicySettings::default());
@@ -386,32 +389,33 @@ fn the_quick_menu_over_a_game_on_a_turned_screen_keeps_the_game_mode() {
     assert_eq!(rig.current_mode(), game_mode);
     let scene = last_scene(&rig);
     assert_eq!(scene.rotation, Rotation::R0);
+    assert_eq!(scene.ui, Some((240, 320)), "the portrait canvas");
     assert_eq!(scene.ui_rotation, Rotation::R270);
-    assert_eq!(scene.ui_filter, Filter::SharpBilinear);
-    assert_eq!((scene.ui_dest.y, scene.ui_dest.h), (0, 240));
-    let (ui, game) = (scene.ui_dest, scene.dest);
-    assert!(ui.w < game.w, "the canvas is narrower than the game");
-    let right = ui.x + i32::try_from(ui.w).unwrap();
-    assert!(
-        ui.x > game.x && right < game.x + i32::try_from(game.w).unwrap(),
-        "the game shows at both sides of the canvas: {ui:?} in {game:?}"
-    );
+    assert_eq!(scene.ui_filter, Filter::Nearest);
+    let full = Rect {
+        x: 0,
+        y: 0,
+        w: u32::from(game_mode.hactive),
+        h: 240,
+    };
+    assert_eq!(scene.ui_dest, full, "the full active area");
+    assert!(u32::from(game_mode.hactive) >= 320, "{game_mode:?}");
 
-    // A white game under the black canvas: the game shows only outside it.
+    // A white game under the black canvas: no game pixel shows.
     let white = Frame {
         data: &WHITE,
         ..frame(&DDONPACH)
     };
     rig.engine.begin_frame(DDONPACH);
-    rig.engine.present(Some(white), Some(canvas())).unwrap();
+    let ui = canvas_of(rig.engine.form());
+    rig.engine.present(Some(white), Some(ui)).unwrap();
     rig.engine.wait_flip().unwrap();
     let screen = rig.fake.screen().unwrap();
-    let x = |x: i32| u32::try_from(x).unwrap();
     let black = [0, 0, 0];
-    assert_ne!(screen.pixel(x(ui.x - 1), 120), Some(black), "game, left");
-    assert_eq!(screen.pixel(x(ui.x), 120), Some(black), "canvas");
-    assert_eq!(screen.pixel(x(right - 1), 120), Some(black), "canvas");
-    assert_ne!(screen.pixel(x(right), 120), Some(black), "game, right");
+    let right = u32::from(game_mode.hactive) - 1;
+    for (x, y) in [(0, 0), (right, 120), (right / 2, 239)] {
+        assert_eq!(screen.pixel(x, y), Some(black), "({x}, {y})");
+    }
 }
 
 /// A change of the screen orientation in a running game is a new source:
@@ -551,7 +555,7 @@ fn the_engine_says_when_a_horizontal_game_is_on_a_turned_screen() {
 #[test]
 fn the_turns_of_the_menu_engine_read_no_override() {
     let mut rig = Rig::new(generic_15(), PolicySettings::default());
-    rig.engine.set_content(Content::Menu(TURNED_MENU_MODE));
+    rig.engine.set_content(Content::Menu);
     rig.engine
         .set_orientation(at(Rotation::R270, Some(Rotation::R90)));
     let turns = rig.engine.turns(&SF2);

@@ -5,10 +5,8 @@ use super::shape::{game_aspect_milli, same_aspect};
 use super::source::div_round;
 use crate::Aspect;
 
-mod turned;
 mod ui;
 
-pub use turned::ui_dest_turned;
 pub use ui::{UiPlacement, ui_placement};
 
 /// How the game picture sits in a mode: everything the renderer needs.

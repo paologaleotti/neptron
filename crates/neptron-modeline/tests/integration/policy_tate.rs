@@ -1,13 +1,14 @@
 //! The policy on a screen turned on its side (docs/spec/tate.md): the
-//! reference boards and the menu source as display sources at a screen
-//! orientation of 90 and 270, in tests/golden/policy_tate.toml. The policy
-//! does not change; the display source carries the turn `R`.
+//! reference boards as display sources at a screen orientation of 90 and
+//! 270, and the menu as the raster of its turned canvas
+//! (docs/spec/ui-layout.md, section 6.3), in tests/golden/policy_tate.toml.
+//! The policy does not change; the display source carries the turn `R`.
 
 use std::collections::BTreeMap;
 
-use neptron_modeline::policy::{PolicySettings, choose, decide, ui_dest_turned};
+use neptron_modeline::policy::{PolicySettings, choose, decide, ui_placement};
 use neptron_safety::validate;
-use neptron_types::{Filter, Orientation, Rotation, SourceGeometry};
+use neptron_types::{Filter, Form, Orientation, Rotation, SourceGeometry};
 
 use crate::arcade_table::{self, BOARDS, Display};
 use crate::policy_golden::{compare, expected, outcome_with};
@@ -26,8 +27,8 @@ const TATE_DISPLAYS: [&str; 7] = [
 /// The two turned screens.
 const TURNED_SCREENS: [Rotation; 2] = [Rotation::R90, Rotation::R270];
 
-/// The source of the menu canvas: 320x240 at 60 Hz, 4:3, not turned, as
-/// the app plans it.
+/// The source of the menu on a screen at 0: the raster of the 320x240
+/// canvas at 60 Hz, 4:3, not turned.
 const MENU_SOURCE: SourceGeometry = SourceGeometry {
     width: 320,
     height: 240,
@@ -53,21 +54,21 @@ fn screen(screen: Rotation) -> Orientation {
     }
 }
 
-/// The turned canvas in the winner's mode: " ui WxH+X+Y filter", or
-/// " ui none" when no proposal validates.
-fn turned_ui(source: &SourceGeometry, settings: &PolicySettings, display: &Display) -> String {
+/// The canvas of `T`'s size `canvas` in the winner's mode:
+/// " ui WxH+X+Y filter", or " ui none" when no proposal validates.
+fn placed_ui(
+    source: &SourceGeometry,
+    canvas: (u16, u16),
+    settings: &PolicySettings,
+    display: &Display,
+) -> String {
     let (profile, caps) = (&display.profile, &display.caps);
     let plan = decide(source, settings, profile, caps).unwrap();
     let choice = choose(&plan, |m| validate(m, profile, caps));
     let Some(winner) = choice.winner else {
         return " ui none".into();
     };
-    let ui = ui_dest_turned(
-        &profile.kind,
-        &winner.proposal.mode,
-        (240, 320),
-        settings.solver.monitor_aspect,
-    );
+    let ui = ui_placement(&profile.kind, &winner.proposal.mode, canvas);
     let d = ui.dest;
     format!(
         " ui {}x{}+{}+{} {}",
@@ -82,11 +83,36 @@ fn turned_ui(source: &SourceGeometry, settings: &PolicySettings, display: &Displ
     )
 }
 
+/// The menu on a turned screen, worked out from the rules of the spec and
+/// not from the engine: the portrait canvas turned by `U = (0 - S) mod
+/// 360` across the lines is `T`, and the policy plans the raster of `T`,
+/// progressive and not turned, at the rate of the menu, with the default
+/// settings. The value is the outcome, then the place of `T`.
+fn turned_menu(display: &Display) -> String {
+    let (w, h) = Form::Portrait.canvas();
+    let t = (h, w);
+    let source = SourceGeometry {
+        width: t.0,
+        height: t.1,
+        ..MENU_SOURCE
+    };
+    let settings = PolicySettings::default();
+    let (profile, caps) = (&display.profile, &display.caps);
+    outcome_with(&source, &settings, profile, caps) + &placed_ui(&source, t, &settings, display)
+}
+
+/// The menu on a screen at 0: the landscape canvas, upright.
+fn upright_menu(display: &Display) -> String {
+    let settings = PolicySettings::default();
+    let source = Orientation::NORMAL.display_source(&MENU_SOURCE);
+    let (profile, caps) = (&display.profile, &display.caps);
+    outcome_with(&source, &settings, profile, caps)
+        + &placed_ui(&source, Form::Landscape.canvas(), &settings, display)
+}
+
 /// Each reference board as the display source on each turned screen,
-/// "<board> <display> s<S>", and the menu source with its turned canvas,
-/// "menu <display> s<S>". The menu cases are data: they record the
-/// policy's answer for the turned menu source with the settings that the
-/// menu uses today, and decide nothing about the menu mode.
+/// "<board> <display> s<S>", and the menu with its turned canvas,
+/// "menu <display> s<S>".
 #[test]
 fn the_display_sources_of_a_turned_screen_give_their_golden_decisions() {
     let displays = displays();
@@ -103,14 +129,29 @@ fn the_display_sources_of_a_turned_screen_give_their_golden_decisions() {
                     outcome_with(&source, &arcade_table::settings(), profile, caps),
                 );
             }
-            let settings = PolicySettings::default();
-            let menu = o.display_source(&MENU_SOURCE);
-            let got = outcome_with(&menu, &settings, profile, caps)
-                + &turned_ui(&menu, &settings, display);
-            actual.insert(format!("menu {} s{}", profile.id, s.degrees()), got);
+            actual.insert(
+                format!("menu {} s{}", profile.id, s.degrees()),
+                turned_menu(display),
+            );
         }
     }
     compare("policy_tate.toml", actual);
+}
+
+/// The claim of docs/spec/ui-layout.md, section 6.3: on a CRT, a TV and a
+/// landscape panel the menu of a turned screen has the mode of the menu at
+/// 0, and the canvas the place of the menu at 0. Each recorded menu case
+/// equals the menu on a screen at 0.
+#[test]
+fn the_menu_of_a_turned_screen_is_the_menu_of_a_screen_at_0() {
+    let recorded = expected("policy_tate.toml");
+    for display in &displays() {
+        let at_0 = upright_menu(display);
+        for s in TURNED_SCREENS {
+            let key = format!("menu {} s{}", display.profile.id, s.degrees());
+            assert_eq!(recorded.get(&key), Some(&at_0), "{key}");
+        }
+    }
 }
 
 /// A vertical board on a turned screen is a source of its own lines: it

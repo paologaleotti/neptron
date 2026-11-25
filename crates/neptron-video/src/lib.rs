@@ -32,7 +32,7 @@ pub use guard::{
     GuardRecord, GuardStep, Health, NO_PICTURE_LIMIT_NS, PENDING_LIMIT_NS, Phase, Prompt, PromptId,
     RevertReason, SAFE_MODE_FAILED_BOOTS, SafeReason,
 };
-pub use menu::{Content, TURNED_MENU_MODE, TurnedMenuMode, menu_plan_source};
+pub use menu::{Content, form_of, menu_source, turned_canvas};
 pub use monitor::Monitor;
 pub use odren::{Current, DEBOUNCE_FRAMES, Directive, MODESET_ATTEMPTS, Odren};
 pub use scene::{SceneInputs, build_scene};

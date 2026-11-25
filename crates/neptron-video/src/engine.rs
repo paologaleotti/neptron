@@ -2,7 +2,7 @@ use neptron_backend::{Display, DisplayError};
 use neptron_modeline::policy::{Offer, PictureChoices, PolicySettings, Proposal};
 
 use crate::answers::AnswerRequest;
-use neptron_types::{FlipEvent, Frame, Modeline, Orientation, Scene, SourceGeometry, Turns};
+use neptron_types::{FlipEvent, Form, Frame, Modeline, Orientation, Scene, SourceGeometry, Turns};
 
 use crate::odren::{AfterModeSet, ModeOrder};
 use crate::{
@@ -123,10 +123,15 @@ impl<D: Display> VideoEngine<D> {
         self.odren.orientation()
     }
 
-    /// What the engine shows. The menu engine sets
-    /// `Content::Menu(TURNED_MENU_MODE)`. See [`Odren::set_content`].
+    /// What the engine shows. The menu engine sets `Content::Menu`. See
+    /// [`Odren::set_content`].
     pub fn set_content(&mut self, content: Content) {
         self.odren.set_content(content);
+    }
+
+    /// The form of the UI canvas that the app draws. See [`Odren::form`].
+    pub fn form(&self) -> Form {
+        self.odren.form()
     }
 
     /// The turns of a game whose core source is `source`. See
