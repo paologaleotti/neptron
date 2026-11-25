@@ -113,8 +113,11 @@ jobs:
         run: |
           version=${TAG#v}
           prerelease=
-          case $version in *-*) prerelease=--prerelease ;; esac
-          cat > notes.md <<EOF
+          case $version in *-* | 0.*) prerelease=--prerelease ;; esac
+          own=docs/release-notes/${version%%-*}.md
+          : > notes.md
+          if [ -f "$own" ]; then cat "$own" > notes.md; printf '\n## This build\n\n' >> notes.md; fi
+          cat >> notes.md <<EOF
           NEPTRON $version, commit $GITHUB_SHA.
 
           Tested on Intel graphics (PC) and on the Raspberry Pi 3. AMD and other
