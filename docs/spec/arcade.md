@@ -658,11 +658,29 @@ What the game gets (`PadMask` in `neptron-session`), on each port of the core:
 - Save states are after the MVP.
 - `fbneo-hiscores` stays at the core's default. Without `system/fbneo/hiscore.dat` it does nothing. Shipping `hiscore.dat` is a later item.
 
-## 15. TATE (planned, after the MVP)
+## 15. TATE
 
 TATE is a screen turned on its side. It gives a vertical game its native mode: DoDonPachi as 320x240 at 57.55 Hz, 240p, every pixel exact, no flicker. This is the best picture a CRT can give a vertical game, and a strong reason for a vertical cabinet. It needs the UI turned too, so it is a separate task: the first task after version 0.1 (OP-107).
 
-The owner decided the shape of TATE on 2026-11-19 (OP-107). [`tate.md`](tate.md) is the spec: the decisions, the turn of every case, the mode policy, the turned UI, the input, the settings and the work packages. ADR 0020 records the turned UI canvas in `Scene`. The design notes of this section moved to that spec, section 14, each with its outcome.
+The owner decided the shape of TATE on 2026-11-19 (OP-107). [`tate.md`](tate.md) is the spec: the decisions, the turn of every case, the mode policy, the turned UI, the input, the settings and the work packages. ADR 0020 records the turned UI canvas in `Scene`. The design notes of this section moved to that spec, section 14, each with its outcome. The player sets "Screen orientation" in Settings > Display (`display.orientation`) and "Game orientation" in Video in the quick menu (`display.rotation`, at the game level only).
+
+### The results on a turned screen
+
+`tests/golden/policy_tate.toml` (`crates/neptron-modeline`) holds the decision of every reference board (Appendix B) and of the menu on one display of each class, with the screen at 90 and at 270, and the game orientation at Auto. A screen at 270 gives the decision of a screen at 90 for every board: only the turn of the picture differs. The policy does not change: the display source carries the turn. The main cases at 90:
+
+| Display | DoDonPachi (vertical, 320x240 drawn) | Neo Geo (horizontal, 304x224) | The menu (240x320 canvas) |
+| --- | --- | --- | --- |
+| 15 kHz (`generic_15`) | Native, 320x240p at 57.551 Hz, every pixel exact | 448i, 304 lines 1:1, pillarboxed | 320x240p, the canvas 1:1 |
+| 25 kHz (`arcade_25`) | Native, 533x400p, the frame 1:1 with borders | 510x389p, 1:1 with borders | 512x384p, the canvas over the whole mode |
+| 31 kHz (`arcade_31`) | 2x, 320x480p, fills the screen | 637x486p, 304 lines 1:1 with borders | 2x, 320x480p |
+| Multi-sync (`d9800`) | Native, 320x240p | 419x320p, 1:1 with borders | 320x240p |
+| Panel 1080p | Fills the height, 1440x1080, sharp | 684x912, sharp | 4x, 1280x960, nearest |
+| TV, NTSC | 240p, 704 samples, sharp; +4.35 % speed at 60.054 Hz | 480i, 304 lines 1:1, sharp | 240p, the canvas 1:1 |
+| TV, PAL | 288p, 240 lines, sharp; -13.0 % speed at 50.080 Hz | 288p, 8 lines cropped at each edge, sharp | 288p, the canvas 1:1 |
+
+A vertical board on a turned screen gets the decision of its raster on a screen at 0: on a 15 kHz CRT the interlaced 448i of section 11 becomes the native 240p. A horizontal board stands across the turned screen, small, with the rules of a turned source of section 11: interlaced on a 15 kHz CRT when its width is more than the lines of a progressive mode. The app then says so: the picture notice of the start "This game is horizontal. It shows small on a turned screen.", and once the interlaced case with its own one-time notice (`tate.md`, section 7.4).
+
+The turned output has its own goldens: the whole picture in scan-out pixels on four display classes at 90, 180 and 270 (`apps/neptron/tests/app/turned_output.rs`, `apps/neptron/tests/golden/turned`). No hardware result is claimed: the checks of a turned monitor are in `docs/hardware-checklist.md`.
 
 ## 16. Where the code is
 
@@ -678,6 +696,7 @@ The owner decided the shape of TATE on 2026-11-19 (OP-107). [`tate.md`](tate.md)
 | The video rule | `crates/neptron-modeline` (`policy/`); the table `tests/integration/arcade_table.rs`; the goldens `tests/golden/policy_arcade.toml` |
 | The turn of the game picture | `Scene::rotation` (ADR 0015), both renderers |
 | `display.vertical`, `display.panel_scale` | `crates/neptron-settings`, `crates/neptron-modeline/src/policy/settings.rs` |
+| TATE: `display.orientation`, `display.rotation`, the turns | `crates/neptron-settings`; `Orientation` in `crates/neptron-types`; `crates/neptron-video` (the display source); the goldens `tests/golden/policy_tate.toml` |
 
 ## 17. Measurement plan
 

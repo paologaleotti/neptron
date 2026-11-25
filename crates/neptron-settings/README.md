@@ -42,6 +42,8 @@ Typed settings schema, resolution over the levels game, system, global and defau
 | `display.screensaver_minutes` | `1`, `5`, `10`, `30` (minutes) | global | `5` | none | every | yes |
 | `display.vertical` (expert) | `exact`, `fit` | game, system, global | `exact` | validated | every | yes |
 | `display.panel_scale` (expert) | `auto`, `integer` | game, system, global | `auto` | validated | flat panel | yes |
+| `display.orientation` (Screen orientation) | `0`, `90`, `180`, `270` (degrees) | global | `0` | validated | every | yes |
+| `display.rotation` (Game orientation) | `auto`, `0`, `90`, `180`, `270` (degrees) | game | `auto` | validated | every | yes |
 
 The help texts of the menus are in the doc comments of the key constants: the schema has no help text field.
 

@@ -1071,3 +1071,28 @@ A 15 kHz tube with `generic_15` is on the PC in these images, and the PC has no 
   - Do: set Picture mode to Fit in the quick menu of each game.
   - Expect: the whole picture shows, no line cut, as large as the screen allows, with round circles (the shape kept). The lines are even and soft, with no line that looks thicker or missing. DoDonPachi fills the height of each screen. R-Type on NTSC shows the lines that Auto cuts at the top and the bottom.
   - Record: a photo of each picture, and any line that looks uneven.
+
+## TATE: a screen turned on its side (N01)
+
+The checks of `docs/spec/tate.md`, section 11.5. Each one needs a monitor that a person turns on its side. Set "Screen orientation" in Settings > Display (or `orientation` in `neptron.toml` on the boot partition) to the side the monitor is turned to.
+
+- [ ] `needs-hardware` **The portrait menu and the games on a turned 15 kHz CRT.** A 15 kHz tube with `generic_15`, turned 90 degrees, with Screen orientation at Tate left (90) or Tate right (270).
+  - Do: read the game list and Settings > Display. Start DoDonPachi, open the quick menu, then close it. Start a horizontal game (a Neo Geo or a CPS-2 game).
+  - Expect: the menu is upright for the player, at 240p, with no flicker, and each line of up to 34 characters can be read. DoDonPachi fills the screen at 240p at its own rate (57.55 Hz), every pixel exact. The quick menu over DoDonPachi is 1:1 at 240p, with no mode change when it opens. The horizontal game is upright across the screen, small; the quick menu shows "This game is horizontal. It shows small on a turned screen."
+  - Record: a photo of the menu and of each game, the status line of each game, and any line that cannot be read.
+- [ ] `needs-hardware` **The portrait menu and a vertical game on a turned 31 kHz CRT.** The SyncMaster 750s with `pc_31_120`, or a 31 kHz arcade monitor with `arcade_31`, turned 90 degrees.
+  - Do: read the game list. Start DoDonPachi with Scanlines at Auto.
+  - Expect: the menu is upright at 2x, sharp. DoDonPachi shows at 2x with scanlines, upright.
+  - Record: a photo of the menu and of the game, and the status line.
+- [ ] `needs-hardware` **A flat panel turned on a pivot.** A 1080p panel on a pivot stand, at 90 and at 270.
+  - Do: at each orientation, read the game list and start DoDonPachi.
+  - Expect: the menu is upright at 4x, nearest, sharp. DoDonPachi fills the width of the turned panel, upright.
+  - Record: a photo of the menu and of the game at each orientation.
+- [ ] `needs-hardware` **A composite TV turned on its side.** Pi 3 composite output on NTSC, if the TV can be turned safely.
+  - Do: read the game list and Settings > Display.
+  - Expect: the menu is upright at 240p, with no flicker.
+  - Record: a photo of the menu. If the TV cannot be turned, write that here.
+- [ ] `needs-hardware` **The render time of a turned canvas on the Raspberry Pi 3.** Pi 3 B or B+ on HDMI, the existing bench build.
+  - Do: set Screen orientation to Tate left (90). Read the frame statistics of the control protocol in the game list and in the quick menu over a game, then the same at Yoko (0).
+  - Expect: the render time with the turned canvas stays inside the frame budget, near the time at 0.
+  - Record: p50, p99 and the maximum of the render time at 90 and at 0, in the game list and in the quick menu.
