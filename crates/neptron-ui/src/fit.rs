@@ -310,8 +310,13 @@ mod tests {
     #[test]
     fn a_message_that_ends_in_one_short_word_is_a_warning() {
         assert_eq!(
+            short_last_line("The old picture comes back to us ok.", 204),
+            Some("ok.")
+        );
+        assert_eq!(
             short_last_line("The old picture comes back in 10 s.", 204),
-            Some("s.")
+            None,
+            "a unit stays with its number"
         );
         assert_eq!(
             short_last_line("The old picture returns in 10 s.", 204),

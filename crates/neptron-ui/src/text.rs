@@ -314,15 +314,17 @@ fn prefix(text: &str, chars: usize) -> &str {
 }
 
 /// The first line of `text` that fits `room` characters, the text after
-/// it, and true when a `\n` ended the line.
+/// it, and true when a `\n` ended the line. A space that [`binds`] a
+/// number to its unit is no place for a break.
 fn take_line(text: &str, room: usize) -> (&str, &str, bool) {
     let mut last_space = None;
     for (count, (at, c)) in text.char_indices().enumerate() {
         if c == '\n' {
             return (&text[..at], &text[at + 1..], true);
         }
+        let breaks = c == ' ' && !binds(text, at);
         if count == room {
-            if c == ' ' {
+            if breaks {
                 return (&text[..at], &text[at..], false);
             }
             return match last_space {
@@ -330,11 +332,31 @@ fn take_line(text: &str, room: usize) -> (&str, &str, bool) {
                 None => (&text[..at], &text[at..], false),
             };
         }
-        if c == ' ' {
+        if breaks {
             last_space = Some(at);
         }
     }
     (text, "", false)
+}
+
+/// The unit words that stay on the line of their number.
+const UNITS: [&str; 6] = ["s", "Hz", "kHz", "%", "px", "ms"];
+
+/// True when the space at byte `at` of `text` stands between a digit and
+/// a unit of [`UNITS`]: `10 s`, `59.94 Hz`. A unit ends at the end of the
+/// text or before a character that is not a letter or a digit.
+fn binds(text: &str, at: usize) -> bool {
+    let digit_before = text
+        .get(..at)
+        .and_then(|head| head.chars().next_back())
+        .is_some_and(|c| c.is_ascii_digit());
+    let after = text.get(at + 1..).unwrap_or("");
+    digit_before
+        && UNITS.iter().any(|unit| {
+            after
+                .strip_prefix(unit)
+                .is_some_and(|rest| rest.chars().next().is_none_or(|c| !c.is_alphanumeric()))
+        })
 }
 
 fn offset(x: i32, by: u32) -> i32 {
@@ -468,6 +490,24 @@ mod tests {
         assert_eq!(lines, ["abcde", "fghij", "kl", "xy"]);
         assert_eq!(wrap("", 30).count(), 0);
         assert_eq!(wrap("a\n\nb", 30).collect::<Vec<_>>(), ["a", "", "b"]);
+    }
+
+    #[test]
+    fn a_number_and_its_unit_stay_on_one_line() {
+        for (text, width, lines) in [
+            ("back in 10 s.", 54, ["back in", "10 s."].as_slice()),
+            ("rate 59.94 Hz now", 66, &["rate", "59.94 Hz", "now"]),
+            ("line 15.73 kHz", 60, &["line", "15.73 kHz"]),
+            ("speed 16 % less", 48, &["speed", "16 %", "less"]),
+            ("move 12 px", 48, &["move", "12 px"]),
+            ("wait 40 ms", 48, &["wait", "40 ms"]),
+        ] {
+            assert_eq!(wrap(text, width).collect::<Vec<_>>(), lines, "{text:?}");
+        }
+        assert_eq!(
+            wrap("over 10 sets", 42).collect::<Vec<_>>(),
+            ["over 10", "sets"]
+        );
     }
 
     #[test]
