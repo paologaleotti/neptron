@@ -34,7 +34,7 @@ The GPU caps come from an entry of `data/hardware/matrix.toml` (`--gpu ID`). The
 
 The arcade boards and the reference boards `neogeo`, `mk` and `ddonpach` get the arcade rules of the policy (`PolicySettings::arcade`), as the app does for the systems `arcade` and `neogeo`.
 
-**Settings** (`--set KEY=VALUE`, the key with or without `display.`): `display.style`, `display.refresh_policy`, `display.tv_width`, `display.vertical`, `display.panel_scale`, `display.scanlines`, `display.scanline_strength`. A key that is not given has the default of the settings schema. The values are the values of the settings files: the picture mode that the menu labels Fit is `display.style = fit`.
+**Settings** (`--set KEY=VALUE`, the key with or without `display.`): `display.style`, `display.refresh_policy`, `display.tv_width`, `display.vertical`, `display.panel_scale`, `display.scanlines`, `display.scanline_strength`, `display.orientation` and `display.rotation`. A key that is not given has the default of the settings schema. The values are the values of the settings files: the picture mode that the menu labels Fit is `display.style = fit`. The last two keys set TATE mode (see Orientation).
 
 **Picture**: a test pattern at the source size, as the core draws its frame (before the turn): a 1-pixel red border on the outermost pixels, a green border 8 pixels in, a white centre cross, a grid every 16 pixels, a yellow circle that is round when the shape is right, the number of every 8th line at the left edge (right of the green border), and corner marks in four colours (white top left, cyan top right, magenta bottom left, orange bottom right). The first line number that shows tells how many lines are cut. `--frame FILE.ppm` uses a real frame of the source size in place of the pattern.
 
@@ -43,6 +43,8 @@ The arcade boards and the reference boards `neogeo`, `mk` and `ddonpach` get the
 The tool builds the policy settings and the scanline settings with the functions of `neptron-video` that the app uses (`policy_settings`, `with_display_choices`, `scanline_settings`). It runs one core frame through `VideoEngine` on the fake display of `neptron-testkit`: the same decision, validator, scene builder and reference renderer as the app and its tests. `wire.png` is the frame buffer of the mode the display reads back, pixel for pixel (for example 720x240 on NTSC, 1280x224 on a 15 kHz preset on the bench PC).
 
 The tool asks the engine for the offer of the settings too: the menus offer the settings, or decline them with a reason.
+
+The engine gets the orientation of the settings with `VideoEngine::set_orientation` before the frame, as the app does. The engine then plans with the display source of the orientation and turns the picture by its game turn. The tool gives the engine the source as the core sends it.
 
 ## Stage B: the glass
 
@@ -60,7 +62,9 @@ Each line of the mode is a band of light as high as the beam spot. The spot is o
 
 **A flat panel** shows its frame buffer pixel for pixel. The glass picture is the panel scaled down with area sampling to the largest size of the panel's aspect inside the size box (1440x810 for 16:9). `--exact` adds two 1:1 crops of 480x270: at the top-left corner of the picture (`exact-corner.png`) and at the centre (`exact-centre.png`).
 
-**Orientation**: `--turn 0|90|180|270` turns the glass picture clockwise, as a player sees a monitor mounted on its side. It only turns the output. It is not TATE mode.
+**Orientation (TATE mode)**: `--set display.orientation=0|90|180|270` is the screen orientation of the product: the display stands turned by that many degrees counter-clockwise, as in a vertical cabinet. `--set display.rotation=auto|0|90|180|270` is the game orientation: `auto` takes the turn that the core asks for, a value replaces it. The tool makes an `Orientation` from the two values, as `Config::orientation` of the app does, and the engine runs with it (Stage A). The glass picture is turned as the player sees it: by the screen orientation, counter-clockwise. At 90 a 4:3 tube gives a portrait glass picture.
+
+`--turn 0|90|180|270` is not TATE mode. It turns the glass picture once more, clockwise, after the turn of the screen orientation. It changes no decision and no measure: use it only to look at a picture from another side.
 
 ### What the model does not show
 
@@ -96,6 +100,11 @@ Each line of the mode is a band of light as high as the beam spot. The spot is o
 | `notices` | The parts of the notice of the policy, for example `cropped_lines=16` or `soft=FillMode`. |
 | `offer` | `offered`, or `declined: REASON` as the menus decline the settings. |
 | `no_picture` | Why nothing shows, when nothing does. |
+| `player` | The game as the player sees it, in front of the screen at its orientation. These values read the source as the core sends it and the turn that the core asks for, not the display source of the engine, so a wrong turn or a wrong aspect convention shows here. Every other measure is in the scan-out frame of the mode and reads the display source. |
+| `player.screen_orientation` | The screen orientation, in degrees counter-clockwise. |
+| `player.aspect_milli`, `player.aspect_asked_milli`, `player.aspect_error_permille` | The shape of the picture for the player: `aspect_shown_milli`, inverted for a screen at 90 or 270. The shape of the upright game: its display aspect, the crop and the turn of the core applied (3:4 for DoDonPachi). Shown over asked, less 1. |
+| `player.fill_w_permille`, `player.fill_h_permille` | `fill_w_permille` and `fill_h_permille` across and down for the player: swapped for a screen at 90 or 270. |
+| `player.upright` | The test pattern stands upright for the player: the corner mark at the top-left corner of the picture, as the player sees it, is the mark of the top-left corner of the upright game. `false` for a game override that turns the picture the wrong way. `null` when no corner mark shows or the frame comes from `--frame`. |
 
 ## Survey
 
@@ -131,3 +140,5 @@ The first survey found these results of the policy. The Fit rule (`docs/spec/vid
 ## Goldens
 
 `crates/neptron-testkit/tests/golden/screen/` holds the glass of ten reference cases at 240x180: six in Auto and four in Fit (SNES on `ntsc`, DoDonPachi on `pc_31_120`, R-Type on `ntsc` and on `pal`). A unit test of `neptron-testkit` asserts their measures as numbers, and for the Fit cases that every line shows, at its shape within 1 %, with no dropped line. `cargo xtask screen golden` compares them; `--bless` writes them after a person has looked at each picture in `target/screen/golden/`.
+
+The same folder holds the glass of 16 TATE cases (`TATE_CASES`), turned as the player sees them: DoDonPachi (`ddonpach`, vertical) and Power Instinct 2 (`pwrinst2`, a horizontal Cave board of the same size and rate) on `arcade_15`, `pc_31_120`, `ntsc` and `1920x1080@60`, with `display.orientation` at 0 and at 90, in Auto. The file name is `<source>-<display>-o<degrees>`, with `panel_1080` for the panel. A unit test asserts for each: the mode, `dest`, the player fill, the player shape within 1 % (`PLAYER_SHAPE_MAX_PERMILLE`), `player.upright`, and that a game at the orientation of the screen (a vertical game at 90, a horizontal game at 0) fills one side of the screen to at least 99 %. A second test runs both boards on `generic_15`, `arcade_15`, `arcade_31`, `pc_31_120`, `ntsc`, `pal` and `1920x1080@60` at 0, 90, 180 and 270, and asserts the player shape within 1 % and an upright picture.
