@@ -26,3 +26,9 @@ workspace = true
 [[example]]
 name = "gles_compare"
 required-features = ["gles"]
+
+# The probe of a machine for the GL cores. It needs EGL; copy it to the
+# machine and run it there.
+[[example]]
+name = "gles_probe"
+required-features = ["gles"]

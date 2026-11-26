@@ -14,7 +14,7 @@ Renderers for a `Scene`. `ReferenceRenderer` (CPU, pure Rust) defines the correc
 - `ReferenceRenderer` with `render(&mut self, &Scene, &mut OutputBuffer) -> Result<(), RenderError>`
 - `OutputBuffer { data: &mut [u8], width: u32, height: u32, pitch: usize }`, owned by the caller
 - `RenderError`, `Image`, `RectKind`, `MAX_RECT_SIDE_PX`. `ScanlineStrengthTooHigh` refuses a strength above 100 %. `NoPixels` refuses a `GamePicture::Gpu` picture: the reference renderer reads only pixels in memory. The fake display of `neptron-testkit` resolves a GPU picture to memory first.
-- `gles::GlesRenderer` (feature `gles`): `headless()`, `on_gbm(Rc<dyn GbmTarget>)`, `pbuffer(width, height)` and `read_window(&mut OutputBuffer)` for checks of the window path, `render(&Scene, &mut OutputBuffer)`, `draw_to_window(&Scene, width, height)`, `gl_strings()`, `max_texture_side()`, `max_output_side()`, and the counters `ui_rows_uploaded()`, `game_uploads()`, `game_parts_drawn()`. Errors are `GlesError`.
+- `gles::GlesRenderer` (feature `gles`): `headless()`, `on_gbm(Rc<dyn GbmTarget>)`, `pbuffer(width, height)` and `read_window(&mut OutputBuffer)` for checks of the window path, `render(&Scene, &mut OutputBuffer)`, `draw_to_window(&Scene, width, height)`, `gl_strings()`, `egl_strings()`, `max_texture_side()`, `max_output_side()`, and the counters `ui_rows_uploaded()`, `game_uploads()`, `game_parts_drawn()`. Errors are `GlesError`.
 - The context of a GL core on the renderer's display (feature `gles`): `core_offer() -> CoreOffer`, `core_create(&CoreSpec, max_width, max_height) -> CoreSurface` (framebuffer name, `GpuImageId`, the lookup `fn(&CStr) -> usize`), `core_resize`, `core_begin`, `core_end() -> CoreStatus`, `core_read_back(&mut [u8], width, height, FrameOrigin)`, `core_destroy`. `render` and `draw_to_window` draw a `GamePicture::Gpu` picture of that image. The KMS backend maps these to `CoreRender` of `neptron-backend`; this crate does not depend on it.
 - `gles::MAX_AXIS_PRODUCT`, `gles::GbmTarget` (an unsafe trait: the GBM device and surface pointers)
 
@@ -68,6 +68,7 @@ The doc comment of `ReferenceRenderer` states every pixel rule. In short:
 - `core_resize` makes a new texture and image, keeps the framebuffer name and the image id, and puts back the framebuffer, renderbuffer, texture and unpack buffer bindings of the core. `core_read_back` reads the image through a framebuffer of the renderer, so it changes no state of the core.
 - `core_offer` makes a context of each API once (OpenGL ES 2, core profile 3.2, compatibility 2.0), reads the version it gets, and keeps the answer. It is empty when an extension of the path is missing.
 - The lookup is a process global: the EGL library loaded once, so a core can call it on any thread.
+- `examples/gles_probe.rs` prints the EGL and GL strings, the extensions of the path and the offer on the machine it runs on (work package W1).
 
 ### The check against the reference
 

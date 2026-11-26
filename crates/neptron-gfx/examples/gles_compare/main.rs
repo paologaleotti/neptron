@@ -69,6 +69,7 @@ fn main() -> ExitCode {
         Ok((renderer, version)) => println!("GL renderer: {renderer}; version: {version}"),
         Err(e) => println!("GL strings: {e}"),
     }
+    println!("EGL extensions: {}", gles.egl_strings().extensions);
     let mut reference = ReferenceRenderer::new();
     let mut failed = 0_u8;
     let mut count = 0;

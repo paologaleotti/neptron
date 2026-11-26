@@ -229,6 +229,17 @@ impl EglContext {
         Ok(Gl { gl: &self.gl })
     }
 
+    /// `EGL_VENDOR`, `EGL_VERSION`, `EGL_CLIENT_APIS` and `EGL_EXTENSIONS`
+    /// of the display, each empty when EGL does not give it.
+    pub(super) fn strings(&self) -> [String; 4] {
+        [egl::VENDOR, egl::VERSION, egl::CLIENT_APIS, egl::EXTENSIONS].map(|name| {
+            self.lib
+                .query_string(Some(self.display), name)
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        })
+    }
+
     /// True when the context has a window surface.
     pub(super) fn has_window(&self) -> bool {
         self.surface.is_some()

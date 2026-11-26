@@ -43,4 +43,4 @@ pub use error::GlesError;
 pub use ffi::GbmTarget;
 pub use quad::MAX_AXIS_PRODUCT;
 #[cfg(feature = "gles")]
-pub use renderer::GlesRenderer;
+pub use renderer::{EglStrings, GlesRenderer};

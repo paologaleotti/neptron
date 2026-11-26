@@ -146,6 +146,19 @@ pub struct GlesRenderer {
     context: EglContext,
 }
 
+/// The strings of an EGL display.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EglStrings {
+    /// `EGL_VENDOR`, such as `Mesa Project`.
+    pub vendor: String,
+    /// `EGL_VERSION`, such as `1.5`.
+    pub version: String,
+    /// `EGL_CLIENT_APIS`, such as `OpenGL OpenGL_ES`.
+    pub client_apis: String,
+    /// `EGL_EXTENSIONS` of the display, separated by spaces.
+    pub extensions: String,
+}
+
 impl std::fmt::Debug for GlesRenderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GlesRenderer")
@@ -498,6 +511,18 @@ impl GlesRenderer {
     /// [`GlesError::Egl`] when the context cannot be made current.
     pub fn gl_strings(&self) -> Result<(String, String), GlesError> {
         Ok(self.context.current()?.names())
+    }
+
+    /// The EGL vendor, version, client APIs and extensions of the display,
+    /// for a probe of a machine. A string that EGL does not give is empty.
+    pub fn egl_strings(&self) -> EglStrings {
+        let [vendor, version, client_apis, extensions] = self.context.strings();
+        EglStrings {
+            vendor,
+            version,
+            client_apis,
+            extensions,
+        }
     }
 
     /// The rows of UI canvases that went to the GPU since the renderer was
