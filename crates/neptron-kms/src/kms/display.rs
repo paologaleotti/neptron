@@ -2,7 +2,7 @@ use std::os::fd::OwnedFd;
 use std::rc::Rc;
 use std::time::Duration;
 
-use neptron_backend::{Display, DisplayError};
+use neptron_backend::{CoreRender, Display, DisplayError};
 use neptron_gfx::gles::{GbmTarget, GlesError, GlesRenderer};
 use neptron_safety::ValidatedMode;
 use neptron_types::{FlipEvent, GpuCaps, Modeline, Scene, TvStandard};
@@ -302,6 +302,10 @@ impl Display for KmsDisplay {
     fn blank(&mut self) -> Result<(), DisplayError> {
         self.commit_blank()
     }
+
+    fn core_render(&mut self) -> Option<&mut dyn CoreRender> {
+        Some(self)
+    }
 }
 
 impl KmsDisplay {
@@ -322,7 +326,9 @@ pub(super) fn render_error(e: GlesError) -> DisplayError {
         GlesError::Scene(_)
         | GlesError::ScaleTooLarge { .. }
         | GlesError::TextureTooLarge { .. }
-        | GlesError::OutputTooLarge { .. } => DisplayError::SceneRefused {
+        | GlesError::OutputTooLarge { .. }
+        | GlesError::UnknownImage { .. }
+        | GlesError::PictureTooLarge { .. } => DisplayError::SceneRefused {
             reason: e.to_string(),
         },
         other => DisplayError::Device {

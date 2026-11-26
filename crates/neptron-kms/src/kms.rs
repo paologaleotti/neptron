@@ -3,6 +3,8 @@
 #[forbid(unsafe_code)]
 mod capture;
 #[forbid(unsafe_code)]
+mod core_render;
+#[forbid(unsafe_code)]
 mod device;
 #[forbid(unsafe_code)]
 mod display;

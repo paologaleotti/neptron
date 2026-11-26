@@ -27,6 +27,7 @@ On Linux with the `kms` feature:
 
 - `KmsDisplay::from_env(KmsConfig) -> Result<KmsDisplay, KmsError>`: the display on the descriptor in `NEPTRON_DRM_FD` (`DRM_FD_ENV`), the path of the frontend. A process takes the descriptor once. `KmsDisplay::open(OwnedFd, KmsConfig)` takes a descriptor the caller opened (tests, tools).
 - `impl Display for KmsDisplay`: `caps`, `set_mode`, `present`, `wait_flip`, `blank`.
+- `core_render()` gives `Some(&mut dyn CoreRender)`: the display hosts the GL context of a core on the EGL display of its renderer (`docs/spec/hw-render.md`). `offer`, `create`, `resize`, `begin`, `end`, `read_back` and `destroy` go to the `core_*` calls of `GlesRenderer`, with the types of `neptron-backend` mapped to the ones of `neptron-gfx`. `present` draws a `GamePicture::Gpu` picture of that image; an image the display does not hold, or a picture larger than its image, is `SceneRefused`.
 - `capture() -> Result<Capture, DisplayError>`: the composed picture through a writeback connector, when `KmsConfig::writeback` is on. For tests and the self-test, not for the frame loop.
 - `connector_name()`, `crtc_id()`, `driver_name()`, `linear_by_modifier()`: for logs and reports.
 - `lower_caps(&GpuCaps)`: lowers the highest pixel clock and the largest mode that `caps()` reports, never raises them. The buffers stay. The app uses it when the output is analog after the display opened with digital limits.
