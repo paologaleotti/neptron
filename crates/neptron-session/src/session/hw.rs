@@ -305,6 +305,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     /// once [`START_WINDOW_NS`] of core frames passed with none.
     pub(super) fn count_dark_frame(&mut self) {
         if self.hw.as_mut().is_some_and(Hw::count_dark) {
+            self.no_picture = true;
             self.state = State::Ended;
         }
     }

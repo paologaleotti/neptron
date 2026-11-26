@@ -3,8 +3,15 @@
 //! shows or soon after an error at the launch (S1, S2), or ends a game
 //! that ran (S3). The game list shows the notice after the relaunch, so a
 //! core stop never returns to the list in silence.
+//!
+//! A core that draws with GL has four more (`docs/spec/hw-render.md`,
+//! section 6.2): the machine lacks its context (H1), the driver cannot
+//! make it (H2), the core shows no picture (H3), or the driver loses the
+//! picture twice (H4). H1 and H2 come before S1: they give the real
+//! reason of a refusal.
 
-use neptron_session::LaunchError;
+use neptron_backend::{ContextRequest, GlApi};
+use neptron_session::{HwApi, HwRefusal, HwRefusalReason, LaunchError};
 
 /// The most characters of the words of the core in a notice, so the notice
 /// keeps to the lines of a dialog on the 320x240 canvas of the UI.
@@ -13,6 +20,23 @@ pub const CORE_TEXT_CHARS_MAX: usize = 60;
 /// The notice of a launch of `name` that failed with `error`.
 pub fn launch_notice(name: &str, error: &LaunchError) -> String {
     match error {
+        LaunchError::Refused {
+            hw_refusal:
+                Some(
+                    refusal @ HwRefusal {
+                        reason: HwRefusalReason::NotOffered,
+                        ..
+                    },
+                ),
+            ..
+        } => format!(
+            "{name} did not start: the core needs {}, and this machine does not have it.",
+            refused_api(refusal)
+        ),
+        LaunchError::Graphics { request, .. } => format!(
+            "{name} did not start: the graphics driver could not prepare {} for the core.",
+            request_api(request)
+        ),
         LaunchError::Refused { core_errors, .. } => format!(
             "{name} did not start: the core refused the game file.{} Check that the file is complete and is for this system.",
             says(first(core_errors, None))
@@ -22,6 +46,48 @@ pub fn launch_notice(name: &str, error: &LaunchError) -> String {
         }
         other => format!("{name} did not start: {other}."),
     }
+}
+
+/// The notice of a GL core of game `name` that showed no picture in its
+/// first 10 seconds (H3).
+pub fn no_picture_notice(name: &str) -> String {
+    format!("{name} did not start: the core showed no picture in 10 seconds.")
+}
+
+/// The notice of a game whose GL context the graphics driver lost twice
+/// (H4).
+pub const CONTEXT_LOST_NOTICE: &str =
+    "The game stopped: the graphics driver lost the picture of the game two times.";
+
+/// The log line of a game that runs although the host refused the context
+/// that its core asked for: the core draws in software.
+pub fn fallback_line(refusal: Option<HwRefusal>) -> Option<String> {
+    refusal.map(|r| {
+        format!(
+            "the core asked for {} and got none; it draws in software",
+            refused_api(&r)
+        )
+    })
+}
+
+/// The API and the version of a refused request, as a notice names them.
+fn refused_api(refusal: &HwRefusal) -> String {
+    let api = match refusal.api {
+        HwApi::OpenGl => "OpenGL",
+        HwApi::OpenGles => "OpenGL ES",
+        HwApi::Vulkan => "Vulkan",
+        HwApi::Other => return "a graphics interface".to_owned(),
+    };
+    format!("{api} {}.{}", refusal.major, refusal.minor)
+}
+
+/// The API and the version of a request, as a notice names them.
+fn request_api(request: &ContextRequest) -> String {
+    let api = match request.api {
+        GlApi::Gles => "OpenGL ES",
+        GlApi::GlCore | GlApi::GlCompatibility => "OpenGL",
+    };
+    format!("{api} {}.{}", request.version.major, request.version.minor)
 }
 
 /// The notice of a game `name` that the core stopped at its start, with
@@ -182,6 +248,95 @@ mod tests {
             ]
         );
         assert_eq!(lost_lines(0), None);
+    }
+
+    fn refusal(api: HwApi, reason: HwRefusalReason) -> LaunchError {
+        LaunchError::Refused {
+            core_errors: vec!["the frontend refused the hardware context".to_owned()],
+            dropped_logs: 0,
+            hw_refusal: Some(HwRefusal {
+                context_type: 3,
+                api,
+                major: 3,
+                minor: 3,
+                reason,
+            }),
+        }
+    }
+
+    #[test]
+    fn a_context_the_machine_lacks_gives_h1_before_the_refusal() {
+        assert_eq!(
+            launch_notice(
+                "Ridge Racer",
+                &refusal(HwApi::OpenGl, HwRefusalReason::NotOffered)
+            ),
+            "Ridge Racer did not start: the core needs OpenGL 3.3, and this machine does not have it."
+        );
+        assert_eq!(
+            launch_notice(
+                "Ridge Racer",
+                &refusal(HwApi::OpenGles, HwRefusalReason::NotOffered)
+            ),
+            "Ridge Racer did not start: the core needs OpenGL ES 3.3, and this machine does not have it."
+        );
+        assert!(
+            launch_notice(
+                "Ridge Racer",
+                &refusal(HwApi::OpenGl, HwRefusalReason::OutsideLoad)
+            )
+            .contains("the core refused the game file"),
+            "a call outside the load is no lack of the machine"
+        );
+    }
+
+    #[test]
+    fn a_context_the_driver_cannot_make_gives_h2() {
+        let error = LaunchError::Graphics {
+            request: ContextRequest {
+                api: GlApi::GlCore,
+                version: neptron_backend::GlVersion::new(3, 3),
+                depth: true,
+                stencil: true,
+                origin: neptron_types::FrameOrigin::BottomLeft,
+            },
+            error: neptron_backend::CoreRenderError::Driver {
+                operation: "create",
+                reason: "out of memory".to_owned(),
+            },
+        };
+        assert_eq!(
+            launch_notice("Tekken 3", &error),
+            "Tekken 3 did not start: the graphics driver could not prepare OpenGL 3.3 for the core."
+        );
+    }
+
+    #[test]
+    fn the_gl_notices_of_a_game_that_ran_or_never_showed() {
+        assert_eq!(
+            no_picture_notice("Crazy Taxi"),
+            "Crazy Taxi did not start: the core showed no picture in 10 seconds."
+        );
+        assert_eq!(
+            CONTEXT_LOST_NOTICE,
+            "The game stopped: the graphics driver lost the picture of the game two times."
+        );
+    }
+
+    #[test]
+    fn a_core_that_draws_in_software_after_a_refusal_gets_a_log_line() {
+        let refused = HwRefusal {
+            context_type: 3,
+            api: HwApi::OpenGl,
+            major: 3,
+            minor: 3,
+            reason: HwRefusalReason::NotOffered,
+        };
+        assert_eq!(
+            fallback_line(Some(refused)).as_deref(),
+            Some("the core asked for OpenGL 3.3 and got none; it draws in software")
+        );
+        assert_eq!(fallback_line(None), None);
     }
 
     #[test]

@@ -139,6 +139,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             hw: None,
             picture_scale: 1,
             scale_rule,
+            no_picture: false,
             geometry,
             timing: av.timing,
             always_progressive: game.always_progressive,

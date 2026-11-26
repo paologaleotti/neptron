@@ -259,7 +259,12 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                     devices.display,
                 );
                 let mut game = match launched {
-                    Ok(game) => game,
+                    Ok(game) => {
+                        found.warn_all(start_failure::fallback_line(
+                            game.session.host().hw_refusal(),
+                        ));
+                        game
+                    }
                     Err((text, mut log)) => {
                         log.insert(0, text.clone());
                         return Ok(Booted::Relaunch {

@@ -24,6 +24,9 @@ mod start;
 
 pub use config::{Devices, GameLaunch, RunRateSource, SessionOptions, VideoSetup};
 pub use error::{LaunchError, SessionError};
+/// The hardware context that a core asked for and the host refused, for
+/// the notice of the app, which reaches the host only through the session.
+pub use neptron_libretro::{HwApi, HwRefusal, HwRefusalReason};
 /// The zip listing of the core host, for the arcade set check of the app,
 /// which reaches the host only through the session.
 pub use neptron_libretro::{ZipDirectoryEntry, ZipError, zip_entries};

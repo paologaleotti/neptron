@@ -817,6 +817,28 @@ mod tests {
     }
 
     #[test]
+    fn a_gl_core_with_no_picture_is_shown_and_a_lost_save_goes_to_the_log() {
+        let h3 = crate::start_failure::no_picture_notice("Crazy Taxi");
+        assert_eq!(
+            pick_notice(EndNotice::First(h3.clone()), Some(LOST.to_owned())),
+            picked(Some(&h3), Some(LOST))
+        );
+    }
+
+    #[test]
+    fn a_lost_save_is_shown_before_a_lost_gl_context() {
+        let h4 = crate::start_failure::CONTEXT_LOST_NOTICE;
+        assert_eq!(
+            pick_notice(EndNotice::AfterSave(h4.to_owned()), Some(LOST.to_owned())),
+            picked(Some(LOST), Some(h4))
+        );
+        assert_eq!(
+            pick_notice(EndNotice::AfterSave(h4.to_owned()), None),
+            picked(Some(h4), None)
+        );
+    }
+
+    #[test]
     fn a_quit_shows_only_a_lost_save() {
         assert_eq!(
             pick_notice(EndNotice::None, Some(LOST.to_owned())),

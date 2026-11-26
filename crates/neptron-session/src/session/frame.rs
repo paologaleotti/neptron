@@ -88,7 +88,11 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             self.counters.core_frames += 1;
             report.ran_core = true;
             if self.state == State::Ended {
-                report.ended = Some(crate::end_reason(self.start, now_ns));
+                report.ended = Some(if self.no_picture {
+                    crate::EndReason::NoPicture
+                } else {
+                    crate::end_reason(self.start, now_ns)
+                });
             }
             // After the stop check: the picture of this frame counts for a
             // later stop only. A refused mode hides it, and it still counts.

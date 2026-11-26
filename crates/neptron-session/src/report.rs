@@ -66,6 +66,10 @@ pub enum EndReason {
     /// [`Session::start_errors`](crate::Session::start_errors) holds the
     /// words of the core.
     FailedStart,
+    /// A GL core sent no picture in the core frames of
+    /// [`START_WINDOW_NS`](crate::START_WINDOW_NS) after its launch: the
+    /// session ended the game, which did not start.
+    NoPicture,
 }
 
 /// The counters of a session.

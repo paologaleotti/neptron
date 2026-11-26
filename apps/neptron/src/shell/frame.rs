@@ -6,7 +6,7 @@
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::Hotkey;
 use neptron_input::PadRoster;
-use neptron_session::{EndReason, PacingChange};
+use neptron_session::{EndReason, PacingChange, SessionError};
 use neptron_types::{Control, Frame, PixelFormat};
 use neptron_ui::screens::{INPUT_PAGE, KEEP_SCREEN, NETWORK_PAGE, NETWORK_SCREEN};
 use neptron_ui::snapshot::NoticeKind;
@@ -203,6 +203,16 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                     (self.runtime.pace)(now_ns.saturating_add(UNPACED_FRAME_NS));
                 }
             }
+            // The loss of a GL context has its own notice (H4); the end is
+            // the same as below.
+            Err(SessionError::ContextLost { losses }) => {
+                self.log(format!(
+                    "the graphics driver lost the context of the core {losses} times"
+                ));
+                self.end_game(EndNotice::AfterSave(
+                    start_failure::CONTEXT_LOST_NOTICE.to_owned(),
+                ));
+            }
             // One rule for a stalled display (`SessionError::DisplayStalled`),
             // a failed core and an ended session: the game ends, and the
             // run relaunches to the game list, which opens the display
@@ -237,6 +247,10 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 let text = start_failure::ended_notice(&name, said);
                 (EndNotice::AfterSave(text), Vec::new())
             }
+            EndReason::NoPicture => (
+                EndNotice::First(start_failure::no_picture_notice(&name)),
+                start_failure::core_log(session.start_errors()),
+            ),
         };
         for line in lines {
             self.log(line);

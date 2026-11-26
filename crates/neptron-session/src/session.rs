@@ -67,6 +67,9 @@ pub struct Session<D: Display, S: AudioSink, I: InputSource, C: Clock> {
     /// The rule of the internal resolution of a GL core with such an
     /// option, for a live change of the scanlines.
     scale_rule: Option<hw::ScaleRule>,
+    /// A GL core sent no picture in its first core frames: the session
+    /// ended the game.
+    no_picture: bool,
     geometry: GameGeometry,
     timing: Timing,
     /// The system data says that every frame is progressive.

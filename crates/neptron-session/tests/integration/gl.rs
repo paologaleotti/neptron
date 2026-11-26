@@ -415,11 +415,7 @@ fn a_gl_core_with_no_picture_ends_after_ten_seconds() {
                     break;
                 }
             }
-            assert_eq!(
-                ended,
-                Some(EndReason::FailedStart),
-                "no picture: the game did not start"
-            );
+            assert_eq!(ended, Some(EndReason::NoPicture));
             let counters = rig.session.counters();
             assert_eq!(
                 counters.settle_frames + counters.core_frames,
