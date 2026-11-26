@@ -136,6 +136,9 @@ pub struct Rig {
     /// Power control, as a launcher with `--power` gives it. On by
     /// default, as on the image.
     pub power: bool,
+    /// The game frames that the heartbeat thread would read, shared with
+    /// the runtime of each run.
+    pub pulse: neptron::heartbeat::Pulse,
 }
 
 /// Runs `body` in a child process of the test binary with the test core's
@@ -301,6 +304,7 @@ impl Rig {
             shell: None,
             stop: Arc::new(AtomicBool::new(false)),
             power: true,
+            pulse: neptron::heartbeat::Pulse::default(),
         }
     }
 
@@ -332,7 +336,7 @@ impl Rig {
             boot_file: neptron::prestart::prepare(&self.paths).imported,
             audio_outputs: audio_outputs(),
             power: self.power,
-            pulse: neptron::heartbeat::Pulse::default(),
+            pulse: self.pulse.clone(),
         };
         let rule = match next.as_ref().and_then(|n| n.game.as_ref()) {
             Some(_) => PortRule::Game,

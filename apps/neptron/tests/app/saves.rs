@@ -43,10 +43,15 @@ fn play(rig: &mut Rig, path: &str) -> (String, String) {
         notice: None,
     }));
     assert!(rig.shell().in_game(), "{path}");
+    assert!(rig.pulse.in_game(), "the watchdog watches the game");
     rig.frames(400);
     let key = rig.shell().config().context().expect("a game").game.clone();
     let style = rig.shell().config().text("display.style");
     rig.finish();
+    assert!(
+        !rig.pulse.in_game(),
+        "the last save flush of a run that ends in a game runs with the watchdog disarmed"
+    );
     (key, style)
 }
 

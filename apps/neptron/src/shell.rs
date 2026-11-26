@@ -531,6 +531,9 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     /// file. Returns the writes that failed. The end is clean, so the
     /// guard record clears its run marker first.
     pub fn finish(mut self) -> Vec<String> {
+        // The writes below (the guard record, the last save RAM flush, the
+        // outbox) can take longer than the watchdog waits.
+        self.runtime.pulse.leave_game();
         if let Some(record) = self.guard.close_run().save {
             self.save_record(record);
         }

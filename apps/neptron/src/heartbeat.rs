@@ -73,6 +73,12 @@ impl Pulse {
         self.state.in_game.store(false, Ordering::Release);
     }
 
+    /// True between [`Pulse::enter_game`] and [`Pulse::leave_game`]: the
+    /// watchdog of the launcher watches.
+    pub fn in_game(&self) -> bool {
+        self.state.in_game.load(Ordering::Acquire)
+    }
+
     /// A frame of the game ended.
     pub fn frame(&self) {
         self.state.frames.fetch_add(1, Ordering::Relaxed);
