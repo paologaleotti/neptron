@@ -517,6 +517,32 @@ impl Script {
         Self::parse_bytes(&bytes).map_err(|source| LoadError::Parse { path, source })
     }
 
+    /// The script with every size `k` times larger: the base and maximum
+    /// sizes, and the sizes of the `geometry`, `av_info` and `size`
+    /// events. A GL core at an internal resolution of `k` reports and
+    /// draws these sizes.
+    pub fn scaled(mut self, k: u32) -> Script {
+        let k = k.max(1);
+        let scale = |size: Size| Size {
+            width: size.width * k,
+            height: size.height * k,
+        };
+        self.av.geometry.size = scale(self.av.geometry.size);
+        self.av.max = scale(self.av.max);
+        for event in &mut self.events {
+            match &mut event.action {
+                Action::Geometry(g) => g.size = scale(g.size),
+                Action::AvInfo(av) => {
+                    av.geometry.size = scale(av.geometry.size);
+                    av.max = scale(av.max);
+                }
+                Action::Size(size) => *size = scale(*size),
+                _ => {}
+            }
+        }
+        self
+    }
+
     /// The largest maximum size in the script: the size of the frame buffer
     /// that the core allocates at load.
     pub fn buffer_size(&self) -> Size {
@@ -1855,5 +1881,67 @@ rotation 2"
         assert_eq!(PixelFormat::Rgb565.bytes_per_pixel(), 2);
         assert_eq!(PixelFormat::Rgb1555.bytes_per_pixel(), 2);
         assert_eq!(PixelFormat::Rgb1555.colour_mask(), 0x7FFF);
+    }
+
+    #[test]
+    fn a_scaled_script_reports_every_size_k_times_larger() {
+        let script = Script::parse(
+            "neptron-testcore 5\nhw_render gles2 2 0\ngeometry 320 224 0\nmax_size 640 480\n\
+             at 2 geometry 256 224 0\nat 3 size 300 200\n\
+             at 4 av_info 320 240 0 640 480 60000 48000\n",
+        )
+        .expect("a valid script")
+        .scaled(2);
+        assert_eq!(
+            script.av.geometry.size,
+            Size {
+                width: 640,
+                height: 448
+            }
+        );
+        assert_eq!(
+            script.av.max,
+            Size {
+                width: 1_280,
+                height: 960
+            }
+        );
+        let sizes: Vec<Size> = script
+            .events
+            .iter()
+            .map(|e| match e.action {
+                Action::Geometry(g) => g.size,
+                Action::Size(s) => s,
+                Action::AvInfo(av) => av.max,
+                _ => Size {
+                    width: 0,
+                    height: 0,
+                },
+            })
+            .collect();
+        assert_eq!(
+            sizes,
+            [
+                Size {
+                    width: 512,
+                    height: 448
+                },
+                Size {
+                    width: 600,
+                    height: 400
+                },
+                Size {
+                    width: 1_280,
+                    height: 960
+                }
+            ]
+        );
+        assert_eq!(
+            script.buffer_size(),
+            Size {
+                width: 1_280,
+                height: 960
+            }
+        );
     }
 }

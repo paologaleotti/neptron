@@ -102,6 +102,9 @@ The core declares two options with `SET_VARIABLES` in `retro_set_environment`. W
 | `neptron_testcore_mode` | `Test mode; alpha\|beta\|gamma` | `retro_set_environment`, and `retro_load_game` with `options load` |
 | `neptron_testcore_level` | `Test level; 1\|2\|3` | `retro_set_environment`, and `retro_load_game` with `options load` |
 | `neptron_testcore_dip` | `Test DIP; off\|on` | `retro_load_game` with `options load` only |
+| `neptron_testcore_scale` | `Test internal resolution; 1\|2\|3\|4` | `retro_load_game` with `hw_render` only, with the three others |
+
+A script with `hw_render` declares all four options in `retro_load_game` and reads `neptron_testcore_scale` there, as a GL core with an upscale option does. Its value `k` (1 when unset or not listed) makes every size of the script `k` times larger: the base and maximum sizes, and the sizes of the `geometry`, `av_info` and `size` events (`Script::scaled`). The core then reports those sizes and draws the card at them.
 
 A `get_variable` event writes one byte of save RAM: 0 when the frontend returns false or no value, the position of the value in the list plus 1 (1 to 3), or 255 for a value that the list does not have. A test reads the byte through `retro_get_memory_data`.
 

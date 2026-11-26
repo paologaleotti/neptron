@@ -36,12 +36,34 @@ pub const LOAD_OPTION: CoreOption = CoreOption {
     values: &["off", "on"],
 };
 
+/// The internal resolution of a GL core: the core draws every frame and
+/// reports every size this many times larger. A script with `hw_render`
+/// declares it in `retro_load_game`, with the others, and reads it there,
+/// as a GL core with an upscale option does.
+pub const SCALE_OPTION: CoreOption = CoreOption {
+    key: "neptron_testcore_scale",
+    description: "Test internal resolution",
+    values: &["1", "2", "3", "4"],
+};
+
 /// The option with index `option`: the [`CORE_OPTIONS`], then
-/// [`LOAD_OPTION`].
+/// [`LOAD_OPTION`], then [`SCALE_OPTION`].
 pub fn option(option: usize) -> Option<&'static CoreOption> {
-    CORE_OPTIONS
-        .get(option)
-        .or_else(|| (option == CORE_OPTIONS.len()).then_some(&LOAD_OPTION))
+    let load = CORE_OPTIONS.len();
+    CORE_OPTIONS.get(option).or(match option {
+        o if o == load => Some(&LOAD_OPTION),
+        o if o == load + 1 => Some(&SCALE_OPTION),
+        _ => None,
+    })
+}
+
+/// The internal resolution for the value of [`SCALE_OPTION`]: 1 for no
+/// value or a value that the option does not list.
+pub fn scale_of(value: Option<&str>) -> u32 {
+    value
+        .filter(|v| SCALE_OPTION.values.contains(v))
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1)
 }
 
 /// The save RAM byte when `GET_VARIABLE` returns false or no value.
@@ -52,7 +74,7 @@ pub const VALUE_NOT_LISTED: u8 = 0xFF;
 
 /// The index of the option with this key, as [`option`] numbers them.
 pub fn option_index(key: &str) -> Option<usize> {
-    (0..=CORE_OPTIONS.len()).find(|&i| option(i).is_some_and(|o| o.key == key))
+    (0..=CORE_OPTIONS.len() + 1).find(|&i| option(i).is_some_and(|o| o.key == key))
 }
 
 /// The save RAM byte that records the answer to `GET_VARIABLE` for option
@@ -85,7 +107,7 @@ mod tests {
         assert_eq!(option_index("neptron_testcore_dip"), Some(2));
         assert_eq!(option_index("other"), None);
         assert_eq!(option(2), Some(&LOAD_OPTION));
-        assert_eq!(option(3), None);
+        assert_eq!(option(4), None);
     }
 
     #[test]
@@ -104,5 +126,21 @@ mod tests {
         assert_eq!(declaration(&CORE_OPTIONS[0]), "Test mode; alpha|beta|gamma");
         assert_eq!(declaration(&CORE_OPTIONS[1]), "Test level; 1|2|3");
         assert_eq!(declaration(&LOAD_OPTION), "Test DIP; off|on");
+    }
+
+    #[test]
+    fn the_scale_option_comes_after_the_load_option() {
+        assert_eq!(option(3), Some(&SCALE_OPTION));
+        assert_eq!(option(4), None);
+        assert_eq!(option_index("neptron_testcore_scale"), Some(3));
+    }
+
+    #[test]
+    fn a_scale_value_gives_its_number_and_anything_else_1() {
+        assert_eq!(scale_of(Some("4")), 4);
+        assert_eq!(scale_of(Some("1")), 1);
+        assert_eq!(scale_of(Some("5")), 1);
+        assert_eq!(scale_of(Some("x")), 1);
+        assert_eq!(scale_of(None), 1);
     }
 }

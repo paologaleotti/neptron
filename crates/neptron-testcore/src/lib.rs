@@ -28,8 +28,8 @@ pub use gl_card::{
 };
 pub use model::{Core, PADDING_BYTE, Request, SaveRam, Step, UNKNOWN_ENVIRONMENT_COMMAND, Video};
 pub use options::{
-    CORE_OPTIONS, CoreOption, LOAD_OPTION, VALUE_NOT_LISTED, VALUE_NOT_SET, declaration, option,
-    option_index, value_code,
+    CORE_OPTIONS, CoreOption, LOAD_OPTION, SCALE_OPTION, VALUE_NOT_LISTED, VALUE_NOT_SET,
+    declaration, option, option_index, scale_of, value_code,
 };
 
 pub use script::{

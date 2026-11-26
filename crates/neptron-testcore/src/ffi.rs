@@ -37,7 +37,7 @@ use crate::gl_card::{
     gl_card,
 };
 use crate::model::{Core, Request, Step, UNKNOWN_ENVIRONMENT_COMMAND, Video};
-use crate::options::{CORE_OPTIONS, VALUE_NOT_LISTED, VALUE_NOT_SET, value_code};
+use crate::options::{CORE_OPTIONS, VALUE_NOT_LISTED, VALUE_NOT_SET, scale_of, value_code};
 use crate::script::{
     AudioMode, AvInfo, Geometry, HwContext, HwRender, LoadOutcome, LogLevel, OptionTiming,
     PixelFormat, Script, Size,
@@ -148,18 +148,24 @@ const LIBRARY_NAME: &[u8] = b"neptron-testcore\0";
 const LIBRARY_VERSION: &[u8] = concat!(env!("CARGO_PKG_VERSION"), "\0").as_bytes();
 const VALID_EXTENSIONS: &[u8] = b"ntc\0";
 const JOYPAD_BUTTONS: c_uint = 16;
-// The C form of `CORE_OPTIONS` and `LOAD_OPTION`, in the order of
-// `options::option`; a test checks that both say the same.
-const OPTION_KEYS: [&CStr; 3] = [
+// The C form of `CORE_OPTIONS`, `LOAD_OPTION` and `SCALE_OPTION`, in the
+// order of `options::option`; a test checks that both say the same.
+const OPTION_KEYS: [&CStr; 4] = [
     c"neptron_testcore_mode",
     c"neptron_testcore_level",
     c"neptron_testcore_dip",
+    c"neptron_testcore_scale",
 ];
-const OPTION_DECLARATIONS: [&CStr; 3] = [
+const OPTION_DECLARATIONS: [&CStr; 4] = [
     c"Test mode; alpha|beta|gamma",
     c"Test level; 1|2|3",
     c"Test DIP; off|on",
+    c"Test internal resolution; 1|2|3|4",
 ];
+/// The options of `options load`: all but `SCALE_OPTION`.
+const LOAD_OPTIONS: usize = 3;
+/// The index of `SCALE_OPTION`.
+const SCALE_INDEX: usize = 3;
 
 // Each export coerces to the function pointer type of the header only when
 // its signature matches.
@@ -457,8 +463,14 @@ pub extern "C" fn retro_load_game(_game: *const retro_game_info) -> bool {
             &raw mut can_dupe,
         ) && can_dupe;
         if script.options == OptionTiming::Load {
-            declare_options(&callbacks, OPTION_KEYS.len());
+            declare_options(&callbacks, LOAD_OPTIONS);
             log_option_values(&callbacks);
+        }
+        let mut script = script;
+        if script.hw_render.is_some() {
+            declare_options(&callbacks, OPTION_KEYS.len());
+            let value = variable_value(&callbacks, SCALE_INDEX).and_then(Result::ok);
+            script = script.scaled(scale_of(value.as_deref()));
         }
         if let Some(mut rotation) = script.rotation {
             // The core sends its frames as drawn whatever the answer.
@@ -922,7 +934,7 @@ fn variable_value(callbacks: &Callbacks, option: usize) -> Option<Result<String,
 /// Reads every option with `GET_VARIABLE` and logs `option <key> = <value>`
 /// at info level, so a test sees what the core got at load.
 fn log_option_values(callbacks: &Callbacks) {
-    for (option, key) in OPTION_KEYS.iter().enumerate() {
+    for (option, key) in OPTION_KEYS.iter().enumerate().take(LOAD_OPTIONS) {
         let key = key.to_string_lossy();
         let text = match variable_value(callbacks, option) {
             Some(Ok(value)) => format!("option {key} = {value}"),
