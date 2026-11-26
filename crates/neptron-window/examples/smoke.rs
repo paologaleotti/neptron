@@ -12,8 +12,8 @@ use std::path::Path;
 
 use neptron_backend::{Display, InputSource};
 use neptron_types::{
-    Control, Filter, Frame, InputEvent, Modeline, MonitorProfile, PixelFormat, Rect, Rotation,
-    Scanlines, Scene,
+    Control, Filter, Frame, GamePicture, InputEvent, Modeline, MonitorProfile, PixelFormat, Rect,
+    Rotation, Scanlines, Scene,
 };
 use neptron_window::{KEYBOARD_DEVICE_ID, KeyboardPad, WindowDisplay};
 use sdl3::event::Event;
@@ -118,7 +118,7 @@ fn run_frames(
         // picture.
         let shift = i32::try_from(i % 16)?;
         let scene = Scene {
-            game: Some(frame),
+            game: Some(GamePicture::Memory(frame)),
             crop: Rect {
                 x: shift,
                 y: 0,

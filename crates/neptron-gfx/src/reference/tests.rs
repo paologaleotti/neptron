@@ -1,4 +1,7 @@
-use neptron_types::{Filter, Frame, PixelFormat, Rect, Rotation, ScanlineKind, Scanlines, Scene};
+use neptron_types::{
+    Filter, Frame, FrameOrigin, GamePicture, GpuFrame, GpuImageId, PixelFormat, Rect, Rotation,
+    ScanlineKind, Scanlines, Scene,
+};
 
 use super::{Image, MAX_RECT_SIDE_PX, OutputBuffer, RectKind, ReferenceRenderer, RenderError};
 
@@ -25,7 +28,7 @@ fn rect(x: i32, y: i32, w: u32, h: u32) -> Rect {
 
 fn scene<'a>(game: Option<Frame<'a>>, crop: Rect, dest: Rect, filter: Filter) -> Scene<'a> {
     Scene {
-        game,
+        game: game.map(GamePicture::Memory),
         crop,
         dest,
         filter,
@@ -790,6 +793,24 @@ fn a_scanline_strength_above_100_is_refused() {
     // Without a game frame the strength is not used, and not checked.
     let s = Scene { game: None, ..s };
     assert_eq!(render(&s, 1, 4), [BLACK; 4]);
+}
+
+#[test]
+fn a_gpu_picture_is_refused() {
+    let gpu = GpuFrame {
+        image: GpuImageId(1),
+        width: 2,
+        height: 2,
+        storage_width: 4,
+        storage_height: 4,
+        origin: FrameOrigin::BottomLeft,
+    };
+    let s = Scene {
+        game: Some(GamePicture::Gpu(gpu)),
+        ..scene(None, rect(0, 0, 2, 2), rect(0, 0, 2, 2), Filter::Nearest)
+    };
+    let mut out = vec![7_u8; 16];
+    assert_eq!(render_err(&s, &mut out, 2, 2, 8), RenderError::NoPixels);
 }
 
 mod turn;

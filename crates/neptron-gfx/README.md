@@ -13,7 +13,7 @@ Renderers for a `Scene`. `ReferenceRenderer` (CPU, pure Rust) defines the correc
 
 - `ReferenceRenderer` with `render(&mut self, &Scene, &mut OutputBuffer) -> Result<(), RenderError>`
 - `OutputBuffer { data: &mut [u8], width: u32, height: u32, pitch: usize }`, owned by the caller
-- `RenderError`, `Image`, `RectKind`, `MAX_RECT_SIDE_PX`. `ScanlineStrengthTooHigh` refuses a strength above 100 %.
+- `RenderError`, `Image`, `RectKind`, `MAX_RECT_SIDE_PX`. `ScanlineStrengthTooHigh` refuses a strength above 100 %. `NoPixels` refuses a `GamePicture::Gpu` picture: the reference renderer reads only pixels in memory, and the `GlesRenderer` does not draw a GPU picture yet.
 - `gles::GlesRenderer` (feature `gles`): `headless()`, `on_gbm(Rc<dyn GbmTarget>)`, `pbuffer(width, height)` and `read_window(&mut OutputBuffer)` for checks of the window path, `render(&Scene, &mut OutputBuffer)`, `draw_to_window(&Scene, width, height)`, `gl_strings()`, `max_texture_side()`, `max_output_side()`, and the counters `ui_rows_uploaded()`, `game_uploads()`, `game_parts_drawn()`. Errors are `GlesError`.
 - `gles::MAX_AXIS_PRODUCT`, `gles::GbmTarget` (an unsafe trait: the GBM device and surface pointers)
 

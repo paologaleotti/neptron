@@ -17,7 +17,7 @@ pub(crate) use pixel::{from_rgb565, from_xrgb1555};
 pub(crate) use scanline::Pattern;
 pub(crate) use turn::{Turn, TurnedAxis};
 
-use neptron_types::{Frame, Scene};
+use neptron_types::{Frame, GamePicture, Scene};
 
 use axis::Tap;
 use scanline::FULL_PERCENT;
@@ -173,8 +173,9 @@ impl ReferenceRenderer {
     /// its size and pitch need, when a side of a rectangle that the
     /// scene uses is above [`MAX_RECT_SIDE_PX`] (the crop and the
     /// destination with a game frame, the UI destination with a canvas),
-    /// or when the scanline strength of a scene with a game frame is above
-    /// 100 %. The renderer checks everything before it writes, so `out` is
+    /// when the scanline strength of a scene with a game frame is above
+    /// 100 %, or when the game picture is a [`GamePicture::Gpu`] image,
+    /// which has no pixels in memory ([`RenderError::NoPixels`]). The renderer checks everything before it writes, so `out` is
     /// unchanged after an error.
     pub fn render(
         &mut self,
@@ -182,7 +183,12 @@ impl ReferenceRenderer {
         out: &mut OutputBuffer<'_>,
     ) -> Result<(), RenderError> {
         check_output(out)?;
-        if let Some(game) = &scene.game {
+        let game = match &scene.game {
+            Some(GamePicture::Memory(frame)) => Some(frame),
+            Some(GamePicture::Gpu(_)) => return Err(RenderError::NoPixels),
+            None => None,
+        };
+        if let Some(game) = game {
             check_frame(game, Image::Game)?;
             check_rect(&scene.crop, RectKind::Crop)?;
             check_rect(&scene.dest, RectKind::Dest)?;
@@ -193,7 +199,7 @@ impl ReferenceRenderer {
             check_rect(&scene.ui_dest, RectKind::UiDest)?;
         }
         fill_black(out);
-        if let Some(game) = &scene.game {
+        if let Some(game) = game {
             self.draw_game(game, scene, out);
         }
         if let Some(ui) = &scene.ui {

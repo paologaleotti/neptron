@@ -7,7 +7,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use neptron_gfx::{OutputBuffer, ReferenceRenderer, RenderError};
 use neptron_types::{
-    Filter, Frame, Modeline, PixelFormat, Rect, Rotation, ScanlineKind, Scanlines, Scene,
+    Filter, Frame, GamePicture, Modeline, PixelFormat, Rect, Rotation, ScanlineKind, Scanlines,
+    Scene,
 };
 
 use crate::{RgbImage, frame_hash};
@@ -196,7 +197,11 @@ impl OwnedScene {
         bytes.push(rotation_byte(scene.rotation));
         bytes.push(rotation_byte(scene.ui_rotation));
         bytes.push(filter_byte(scene.ui_filter));
-        for frame in [&scene.game, &scene.ui] {
+        let game = match scene.game {
+            Some(GamePicture::Memory(frame)) => Some(frame),
+            Some(GamePicture::Gpu(_)) | None => None,
+        };
+        for frame in [&game, &scene.ui] {
             match frame {
                 None => bytes.push(0),
                 Some(f) => {
@@ -211,7 +216,7 @@ impl OwnedScene {
                 }
             }
         }
-        self.game = scene.game.as_ref().map(|f| copy_rows(bytes, f));
+        self.game = game.as_ref().map(|f| copy_rows(bytes, f));
         self.ui = scene.ui.as_ref().map(|f| copy_rows(bytes, f));
         self.crop = Some(scene.crop);
         self.dest = Some(scene.dest);
@@ -245,7 +250,7 @@ impl OwnedScene {
             h: 0,
         };
         Scene {
-            game: self.game.as_ref().map(frame),
+            game: self.game.as_ref().map(frame).map(GamePicture::Memory),
             crop: self.crop.unwrap_or(empty),
             dest: self.dest.unwrap_or(empty),
             filter: self.filter.unwrap_or(Filter::Nearest),

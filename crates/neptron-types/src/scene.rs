@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{Rotation, Scanlines};
+use crate::{GamePicture, Rotation, Scanlines};
 
 /// The layout of one pixel in memory. Each format is one native-endian
 /// integer per pixel, as libretro defines it.
@@ -72,8 +72,11 @@ pub enum Filter {
 /// Everything one flip shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Scene<'a> {
-    /// The game frame, or `None` for no game picture.
-    pub game: Option<Frame<'a>>,
+    /// The game picture, or `None` for no game picture. A
+    /// [`GamePicture::Gpu`] picture follows every rule below as a
+    /// [`GamePicture::Memory`] frame does, after the rule of its
+    /// [`FrameOrigin`](crate::FrameOrigin).
+    pub game: Option<GamePicture<'a>>,
     /// The part of the game frame to show, in game frame pixels, as the
     /// core draws the frame: before the turn of `rotation`.
     pub crop: Rect,

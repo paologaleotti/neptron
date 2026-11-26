@@ -1,7 +1,9 @@
 //! What the fake display records, and the queries on it.
 
 use neptron_backend::DisplayError;
-use neptron_types::{Filter, FlipEvent, Modeline, PixelFormat, Rect, Rotation, Scene, TvStandard};
+use neptron_types::{
+    Filter, FlipEvent, GamePicture, Modeline, PixelFormat, Rect, Rotation, Scene, TvStandard,
+};
 
 use super::FakeDisplay;
 
@@ -110,7 +112,10 @@ impl FrameRecord {
 impl SceneSummary {
     pub(crate) fn of(scene: &Scene<'_>) -> Self {
         Self {
-            game: scene.game.map(|f| (f.width, f.height, f.format)),
+            game: match scene.game {
+                Some(GamePicture::Memory(f)) => Some((f.width, f.height, f.format)),
+                Some(GamePicture::Gpu(_)) | None => None,
+            },
             crop: scene.crop,
             dest: scene.dest,
             filter: scene.filter,

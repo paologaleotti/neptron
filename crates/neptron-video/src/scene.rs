@@ -1,7 +1,7 @@
 use neptron_modeline::policy::{Placement, ui_placement, whole_multiple};
 use neptron_types::{
-    Filter, Form, Frame, Modeline, MonitorKind, Rect, Rotation, Scene, ScreenClass, SourceGeometry,
-    scanlines_for,
+    Filter, Form, Frame, GamePicture, Modeline, MonitorKind, Rect, Rotation, Scene, ScreenClass,
+    SourceGeometry, scanlines_for,
 };
 
 use crate::ScanlineSettings;
@@ -85,7 +85,7 @@ pub fn build_scene<'a>(
     );
     let (ui_dest, ui_filter) = ui_place(inputs, ui.as_ref());
     Scene {
-        game,
+        game: game.map(GamePicture::Memory),
         crop,
         dest,
         rotation,

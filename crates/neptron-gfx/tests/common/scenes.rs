@@ -3,8 +3,8 @@
 //! the GLES renderer with the reference on the same scenes.
 
 use neptron_types::{
-    Filter, Frame, PixelFormat, Rect, Rotation, ScanlineKind, Scanlines, Scene, ui_dest_fill,
-    ui_dest_uniform,
+    Filter, Frame, GamePicture, PixelFormat, Rect, Rotation, ScanlineKind, Scanlines, Scene,
+    ui_dest_fill, ui_dest_uniform,
 };
 
 /// Extra bytes at the end of each source row, so that the scenes also
@@ -200,7 +200,11 @@ impl Case {
     /// The scene, borrowing the images of the case.
     pub fn scene(&self) -> Scene<'_> {
         Scene {
-            game: self.game.as_ref().map(Source::frame),
+            game: self
+                .game
+                .as_ref()
+                .map(Source::frame)
+                .map(GamePicture::Memory),
             crop: self.crop,
             dest: self.dest,
             filter: self.filter,

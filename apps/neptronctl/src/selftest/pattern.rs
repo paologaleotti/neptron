@@ -2,7 +2,9 @@
 //! a border on the outermost pixels, a centre cross, colour bars, and the
 //! mode label and rates as text.
 
-use neptron_types::{Filter, Frame, Modeline, PixelFormat, Rect, Rotation, Scanlines, Scene};
+use neptron_types::{
+    Filter, Frame, GamePicture, Modeline, PixelFormat, Rect, Rotation, Scanlines, Scene,
+};
 
 /// The widest texture side that every supported GPU takes, in texels:
 /// `GL_MAX_TEXTURE_SIZE` of vc4 on the Raspberry Pi. The GPUs of the
@@ -72,13 +74,13 @@ impl Pattern {
             h: u32::from(h),
         };
         Scene {
-            game: Some(Frame {
+            game: Some(GamePicture::Memory(Frame {
                 data: &self.pixels,
                 width: self.width,
                 height: self.height,
                 pitch: usize::from(self.width) * BYTES_PER_PIXEL,
                 format: PixelFormat::Xrgb8888,
-            }),
+            })),
             crop: full(self.width, self.height),
             dest: full(self.mode_width, self.mode_height),
             filter: Filter::Nearest,
@@ -333,7 +335,9 @@ mod tests {
     fn the_scene_fills_the_active_area() {
         let p = Pattern::draw(&mode(1280, 240, false), &[]);
         let scene = p.scene();
-        let game = scene.game.unwrap();
+        let Some(GamePicture::Memory(game)) = scene.game else {
+            panic!("the pattern is a frame in memory");
+        };
         assert_eq!((game.width, game.height), (320, 240), "1280 / 4");
         assert_eq!(game.data.len(), 320 * 240 * 4);
         assert_eq!((scene.dest.w, scene.dest.h), (1280, 240));
@@ -345,7 +349,7 @@ mod tests {
     fn a_wide_mode_gets_a_frame_narrower_by_a_whole_factor() {
         let p = Pattern::draw(&mode(3840, 240, false), &["X".to_owned()]);
         let scene = p.scene();
-        assert_eq!(scene.game.unwrap().width, 480);
+        assert_eq!(scene.game.unwrap().width(), 480);
         assert_eq!(scene.dest.w, 3840);
         assert_eq!(p.pixel(479, 5), Some(WHITE), "the right border");
     }
@@ -376,7 +380,7 @@ mod tests {
     #[test]
     fn an_interlaced_mode_draws_both_fields() {
         let p = Pattern::draw(&mode(480, 480, true), &[]);
-        assert_eq!(p.scene().game.unwrap().height, 480);
+        assert_eq!(p.scene().game.unwrap().height(), 480);
         assert_eq!(p.pixel(10, 479), Some(WHITE));
     }
 

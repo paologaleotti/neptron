@@ -13,7 +13,7 @@ use std::process::ExitCode;
 use neptron_gfx::gles::{GlesError, GlesRenderer};
 use neptron_gfx::{Image, OutputBuffer, RectKind, ReferenceRenderer, RenderError};
 use neptron_types::{
-    Filter, PixelFormat, Rect, Rotation, ScanlineKind, Scanlines, Scene, ui_dest_fill,
+    Filter, GamePicture, PixelFormat, Rect, Rotation, ScanlineKind, Scanlines, Scene, ui_dest_fill,
     ui_dest_uniform,
 };
 
@@ -1332,7 +1332,7 @@ fn error_checks(gles: &mut GlesRenderer) -> Vec<(&'static str, bool)> {
     let mut frame = game.frame();
     frame.pitch = 4;
     let short_pitch = Scene {
-        game: Some(frame),
+        game: Some(GamePicture::Memory(frame)),
         crop: rect(0, 0, 8, 6),
         dest: rect(0, 0, 8, 6),
         filter: Filter::Nearest,
@@ -1344,7 +1344,7 @@ fn error_checks(gles: &mut GlesRenderer) -> Vec<(&'static str, bool)> {
         ui_filter: Filter::Nearest,
     };
     let too_large = Scene {
-        game: Some(game.frame()),
+        game: Some(GamePicture::Memory(game.frame())),
         crop: rect(0, 0, 4097, 6),
         dest: rect(0, 0, 2048, 6),
         ..short_pitch
@@ -1377,7 +1377,7 @@ fn error_checks(gles: &mut GlesRenderer) -> Vec<(&'static str, bool)> {
     // stays inside the texture limit of vc4.
     let tall = Source::pattern(4, 2048, PixelFormat::Rgb565);
     let turned_too_large = Scene {
-        game: Some(tall.frame()),
+        game: Some(GamePicture::Memory(tall.frame())),
         crop: rect(0, 0, 4, 2048),
         dest: rect(0, 0, 4097, 6),
         ..short_pitch
@@ -1466,7 +1466,7 @@ fn texture_limit(gles: &mut GlesRenderer, untouched: &mut bool) -> bool {
     };
     let game = Source::from_fn(width, 1, PixelFormat::Xrgb8888, |_, _| 0);
     let scene = Scene {
-        game: Some(game.frame()),
+        game: Some(GamePicture::Memory(game.frame())),
         crop: rect(0, 0, 1, 1),
         dest: rect(0, 0, 1, 1),
         filter: Filter::Nearest,

@@ -56,9 +56,9 @@ mod linux {
     use neptron_kms::{ConnectorClass, KmsConfig, KmsDisplay, KmsError, ModeRecord};
     use neptron_safety::{ValidatedMode, validate};
     use neptron_types::{
-        CrtRange, Filter, FlipEvent, Frame, GpuCaps, Modeline, MonitorKind, MonitorProfile,
-        PixelFormat, Rect, Rotation, ScanlineKind, Scanlines, Scene, TV_525_240P, TV_525_480I,
-        TV_625_288P, TV_625_576I, TvStandard,
+        CrtRange, Filter, FlipEvent, Frame, GamePicture, GpuCaps, Modeline, MonitorKind,
+        MonitorProfile, PixelFormat, Rect, Rotation, ScanlineKind, Scanlines, Scene, TV_525_240P,
+        TV_525_480I, TV_625_288P, TV_625_576I, TvStandard,
     };
 
     /// The device the shell opened on descriptor 3.
@@ -1026,7 +1026,7 @@ mod linux {
             let frame = source_frame;
             let (w, h) = (u32::from(mode.hactive), u32::from(mode.vactive));
             Scene {
-                game: Some(frame(&self.game)),
+                game: Some(GamePicture::Memory(frame(&self.game))),
                 crop: Rect {
                     x: 0,
                     y: 0,

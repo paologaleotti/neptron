@@ -72,6 +72,9 @@ pub enum RenderError {
         /// The limit, in percent.
         limit: u8,
     },
+    /// The game picture is an image on the GPU, with no pixels in memory.
+    #[error("the game picture is an image on the GPU, with no pixels in memory")]
+    NoPixels,
 }
 
 /// An image that the renderer reads or writes.

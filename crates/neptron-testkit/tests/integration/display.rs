@@ -12,8 +12,9 @@ use neptron_testkit::{
     Render, SimClock, frame_hash,
 };
 use neptron_types::{
-    Filter, FlipEvent, Frame, GpuCaps, Modeline, MonitorKind, MonitorProfile, PixelFormat, Rect,
-    Rotation, ScanlineKind, Scanlines, Scene, TV_525_240P, TV_625_576I, TvStandard,
+    Filter, FlipEvent, Frame, GamePicture, GpuCaps, Modeline, MonitorKind, MonitorProfile,
+    PixelFormat, Rect, Rotation, ScanlineKind, Scanlines, Scene, TV_525_240P, TV_625_576I,
+    TvStandard,
 };
 
 /// One period of 240p at 60.029 Hz, in nanoseconds: 10^12 / 60 029,
@@ -47,13 +48,13 @@ fn bytes(pixels: &[u32]) -> Vec<u8> {
 
 fn scene(data: &[u8]) -> Scene<'_> {
     Scene {
-        game: Some(Frame {
+        game: Some(GamePicture::Memory(Frame {
             data,
             width: 4,
             height: 2,
             pitch: 16,
             format: PixelFormat::Xrgb8888,
-        }),
+        })),
         crop: Rect {
             x: 0,
             y: 0,
@@ -799,7 +800,7 @@ fn the_scene_hash_ignores_the_row_padding() {
         let mut display = FakeDisplay::with_options(clock, CAPS_LOW_CLOCK, options);
         display.set_mode(&mode(MODE_240P)).unwrap();
         let mut s = scene(data);
-        if let Some(game) = &mut s.game {
+        if let Some(GamePicture::Memory(game)) = &mut s.game {
             game.pitch = pitch;
         }
         display.present(&s).unwrap();

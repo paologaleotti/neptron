@@ -1,7 +1,7 @@
 use std::ops::Range;
 use std::rc::Rc;
 
-use neptron_types::{Filter, Frame, Rect, Rotation, Scene};
+use neptron_types::{Filter, Frame, GamePicture, Rect, Rotation, Scene};
 
 use super::GlesError;
 use super::changed::Shown;
@@ -13,7 +13,7 @@ use super::quad::{Quad, quad};
 use super::shader::{self, VARIANTS, Variant};
 use super::texels;
 use crate::reference::{Pattern, Turn, check_frame, check_output, check_rect, check_scanlines};
-use crate::{Image, OutputBuffer, RectKind};
+use crate::{Image, OutputBuffer, RectKind, RenderError};
 
 /// Draws a [`Scene`] with EGL and OpenGL ES 2, with the pixel rules of
 /// [`ReferenceRenderer`](crate::ReferenceRenderer).
@@ -298,7 +298,8 @@ impl GlesRenderer {
     ) -> Result<bool, GlesError> {
         let size = (width, height);
         let game = match &scene.game {
-            Some(frame) => {
+            Some(GamePicture::Gpu(_)) => return Err(RenderError::NoPixels.into()),
+            Some(GamePicture::Memory(frame)) => {
                 check_frame(frame, Image::Game)?;
                 check_rect(&scene.crop, RectKind::Crop)?;
                 check_rect(&scene.dest, RectKind::Dest)?;

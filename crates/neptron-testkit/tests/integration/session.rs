@@ -12,7 +12,7 @@ use neptron_testkit::{
     LateFlips, ModeRecord, Render, RgbImage, ScriptedInput, SimClock, Underrun, frame_hash,
 };
 use neptron_types::{
-    Control, Filter, Frame, InputEvent, PixelFormat, Rect, Rotation, Scanlines, Scene,
+    Control, Filter, Frame, GamePicture, InputEvent, PixelFormat, Rect, Rotation, Scanlines, Scene,
 };
 
 const WIDTH: u16 = 320;
@@ -131,13 +131,13 @@ fn run(render: Render, frames: u64) -> Outcome {
         }
         game.draw(n, held);
         let scene = Scene {
-            game: Some(Frame {
+            game: Some(GamePicture::Memory(Frame {
                 data: &game.pixels,
                 width: WIDTH,
                 height: HEIGHT,
                 pitch: PITCH,
                 format: PixelFormat::Rgb565,
-            }),
+            })),
             crop: Rect {
                 x: 0,
                 y: 0,
