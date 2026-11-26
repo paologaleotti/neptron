@@ -183,6 +183,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             return;
         };
         let report = game.session.run_frame(ui);
+        self.runtime.pulse.frame();
         if let Some(step) = self.with_engine(|guard, engine| guard.tick(now_ns, engine)) {
             self.on_guard(step, now_ns);
         }

@@ -332,6 +332,7 @@ impl Rig {
             boot_file: neptron::prestart::prepare(&self.paths).imported,
             audio_outputs: audio_outputs(),
             power: self.power,
+            pulse: neptron::heartbeat::Pulse::default(),
         };
         let rule = match next.as_ref().and_then(|n| n.game.as_ref()) {
             Some(_) => PortRule::Game,

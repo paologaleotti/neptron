@@ -117,6 +117,9 @@ pub struct Runtime {
     /// ([`crate::power::POWER_ENV`]). Else the rows of the System panel
     /// are disabled.
     pub power: bool,
+    /// The game frames for the watchdog of the launcher
+    /// ([`crate::heartbeat`]). With no heartbeat thread nobody reads it.
+    pub pulse: crate::heartbeat::Pulse,
 }
 
 /// How a run ends.

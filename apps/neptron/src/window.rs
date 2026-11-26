@@ -92,6 +92,8 @@ pub fn run(
         audio_outputs: opened.outputs,
         // A desktop run never turns off the computer it runs on.
         power: false,
+        // The window has no watchdog: a hung game closes with its window.
+        pulse: neptron::heartbeat::Pulse::default(),
     };
     let devices = Devices {
         display,

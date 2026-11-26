@@ -263,6 +263,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                         found.warn_all(start_failure::fallback_line(
                             game.session.host().hw_refusal(),
                         ));
+                        runtime.pulse.enter_game();
                         game
                     }
                     Err((text, mut log)) => {

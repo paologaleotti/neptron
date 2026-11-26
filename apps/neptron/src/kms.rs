@@ -260,6 +260,21 @@ pub fn run(
         crate::say!("neptron: {text}");
         notices.push(text.to_owned());
     }
+    let hung = std::env::var_os(neptron::heartbeat::HUNG_ENV);
+    if let Some(text) = neptron::heartbeat::hung_notice(hung.as_deref()) {
+        crate::say!("neptron: the launcher killed the run before for a hung game");
+        notices.push(text.to_owned());
+    }
+    let pulse = neptron::heartbeat::Pulse::default();
+    // The thread lives until the run ends: dropping it stops and joins it.
+    let heartbeat = match neptron::heartbeat::Heartbeat::from_env(pulse.clone()) {
+        Some(Ok(heartbeat)) => Some(heartbeat),
+        Some(Err(e)) => {
+            crate::say!("neptron: no heartbeat for the watchdog of the launcher: {e}");
+            None
+        }
+        None => None,
+    };
     let runtime = Runtime {
         run_rate: RunRateSource::ReadBack,
         resampling: Resampling::Sinc,
@@ -278,6 +293,7 @@ pub fn run(
         boot_file: imported,
         audio_outputs: opened.outputs,
         power: neptron::power::control_from(std::env::var_os(neptron::power::POWER_ENV).as_deref()),
+        pulse,
     };
     let devices = Devices {
         display,
@@ -292,7 +308,9 @@ pub fn run(
         clock,
     };
     let booted = Shell::boot(paths.clone(), devices, runtime, next);
-    crate::run_booted(options, booted)
+    let code = crate::run_booted(options, booted);
+    drop(heartbeat);
+    code
 }
 
 /// Waits a bounded time for a connector that qualifies, and logs how the

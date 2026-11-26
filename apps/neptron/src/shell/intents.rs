@@ -379,6 +379,8 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         let Stage::Game(game) = std::mem::replace(&mut self.stage, Stage::Ended) else {
             return;
         };
+        // The last save RAM flush can take longer than the watchdog waits.
+        self.runtime.pulse.leave_game();
         let report = game.session.quit();
         let picked = pick_notice(notice, lost_save(&report));
         if let Some(text) = picked.logged {
