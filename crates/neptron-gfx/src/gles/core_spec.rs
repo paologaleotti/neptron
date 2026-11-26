@@ -162,6 +162,25 @@ impl DepthFormat {
     }
 }
 
+/// The end of a setup whose last step makes another context current:
+/// `made` when the step `restored` holds too. A failed setup gives its own
+/// error. A setup that held, with a failed last step, gives the error of
+/// that step after `undo` frees what the setup made, so nothing leaks.
+pub(super) fn keep_or_undo<T, E>(
+    made: Result<T, E>,
+    restored: Result<(), E>,
+    undo: impl FnOnce(T),
+) -> Result<T, E> {
+    let made = made?;
+    match restored {
+        Ok(()) => Ok(made),
+        Err(e) => {
+            undo(made);
+            Err(e)
+        }
+    }
+}
+
 /// Copies `rows` RGBA rows of `width` pixels, read from GL with row 0 at GL
 /// `y = 0`, into `out` as XRGB8888 rows from the top of the picture, by the
 /// rule of `bottom_left`: picture line `y` is GL row `y`, or GL row
@@ -272,6 +291,25 @@ mod tests {
         );
         assert!(DepthFormat::Depth24Stencil8.has_stencil());
         assert!(!DepthFormat::Depth24.has_stencil());
+    }
+
+    #[test]
+    fn a_failed_last_make_current_frees_what_the_setup_made() {
+        let mut freed = Vec::new();
+        let kept = keep_or_undo(Ok::<_, &str>(7), Ok(()), |v| freed.push(v));
+        assert_eq!(kept, Ok(7));
+        assert!(freed.is_empty());
+
+        let lost = keep_or_undo(Ok(7), Err("make current"), |v| freed.push(v));
+        assert_eq!(lost, Err("make current"));
+        assert_eq!(freed, [7], "the setup is freed once");
+
+        freed.clear();
+        let failed = keep_or_undo(Err::<u32, _>("setup"), Err("make current"), |v| {
+            freed.push(v);
+        });
+        assert_eq!(failed, Err("setup"), "the error of the setup comes first");
+        assert!(freed.is_empty(), "a failed setup frees its own objects");
     }
 
     #[test]

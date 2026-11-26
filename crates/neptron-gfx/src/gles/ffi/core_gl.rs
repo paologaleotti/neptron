@@ -21,7 +21,7 @@ use super::{
     EglContext, EglInstance, Gl, Texture, egl_error, has_extension, load_egl, version_text,
 };
 use crate::gles::core_spec::{
-    DepthFormat, ErrorCadence, MAX_GL_ERRORS_PER_CHECK, depth_format, picture_from_gl,
+    DepthFormat, ErrorCadence, MAX_GL_ERRORS_PER_CHECK, depth_format, keep_or_undo, picture_from_gl,
 };
 use crate::gles::{CoreApi, CoreOffer, CoreSpec, CoreStatus, GlesError, version};
 
@@ -99,6 +99,10 @@ pub(in crate::gles) struct CoreGl {
     fences: bool,
     core_fence: Option<egl::Sync>,
     present_fence: Option<egl::Sync>,
+    /// Colour textures of the core context that a resize replaced. GL
+    /// deletes a texture only in its own context, so the next `begin`
+    /// deletes them.
+    retired: Vec<Texture>,
     begun: bool,
     cadence: ErrorCadence,
 }
@@ -293,8 +297,8 @@ impl CoreGl {
             let _ = ctx.lib.make_current(ctx.display, None, None, None);
             let _ = ctx.lib.destroy_context(ctx.display, context);
         }
-        ctx.current()?;
-        made
+        let restored = ctx.current().map(|_| ());
+        keep_or_undo(made, restored, |core| core.destroy(ctx))
     }
 
     fn fill(
@@ -407,6 +411,7 @@ impl CoreGl {
             fences: egl_has(ctx, "EGL_KHR_fence_sync") && egl_has(ctx, "EGL_KHR_wait_sync"),
             core_fence: None,
             present_fence: None,
+            retired: Vec::new(),
             begun: false,
             cadence: ErrorCadence::default(),
         })
@@ -450,6 +455,11 @@ impl CoreGl {
             // The wait error is the one to report.
             let _ = ctx.lib.make_current(ctx.display, None, None, None);
             return Err(e);
+        }
+        for texture in self.retired.drain(..) {
+            // SAFETY: the core context is current, and the texture is its
+            // own; no framebuffer holds it since the resize.
+            unsafe { self.gl.delete_texture(texture) };
         }
         self.begun = true;
         Ok(())
@@ -519,35 +529,45 @@ impl CoreGl {
     /// Gives the colour texture and the depth and stencil buffer a new
     /// size. The framebuffer name and the image id stay, and the bindings
     /// of the core context come back as they were. After an error the old
-    /// attachments stay. The renderer's context is current when it
-    /// returns.
+    /// attachments and the old image stay, and nothing new is left. The
+    /// renderer's context is current when it returns.
     pub(in crate::gles) fn resize(
         &mut self,
         ctx: &EglContext,
-        (width, height): (u16, u16),
+        size: (u16, u16),
     ) -> Result<(), GlesError> {
         ctx.lib
             .make_current(ctx.display, None, None, Some(self.context))
             .map_err(|e| egl_error("eglMakeCurrent of the core", e))?;
-        let result = self.resize_current(ctx, (width, height));
-        // The renderer makes its context current at each call; a failure
+        let made = self.attach_new(ctx, size);
+        // The renderer makes its context current next; a failed release
         // shows there.
         let _ = ctx.lib.make_current(ctx.display, None, None, None);
-        result?;
-        let gl = ctx.current()?;
-        // SAFETY: the renderer's context is current; `imported` is its
-        // texture, and the image is live. The call gives the texture the
-        // storage of the new image.
-        unsafe {
-            gl.gl.bind_texture(glow::TEXTURE_2D, Some(self.imported));
-            (self.image_target)(glow::TEXTURE_2D, self.image.as_ptr());
-        }
-        gl.check("glEGLImageTargetTexture2DOES after a resize")?;
+        let made = made?;
+        let imported = ctx.current().and_then(|gl| self.import_image(&gl, made.1));
+        let (texture, image) = keep_or_undo(Ok(made), imported, |(texture, image)| {
+            self.undo_resize(ctx, texture, image);
+        })?;
+        // The texture of the renderer holds the new image now, so the old
+        // image has no user left; a failure frees nothing more.
+        let _ = ctx.lib.destroy_image(ctx.display, self.image);
+        self.retired.push(self.texture);
+        self.texture = texture;
+        self.image = image;
+        (self.width, self.height) = size;
         self.read_pixels = Vec::new();
         Ok(())
     }
 
-    fn resize_current(&mut self, ctx: &EglContext, size: (u16, u16)) -> Result<(), GlesError> {
+    /// Makes a colour texture of `size`, gives the depth and stencil
+    /// buffer that size, attaches both, and makes the image of the new
+    /// texture. The old texture and its image stay alive. After an error
+    /// the old attachments are back. The core context is current.
+    fn attach_new(
+        &mut self,
+        ctx: &EglContext,
+        size: (u16, u16),
+    ) -> Result<(Texture, egl::Image), GlesError> {
         let saved = self.bindings();
         // SAFETY: the core context is current. The new texture is made in
         // it; the sizes come from the caller's check, so they fit an i32.
@@ -568,10 +588,7 @@ impl CoreGl {
                     if status == glow::FRAMEBUFFER_COMPLETE {
                         Ok(texture)
                     } else {
-                        if let Some((rb, format)) = self.depth {
-                            depth_storage(&self.gl, rb, format, (self.width, self.height));
-                        }
-                        attach(&self.gl, self.texture, self.depth);
+                        self.attach_old();
                         self.gl.delete_texture(texture);
                         Err(GlesError::Framebuffer { status })
                     }
@@ -584,33 +601,77 @@ impl CoreGl {
         };
         self.restore(&saved);
         let texture = made?;
-        let image = match image_of(ctx, self.context, texture) {
-            Ok(image) => image,
+        match image_of(ctx, self.context, texture) {
+            Ok(image) => Ok((texture, image)),
             Err(e) => {
                 // SAFETY: the core context is current and the texture is
-                // its own; the old texture goes back on the framebuffer.
+                // its own; the old texture goes back on the framebuffer
+                // first.
                 unsafe {
-                    self.gl
-                        .bind_framebuffer(glow::FRAMEBUFFER, Some(self.framebuffer));
-                    if let Some((rb, format)) = self.depth {
-                        depth_storage(&self.gl, rb, format, (self.width, self.height));
-                    }
-                    attach(&self.gl, self.texture, self.depth);
+                    self.attach_old();
                     self.gl.delete_texture(texture);
                 }
                 self.restore(&saved);
-                return Err(e);
+                Err(e)
             }
-        };
-        // SAFETY: the core context is current; the old texture is its own
-        // and no framebuffer holds it now.
-        unsafe { self.gl.delete_texture(self.texture) };
-        // The old image has no user left; a failure frees nothing more.
-        let _ = ctx.lib.destroy_image(ctx.display, self.image);
-        self.texture = texture;
-        self.image = image;
-        (self.width, self.height) = size;
-        Ok(())
+        }
+    }
+
+    /// Puts the old colour texture and the old depth size back on the
+    /// framebuffer of the core.
+    ///
+    /// # Safety
+    ///
+    /// The core context is current.
+    unsafe fn attach_old(&self) {
+        // SAFETY: the caller's guarantee; every object is of the core
+        // context.
+        unsafe {
+            self.gl
+                .bind_framebuffer(glow::FRAMEBUFFER, Some(self.framebuffer));
+            if let Some((rb, format)) = self.depth {
+                depth_storage(&self.gl, rb, format, (self.width, self.height));
+            }
+            attach(&self.gl, self.texture, self.depth);
+        }
+    }
+
+    /// Gives the texture of the renderer, whose context `gl` is current,
+    /// the storage of `image`.
+    fn import_image(&self, gl: &Gl<'_>, image: egl::Image) -> Result<(), GlesError> {
+        // SAFETY: the renderer's context is current; `imported` is its
+        // texture, and the image is live.
+        unsafe {
+            gl.gl.bind_texture(glow::TEXTURE_2D, Some(self.imported));
+            (self.image_target)(glow::TEXTURE_2D, image.as_ptr());
+        }
+        gl.check("glEGLImageTargetTexture2DOES after a resize")
+    }
+
+    /// Frees the texture and the image of a resize whose last step failed,
+    /// and puts the old attachments and the old image back. A step that
+    /// fails here leaves an object that the destroy of the context frees,
+    /// and the error of the resize is the one to report.
+    fn undo_resize(&mut self, ctx: &EglContext, texture: Texture, image: egl::Image) {
+        if ctx
+            .lib
+            .make_current(ctx.display, None, None, Some(self.context))
+            .is_ok()
+        {
+            let saved = self.bindings();
+            // SAFETY: the core context is current, and `texture` is its
+            // own; the old texture goes back on the framebuffer first.
+            unsafe {
+                self.attach_old();
+                self.gl.delete_texture(texture);
+            }
+            self.restore(&saved);
+            let _ = ctx.lib.make_current(ctx.display, None, None, None);
+        }
+        let _ = ctx.lib.destroy_image(ctx.display, image);
+        if let Ok(gl) = ctx.current() {
+            let _ = self.import_image(&gl, self.image);
+        }
     }
 
     /// The bindings that `resize` changes.
