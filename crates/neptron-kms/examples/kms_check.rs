@@ -17,10 +17,40 @@
 //! takes the launcher descriptor once: `--not-drm` with descriptor 3 a pipe,
 //! and `--standard-fd` with `NEPTRON_DRM_FD=1`. Both must be refused before
 //! the process owns the descriptor.
+//!
+//! The GL core path comes after the modes: a core context on the display,
+//! the test card drawn into it by a core stand-in, and the GPU picture
+//! through the writeback connector, equal to the reference renderer's
+//! picture of the card in memory, in both origins.
 
-#![forbid(unsafe_code)]
+// Only the core stand-in calls C through an address, as a GL core does.
+#![deny(unsafe_code)]
 
 use std::process::ExitCode;
+
+#[cfg(target_os = "linux")]
+#[allow(unsafe_code)]
+#[path = "../../neptron-gfx/tests/common/core_card.rs"]
+mod core_card;
+// The card of the GL test core, as its source, so the check needs no new
+// dependency. Only a part of it is used here.
+#[cfg(target_os = "linux")]
+#[allow(dead_code)]
+#[path = "../../neptron-testcore/src/gl_card.rs"]
+mod gl_card;
+
+/// The size type that `gl_card` takes, as `neptron-testcore` names it.
+#[cfg(target_os = "linux")]
+mod script {
+    /// A picture size.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct Size {
+        /// Width in pixels.
+        pub width: u32,
+        /// Height in pixels.
+        pub height: u32,
+    }
+}
 
 fn main() -> ExitCode {
     #[cfg(target_os = "linux")]
@@ -50,15 +80,19 @@ mod linux {
     use std::path::PathBuf;
 
     use drm::control::{Device as ControlDevice, crtc};
-    use neptron_backend::{Display, DisplayError};
+    use neptron_backend::{ContextRequest, Display, DisplayError, GlApi, GlVersion};
     use neptron_gfx::gles::{GlesError, GlesRenderer};
     use neptron_gfx::{OutputBuffer, ReferenceRenderer};
     use neptron_kms::{ConnectorClass, KmsConfig, KmsDisplay, KmsError, ModeRecord};
     use neptron_safety::{ValidatedMode, validate};
+
+    use crate::core_card::{CoreCard, Leave, card_pixel};
+    use crate::script::Size;
     use neptron_types::{
-        CrtRange, Filter, FlipEvent, Frame, GamePicture, GpuCaps, Modeline, MonitorKind,
-        MonitorProfile, PixelFormat, Rect, Rotation, ScanlineKind, Scanlines, Scene, TV_525_240P,
-        TV_525_480I, TV_625_288P, TV_625_576I, TvStandard,
+        CrtRange, Filter, FlipEvent, Frame, FrameOrigin, GamePicture, GpuCaps, GpuFrame,
+        GpuImageId, Modeline, MonitorKind, MonitorProfile, PixelFormat, Rect, Rotation,
+        ScanlineKind, Scanlines, Scene, TV_525_240P, TV_525_480I, TV_625_288P, TV_625_576I,
+        TvStandard,
     };
 
     /// The device the shell opened on descriptor 3.
@@ -342,6 +376,7 @@ mod linux {
             contract_with_mode(&mut check, &mut display, &probe, &scene, &valid, name);
         }
 
+        core_cases(&mut check, &mut display, &mut reference, &modes);
         tv_cases(&mut check, &mut display, &probe);
 
         if let Some(first) = modes.first().and_then(TestMode::validated) {
@@ -378,6 +413,295 @@ mod linux {
         );
         too_large(&mut check, &probe, &modes, crtc_id);
         check.failed
+    }
+
+    /// The picture of the core stand-in.
+    const CARD: Size = Size {
+        width: 320,
+        height: 224,
+    };
+    /// The image of the core context, larger than the picture.
+    const CORE_IMAGE: (u16, u16) = (384, 256);
+
+    /// The GL core path on the display of the KMS backend, on the 480p
+    /// mode: for each origin, the stand-in draws the card into the core
+    /// context (`draw_core_card`), and the GPU picture through the
+    /// writeback connector equals the reference renderer's picture of the
+    /// card in memory at 2x with scanlines, turned, and under the UI.
+    fn core_cases(
+        check: &mut Check,
+        display: &mut KmsDisplay,
+        reference: &mut ReferenceRenderer,
+        modes: &[TestMode],
+    ) {
+        let Some((test, valid)) = modes
+            .iter()
+            .find(|m| m.name == "480p")
+            .and_then(|m| Some((m, m.validated()?)))
+        else {
+            check.report("core: the 480p mode", Err("missing".to_owned()));
+            return;
+        };
+        if let Err(e) = display.set_mode(&valid) {
+            check.report("core: set the 480p mode", Err(e.to_string()));
+            return;
+        }
+        let offer = display.core_render().map(|core| core.offer());
+        check.report(
+            "core: the display offers an OpenGL ES 2 core context",
+            match offer {
+                Some(o) if o.gles.is_some_and(|v| v >= GlVersion::new(2, 0)) => {
+                    Ok(format!("{o:?}"))
+                }
+                other => Err(format!("{other:?}")),
+            },
+        );
+        let card = card_bytes();
+        let ui = vec![0x40_u8; 320 * 240 * 4];
+        let mut last_image = None;
+        for origin in [FrameOrigin::TopLeft, FrameOrigin::BottomLeft] {
+            let at = format!("core {origin:?}");
+            let image = match draw_core_card(display, origin) {
+                Ok(image) => image,
+                Err(e) => {
+                    check.report(&format!("{at}: the stand-in draws the card"), Err(e));
+                    continue;
+                }
+            };
+            last_image = Some(image);
+            let memory = Frame {
+                data: &card,
+                width: CARD.width as u16,
+                height: CARD.height as u16,
+                pitch: CARD.width as usize * 4,
+                format: PixelFormat::Xrgb8888,
+            };
+            let gpu = GpuFrame {
+                image,
+                width: CARD.width as u16,
+                height: CARD.height as u16,
+                storage_width: CORE_IMAGE.0,
+                storage_height: CORE_IMAGE.1,
+                origin,
+            };
+            let ui_frame = Frame {
+                data: &ui,
+                width: 320,
+                height: 240,
+                pitch: 320 * 4,
+                format: PixelFormat::Xrgb8888,
+            };
+            for (label, scene) in core_scenes(memory, ui_frame) {
+                let gpu_scene = Scene {
+                    game: Some(GamePicture::Gpu(gpu)),
+                    ..scene
+                };
+                check.report(
+                    &format!("{at}: {label}: writeback of the GPU picture equals the reference"),
+                    core_writeback(display, reference, &gpu_scene, &scene, &test.mode),
+                );
+            }
+            let mut back = vec![0_u8; card.len()];
+            let read = display
+                .core_render()
+                .ok_or("no core host".to_owned())
+                .and_then(|core| {
+                    core.read_back(&mut back, CARD.width as u16, CARD.height as u16, origin)
+                        .map_err(|e| e.to_string())
+                });
+            check.report(
+                &format!("{at}: the read back equals the card"),
+                read.and_then(|()| compare(&back, &card, CARD.width)),
+            );
+        }
+        if let Some(core) = display.core_render() {
+            core.destroy();
+        }
+        if let Some(image) = last_image {
+            let gone = Scene {
+                game: Some(GamePicture::Gpu(GpuFrame {
+                    image,
+                    width: CARD.width as u16,
+                    height: CARD.height as u16,
+                    storage_width: CORE_IMAGE.0,
+                    storage_height: CORE_IMAGE.1,
+                    origin: FrameOrigin::TopLeft,
+                })),
+                ..core_scenes(
+                    Frame {
+                        data: &card,
+                        width: CARD.width as u16,
+                        height: CARD.height as u16,
+                        pitch: CARD.width as usize * 4,
+                        format: PixelFormat::Xrgb8888,
+                    },
+                    Frame {
+                        data: &ui,
+                        width: 320,
+                        height: 240,
+                        pitch: 320 * 4,
+                        format: PixelFormat::Xrgb8888,
+                    },
+                )[0]
+                .1
+            };
+            check.report(
+                "core: a scene with a destroyed image is refused",
+                match display.present(&gone) {
+                    Err(DisplayError::SceneRefused { reason }) => Ok(reason),
+                    other => Err(format!("{other:?}")),
+                },
+            );
+        }
+    }
+
+    /// Makes a GLES 2 core context with depth and stencil, and has the
+    /// stand-in draw the card into it. With the top-left origin it leaves
+    /// the GL state clean; with the bottom-left origin it leaves it dirty
+    /// and then draws into framebuffer 0, which must change no pixel.
+    fn draw_core_card(display: &mut KmsDisplay, origin: FrameOrigin) -> Result<GpuImageId, String> {
+        let core = display.core_render().ok_or("no core host")?;
+        let request = ContextRequest {
+            api: GlApi::Gles,
+            version: GlVersion::new(2, 0),
+            depth: true,
+            stencil: true,
+            origin,
+        };
+        let target = core
+            .create(&request, CORE_IMAGE.0, CORE_IMAGE.1)
+            .map_err(|e| e.to_string())?;
+        let card = CoreCard::resolve(target.lookup)?;
+        core.begin().map_err(|e| e.to_string())?;
+        let bottom_left = origin == FrameOrigin::BottomLeft;
+        let leave = if bottom_left {
+            Leave::Dirty
+        } else {
+            Leave::Clean
+        };
+        let error = card.draw(target.framebuffer, CARD, bottom_left, leave);
+        let status = core.end().map_err(|e| e.to_string())?;
+        if error != 0 || status.context_lost {
+            return Err(format!("GL error {error:#06x}, {status:?}"));
+        }
+        if bottom_left {
+            core.begin().map_err(|e| e.to_string())?;
+            // Framebuffer 0 of a context with no surface is incomplete, so
+            // the clear raises an error and draws nothing.
+            card.draw_into_zero();
+            core.end().map_err(|e| e.to_string())?;
+        }
+        Ok(target.image)
+    }
+
+    /// The card in memory as XRGB8888 bytes.
+    fn card_bytes() -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(CARD.width as usize * CARD.height as usize * 4);
+        for y in 0..CARD.height {
+            for x in 0..CARD.width {
+                bytes.extend_from_slice(&card_pixel(CARD, x, y).to_ne_bytes());
+            }
+        }
+        bytes
+    }
+
+    /// The scenes of the core cases on a 640x480 output, with the card in
+    /// memory as the game: 2x with scanlines, turned by `R90` at 1x, and
+    /// at 1x with the UI over its right half.
+    fn core_scenes<'a>(card: Frame<'a>, ui: Frame<'a>) -> Vec<(&'static str, Scene<'a>)> {
+        let crop = Rect {
+            x: 0,
+            y: 0,
+            w: CARD.width,
+            h: CARD.height,
+        };
+        let base = Scene {
+            game: Some(GamePicture::Memory(card)),
+            crop,
+            dest: Rect {
+                x: 0,
+                y: 16,
+                w: 2 * CARD.width,
+                h: 2 * CARD.height,
+            },
+            filter: Filter::Nearest,
+            scanlines: Scanlines {
+                kind: ScanlineKind::Black,
+                strength_percent: SCANLINE_STRENGTH_PERCENT,
+            },
+            ui: None,
+            ui_dest: Rect {
+                x: 0,
+                y: 0,
+                w: 0,
+                h: 0,
+            },
+            rotation: Rotation::R0,
+            ui_rotation: Rotation::R0,
+            ui_filter: Filter::Nearest,
+        };
+        let turned = Scene {
+            dest: Rect {
+                x: 208,
+                y: 80,
+                w: CARD.height,
+                h: CARD.width,
+            },
+            scanlines: Scanlines::NONE,
+            rotation: Rotation::R90,
+            ..base
+        };
+        let under_ui = Scene {
+            dest: Rect {
+                x: 160,
+                y: 128,
+                w: CARD.width,
+                h: CARD.height,
+            },
+            scanlines: Scanlines::NONE,
+            ui: Some(ui),
+            ui_dest: Rect {
+                x: 320,
+                y: 120,
+                w: 320,
+                h: 240,
+            },
+            ..base
+        };
+        vec![
+            ("2x with scanlines", base),
+            ("turned R90", turned),
+            ("under the UI", under_ui),
+        ]
+    }
+
+    /// Presents `gpu_scene` and compares its writeback with the reference
+    /// renderer's output of `memory_scene`.
+    fn core_writeback(
+        display: &mut KmsDisplay,
+        reference: &mut ReferenceRenderer,
+        gpu_scene: &Scene<'_>,
+        memory_scene: &Scene<'_>,
+        mode: &Modeline,
+    ) -> Result<String, String> {
+        display.present(gpu_scene).map_err(|e| e.to_string())?;
+        display.wait_flip().map_err(|e| e.to_string())?;
+        let capture = display.capture().map_err(|e| e.to_string())?;
+        let (w, h) = (u32::from(mode.hactive), u32::from(mode.vactive));
+        let mut expected = vec![0_u8; w as usize * h as usize * 4];
+        let mut out = OutputBuffer {
+            data: &mut expected,
+            width: w,
+            height: h,
+            pitch: w as usize * 4,
+        };
+        reference
+            .render(memory_scene, &mut out)
+            .map_err(|e| e.to_string())?;
+        if (capture.width, capture.height) != (w, h) {
+            return Err(format!("capture {}x{}", capture.width, capture.height));
+        }
+        compare(&capture.pixels, &expected, w)
     }
 
     fn contract_before_mode(check: &mut Check, display: &mut KmsDisplay) {
