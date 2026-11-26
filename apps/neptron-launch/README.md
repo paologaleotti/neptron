@@ -11,7 +11,7 @@ The launcher. It holds the DRM descriptor, starts the frontend, passes the descr
 
 - `unsafe` is forbidden: the crate root carries `#![forbid(unsafe_code)]`.
 - No features.
-- The exit codes 75, 69, 80 and 81, the names `NEPTRON_POWER` and `NEPTRON_POWER_FAILED`, and the values of the second are also in the frontend. A test of `xtask` holds them equal.
+- The exit codes 75, 69, 80 and 81, the names `NEPTRON_POWER` and `NEPTRON_POWER_FAILED`, and the values of the second are also in the frontend. A test of `xtask` holds them equal. The names `NEPTRON_HEARTBEAT` and `NEPTRON_HUNG`, the value `1` and the bytes `B` and `D` are also in the frontend (`neptron::heartbeat`).
 - Dependencies: `neptron-kms` with default features for the DRM node check (no DRM code compiles), `rustix` (`process`) to clear close-on-exec and to forward a signal, `signal-hook` for the stop flag, `thiserror`.
 
 ## Usage
@@ -47,6 +47,7 @@ The image starts it from BusyBox init: `neptron-launch --power -- /usr/bin/neptr
 - SIGTERM or SIGINT stops the launcher: it forwards SIGTERM to the frontend once, waits for it, starts no new run and exits. A frontend still there 5 s after the SIGTERM (`STOP_WAIT_NS`) gets SIGKILL, with a log line, so no orphan frontend keeps DRM master. The launcher looks at its child and at the signal every 20 ms (`CHILD_POLL`). A signal ends a backoff wait at once.
 - When the DRM device does not open (for example the driver has not bound yet), the launcher logs one line, waits 2 s (`DEVICE_MISSING_WAIT_NS`; a stop signal ends the wait) and exits with code 1. Init starts it again.
 - A frontend that cannot start stops the launcher with an error. Init restarts the launcher, which opens the device again.
+- The watchdog of a hung game (`docs/spec/hw-render.md`, section 13a). The launcher binds a Unix datagram socket at `<temp dir>/neptron-launch-<pid>.heartbeat` and gives each frontend its path in `NEPTRON_HEARTBEAT` (`HEARTBEAT_ENV`). The frontend sends `B` about once a second while the frames of a game advance, and `D` out of a game. At each look at its child the launcher reads them: `B` arms the watchdog, `D` disarms it, and each run starts disarmed. Armed with no `B` for 15 s (`HANG_WAIT_NS`), the launcher sends SIGKILL (no SIGTERM: the core holds the thread that reads the stop flag) and logs `neptron-launch: the game sent no heartbeat for 15000 ms; SIGKILL`. The run counts as a crash for the backoff, and the next start only gets `NEPTRON_HUNG=1` (`HUNG_ENV`), for its notice. With no socket (a bind that fails, with one log line) there is no watchdog. The launcher removes the socket file when it exits.
 
 ## Reboot and power-off
 
@@ -72,7 +73,8 @@ A stop signal that comes before the end of the run, or before the command, wins:
 - `args.rs`: `--power` needs a device.
 - `device.rs`: a regular file and `/dev/null` are refused, a missing device, close-on-exec cleared.
 - `stopping.rs`: SIGTERM once, SIGKILL once after the wait, with simulated times.
-- `main.rs`: the power flow and `NEPTRON_POWER_FAILED`, `NEPTRON_POWER` only with power control, a real child process (exit code, signal, the descriptor under its number, SIGKILL after SIGTERM), a stop signal in the backoff, a device that does not open.
+- `watchdog.rs`: no beat never fires, a beat arms it and it fires once after the wait from the last beat, `D` disarms it, the socket takes the bytes of a sender and removes its file.
+- `main.rs`: the power flow and `NEPTRON_POWER_FAILED`, `NEPTRON_POWER` only with power control, a real child process (exit code, signal, the descriptor under its number, SIGKILL after SIGTERM, SIGKILL of a game that beat once and then hung, `NEPTRON_HUNG` once on the next start, no kill with no beat), a stop signal in the backoff, a device that does not open.
 
 ## Status
 

@@ -10,6 +10,7 @@ mod device;
 mod power;
 mod stopping;
 mod supervise;
+mod watchdog;
 
 use std::ffi::OsString;
 use std::io;
@@ -26,6 +27,9 @@ use device::{DRM_FD_ENV, Device, DeviceError};
 use power::{POWER_ENV, POWER_ENV_ON, POWER_FAILED_ENV, Power};
 use stopping::{STOP_WAIT_NS, StopAction, Stopping};
 use supervise::{Ended, Frontend, Time, supervise};
+use watchdog::{
+    HANG_WAIT_NS, HEARTBEAT_ENV, HUNG_ENV, HUNG_ENV_ON, HeartbeatSocket, Watchdog, socket_path,
+};
 
 fn main() -> ExitCode {
     let options = match args::parse(std::env::args_os().skip(1)) {
@@ -51,6 +55,14 @@ fn main() -> ExitCode {
     let Ok(device) = open_device(options.device.as_deref(), &mut time) else {
         return ExitCode::FAILURE;
     };
+    let heartbeat =
+        match HeartbeatSocket::bind(socket_path(&std::env::temp_dir(), std::process::id())) {
+            Ok(socket) => Some(socket),
+            Err(e) => {
+                say!("neptron-launch: no watchdog for a hung game: cannot bind its socket: {e}");
+                None
+            }
+        };
     let mut frontend = Process {
         program: options.program,
         args: options.args,
@@ -59,6 +71,9 @@ fn main() -> ExitCode {
         power_failed: None,
         stop: Arc::clone(&stop),
         stop_wait: Duration::from_nanos(STOP_WAIT_NS),
+        heartbeat,
+        hang_wait: Duration::from_nanos(HANG_WAIT_NS),
+        hung: false,
     };
     // The device stays open until the launcher exits, also during a power
     // request: the last validated mode stays on the wire until init stops
@@ -211,6 +226,14 @@ struct Process {
     stop: Arc<AtomicBool>,
     /// The wait between the forwarded SIGTERM and SIGKILL.
     stop_wait: Duration,
+    /// The socket of the heartbeats of a game; `None` runs with no
+    /// watchdog.
+    heartbeat: Option<HeartbeatSocket>,
+    /// How long a game may send no heartbeat before SIGKILL.
+    hang_wait: Duration,
+    /// The watchdog killed the last run: the next start only gets
+    /// [`HUNG_ENV`].
+    hung: bool,
 }
 
 impl Frontend for Process {
@@ -218,6 +241,10 @@ impl Frontend for Process {
     /// SIGTERM once, and the launcher waits for it, so no orphan keeps DRM
     /// master. A child still there after the stop wait gets SIGKILL: a
     /// frontend stuck inside a core never reads its stop flag.
+    ///
+    /// A game that sent a heartbeat and then none for the hang wait gets
+    /// SIGKILL too, with no SIGTERM, for the same reason; the next start
+    /// learns of it.
     fn run(&mut self) -> io::Result<Option<i32>> {
         let mut command = Command::new(&self.program);
         command.args(&self.args);
@@ -233,15 +260,42 @@ impl Frontend for Process {
             Some(power) => command.env(POWER_FAILED_ENV, power.failed_value()),
             None => command.env_remove(POWER_FAILED_ENV),
         };
+        match &self.heartbeat {
+            Some(socket) => command.env(HEARTBEAT_ENV, socket.path()),
+            None => command.env_remove(HEARTBEAT_ENV),
+        };
+        if std::mem::take(&mut self.hung) {
+            command.env(HUNG_ENV, HUNG_ENV_ON);
+        } else {
+            command.env_remove(HUNG_ENV);
+        }
+        // Beats left from the run before must not arm this one.
+        if let Some(socket) = &self.heartbeat {
+            socket.drain(|_| {});
+        }
         let mut child = command.spawn()?;
         let start = Instant::now();
         let wait_ns = u64::try_from(self.stop_wait.as_nanos()).unwrap_or(u64::MAX);
         let mut stopping = Stopping::new(wait_ns);
+        let mut watchdog =
+            Watchdog::new(u64::try_from(self.hang_wait.as_nanos()).unwrap_or(u64::MAX));
         loop {
             if let Some(status) = child.try_wait()? {
                 return Ok(status.code());
             }
             let now_ns = u64::try_from(start.elapsed().as_nanos()).unwrap_or(u64::MAX);
+            if let Some(socket) = &self.heartbeat {
+                socket.drain(|byte| watchdog.take(byte, now_ns));
+            }
+            if watchdog.expired(now_ns) {
+                // The signal goes first, as for the stop below.
+                kill_process(Pid::from_child(&child), Signal::KILL)?;
+                self.hung = true;
+                say!(
+                    "neptron-launch: the game sent no heartbeat for {} ms; SIGKILL",
+                    self.hang_wait.as_millis()
+                );
+            }
             match stopping.next(self.stopping(), now_ns) {
                 StopAction::Wait => {}
                 StopAction::Term => kill_process(Pid::from_child(&child), Signal::TERM)?,
@@ -298,7 +352,73 @@ mod tests {
             power_failed: None,
             stop: Arc::new(AtomicBool::new(false)),
             stop_wait: Duration::from_nanos(STOP_WAIT_NS),
+            heartbeat: None,
+            hang_wait: Duration::from_nanos(HANG_WAIT_NS),
+            hung: false,
         }
+    }
+
+    #[test]
+    fn a_game_with_no_heartbeat_is_killed_and_the_next_start_learns_of_it() {
+        let dir = std::env::temp_dir();
+        let ready = dir.join(format!("neptron-launch-hang-{}", std::process::id()));
+        // A leftover of an earlier run with the same process id; absence is fine.
+        let _ = std::fs::remove_file(&ready);
+        let path = socket_path(&dir, std::process::id());
+        let socket = HeartbeatSocket::bind(path.clone()).expect("bind");
+        let check = format!(
+            "test \"${HEARTBEAT_ENV}\" = {} && test -z \"${{{HUNG_ENV}+set}}\" && : > {} && exec sleep 30",
+            path.display(),
+            ready.display()
+        );
+        let mut child = shell(&check, None);
+        child.heartbeat = Some(socket);
+        child.hang_wait = Duration::from_millis(300);
+        let runner = std::thread::spawn(move || {
+            let code = child.run();
+            (child, code)
+        });
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !ready.exists() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the child did not start"
+            );
+            std::thread::yield_now();
+        }
+        let beat = std::time::Instant::now();
+        let sender = std::os::unix::net::UnixDatagram::unbound().expect("a sender");
+        sender.send_to(&[watchdog::BEAT], &path).expect("one beat");
+        let (mut child, code) = runner.join().expect("the runner");
+        assert_eq!(code.expect("run"), None, "SIGKILL ends it");
+        let after = beat.elapsed();
+        assert!(
+            after >= Duration::from_millis(300) && after < Duration::from_secs(10),
+            "killed after the hang wait: {after:?}"
+        );
+        assert!(child.hung);
+        let hung = format!("test \"${HUNG_ENV}\" = {HUNG_ENV_ON}");
+        child.args = vec!["-c".into(), hung.into()];
+        assert_eq!(
+            child.run().expect("run"),
+            Some(0),
+            "the next start learns of it"
+        );
+        let once = format!("test -z \"${{{HUNG_ENV}+set}}\"");
+        child.args = vec!["-c".into(), once.into()];
+        assert_eq!(child.run().expect("run"), Some(0), "once");
+        // The file is the test's own; a failed removal leaves a temp file.
+        let _ = std::fs::remove_file(&ready);
+    }
+
+    #[test]
+    fn a_game_that_never_beats_is_never_killed() {
+        let path = socket_path(&std::env::temp_dir(), std::process::id());
+        let mut child = shell("sleep 1; exit 0", None);
+        child.heartbeat = Some(HeartbeatSocket::bind(path).expect("bind"));
+        child.hang_wait = Duration::from_millis(100);
+        assert_eq!(child.run().expect("run"), Some(0));
+        assert!(!child.hung);
     }
 
     #[test]
