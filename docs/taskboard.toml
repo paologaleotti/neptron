@@ -850,7 +850,7 @@ name = "Milestone 0.2, design: the hardware-render interface of libretro for GL 
 owns = ["docs/spec", "docs/adr"]
 needs = []
 gate = "T0; the owner's answers"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "S02"
@@ -859,7 +859,7 @@ name = "Hardware-render for GL and GLES cores: the core draws into a frame buffe
 owns = ["crates/neptron-libretro", "crates/neptron-libretro-sys", "crates/neptron-gfx", "crates/neptron-video", "crates/neptron-session", "crates/neptron-testcore"]
 needs = ["S01"]
 gate = "T2; gles-compare; kms-check"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "S03"
