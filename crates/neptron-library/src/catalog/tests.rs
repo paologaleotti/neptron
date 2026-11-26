@@ -362,6 +362,56 @@ fn core_option_keys_may_hold_a_hyphen() {
 }
 
 #[test]
+fn the_internal_resolution_of_a_core_is_read_sorted_by_scale() {
+    let table = "[internal_resolution]\noption = \"gl_res\"\nnative_lines = 240\nvalues = { 4 = \"4x\", 1 = \"1x\", 2 = \"2x\" }\n";
+    let text = format!("{CORE_NES}\n{table}");
+    let catalog = catalog(
+        &ok_systems(),
+        &[src("nescore", &text), src("mdcore", CORE_MD)],
+    )
+    .expect("a valid internal resolution");
+    let core = catalog.core_for("nes").expect("the core");
+    assert_eq!(
+        core.internal_resolution,
+        Some(InternalResolution {
+            option: "gl_res".to_owned(),
+            native_lines: 240,
+            values: vec![
+                (1, "1x".to_owned()),
+                (2, "2x".to_owned()),
+                (4, "4x".to_owned())
+            ],
+        })
+    );
+    let md = catalog.core_for("megadrive").expect("the core");
+    assert_eq!(md.internal_resolution, None, "no table gives none");
+}
+
+#[test]
+fn a_bad_internal_resolution_is_rejected() {
+    for table in [
+        "option = \"a b\"\nnative_lines = 240\nvalues = { 1 = \"1x\" }",
+        "option = \"res\"\nnative_lines = 0\nvalues = { 1 = \"1x\" }",
+        "option = \"res\"\nnative_lines = 1025\nvalues = { 1 = \"1x\" }",
+        "option = \"res\"\nnative_lines = 240\nvalues = { 2 = \"2x\" }",
+        "option = \"res\"\nnative_lines = 240\nvalues = {}",
+        "option = \"res\"\nnative_lines = 240\nvalues = { 0 = \"0x\", 1 = \"1x\" }",
+        "option = \"res\"\nnative_lines = 240\nvalues = { 17 = \"17x\", 1 = \"1x\" }",
+        "option = \"res\"\nnative_lines = 240\nvalues = { x = \"2x\", 1 = \"1x\" }",
+        "option = \"res\"\nnative_lines = 240\nvalues = { 1 = \"a|b\" }",
+        "option = \"res\"\nnative_lines = 240\nvalues = { 1 = \"1x\" }\nextra = 1",
+        "option = \"res\"\nvalues = { 1 = \"1x\" }",
+    ] {
+        let text = format!("{CORE_NES}\n[internal_resolution]\n{table}\n");
+        let result = catalog(
+            &ok_systems(),
+            &[src("nescore", &text), src("mdcore", CORE_MD)],
+        );
+        assert!(result.is_err(), "{table} must be refused");
+    }
+}
+
+#[test]
 fn bad_core_options_are_rejected() {
     for table in [
         "\"bad key\" = \"1\"",

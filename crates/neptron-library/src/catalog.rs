@@ -41,7 +41,29 @@ pub struct CoreDef {
     /// them to the core at launch. Empty when the file has no `options`
     /// table.
     pub options: Vec<(String, String)>,
+    /// The core option that sets the internal resolution of a GL core.
+    /// `None` when the file has no `internal_resolution` table.
+    pub internal_resolution: Option<InternalResolution>,
 }
+
+/// The core option of a GL core that draws its picture at a whole multiple
+/// `k` of its native size (`docs/spec/hw-render.md`, section 4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InternalResolution {
+    /// The key of the core option.
+    pub option: String,
+    /// The lines of the native picture of the core's systems, for the
+    /// rule that picks `k` before the game loads.
+    pub native_lines: u16,
+    /// The value of the option for each `k` that the core offers, sorted
+    /// by `k`. It always holds `k = 1`.
+    pub values: Vec<(u8, String)>,
+}
+
+/// The largest internal resolution that a definition can name.
+pub const INTERNAL_SCALE_MAX: u8 = 16;
+/// The most native lines that a definition can name.
+pub const NATIVE_LINES_MAX: u16 = 1_024;
 
 /// The checked set of system and core definitions.
 ///
@@ -303,6 +325,16 @@ struct CoreFile {
     licence: String,
     #[serde(default)]
     options: BTreeMap<String, String>,
+    #[serde(default)]
+    internal_resolution: Option<InternalResolutionFile>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InternalResolutionFile {
+    option: String,
+    native_lines: u16,
+    values: BTreeMap<String, String>,
 }
 
 fn parse_system(source: &Source<'_>) -> Result<SystemDef, CatalogError> {
@@ -349,10 +381,12 @@ fn parse_core(source: &Source<'_>) -> Result<CoreDef, CatalogError> {
     }
     for (key, value) in &file.options {
         check_option_key(source, key)?;
-        if value.is_empty() || value.contains(['|', ';', '\0']) {
-            return Err(bad_name(source, value, "core option value"));
-        }
+        check_option_value(source, value)?;
     }
+    let internal_resolution = file
+        .internal_resolution
+        .map(|table| parse_internal_resolution(source, table))
+        .transpose()?;
     Ok(CoreDef {
         id: file.id,
         name: file.name,
@@ -360,7 +394,53 @@ fn parse_core(source: &Source<'_>) -> Result<CoreDef, CatalogError> {
         systems: file.systems,
         licence: file.licence,
         options: file.options.into_iter().collect(),
+        internal_resolution,
     })
+}
+
+fn parse_internal_resolution(
+    source: &Source<'_>,
+    table: InternalResolutionFile,
+) -> Result<InternalResolution, CatalogError> {
+    check_option_key(source, &table.option)?;
+    if table.native_lines == 0 || table.native_lines > NATIVE_LINES_MAX {
+        return Err(bad_name(
+            source,
+            &table.native_lines.to_string(),
+            "number of native lines (1 to 1024)",
+        ));
+    }
+    let mut values = Vec::with_capacity(table.values.len());
+    for (k, value) in table.values {
+        let scale = k
+            .parse::<u8>()
+            .ok()
+            .filter(|k| (1..=INTERNAL_SCALE_MAX).contains(k))
+            .ok_or_else(|| bad_name(source, &k, "internal resolution (1 to 16)"))?;
+        check_option_value(source, &value)?;
+        values.push((scale, value));
+    }
+    values.sort_by_key(|(k, _)| *k);
+    if values.first().is_none_or(|(k, _)| *k != 1) {
+        return Err(CatalogError::Empty {
+            source_name: source.name.to_owned(),
+            field: "internal_resolution.values.1",
+        });
+    }
+    Ok(InternalResolution {
+        option: table.option,
+        native_lines: table.native_lines,
+        values,
+    })
+}
+
+/// A core option value: not empty, and no `|`, `;` or NUL, which libretro
+/// uses to join values.
+fn check_option_value(source: &Source<'_>, value: &str) -> Result<(), CatalogError> {
+    if value.is_empty() || value.contains(['|', ';', '\0']) {
+        return Err(bad_name(source, value, "core option value"));
+    }
+    Ok(())
 }
 
 fn parse_toml<T: serde::de::DeserializeOwned>(source: &Source<'_>) -> Result<T, CatalogError> {

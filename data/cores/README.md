@@ -13,8 +13,19 @@ One TOML file per libretro core. `neptron-library` embeds these files at build t
 | `systems` | list of strings | Systems that the core runs, by the `folder` of `data/systems`. |
 | `licence` | string | SPDX licence expression of the core. A licence with no SPDX id uses a `LicenseRef-` name. |
 | `options` | table of strings, optional | Default core options, `key = "value"`. The frontend passes them to the core at launch. A key is ASCII letters, digits, `_` and `-`; a value is not empty and holds no `\|` or `;`. Each key and value must be one that the core announces: check it against the `option` lines of `tests/traces`. |
+| `internal_resolution` | table, optional | The core option of a GL core that sets its internal resolution: `option` (the key), `native_lines` (the lines of the native picture of its systems, 1 to 1024) and `values` (a table from each whole scale `k`, 1 to 16, to the option value for it; it must hold `1`). The frontend sets the option at launch to the `k` of the rule of `docs/spec/hw-render.md`, section 4: 1 on a CRT and a TV, on a Raspberry Pi and with scanlines on; on a flat panel of a PC the largest `k` of the table with `k * native_lines` at most the panel lines, at most 4. A core with no table runs at its own default. |
 
-The format is append-only. A new key gets a default, or a new `format` value. A key is never renamed or removed. The parser rejects an unknown key. Each system has exactly one core.
+The format is append-only. A new key gets a default, or a new `format` value.
+
+An example of the `internal_resolution` table, for a core whose option `core_internal_resolution` takes `1x`, `2x` and `4x`:
+
+```toml
+[internal_resolution]
+option = "core_internal_resolution"
+native_lines = 240
+values = { 1 = "1x", 2 = "2x", 4 = "4x" }
+```
+ A key is never renamed or removed. The parser rejects an unknown key. Each system has exactly one core.
 
 ## Default options
 

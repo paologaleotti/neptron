@@ -15,7 +15,10 @@ mod scan;
 mod test_dir;
 mod worker;
 
-pub use catalog::{Catalog, CatalogError, CoreDef, DEFINITION_FORMAT, Source, SystemDef};
+pub use catalog::{
+    Catalog, CatalogError, CoreDef, DEFINITION_FORMAT, INTERNAL_SCALE_MAX, InternalResolution,
+    NATIVE_LINES_MAX, Source, SystemDef,
+};
 pub use changes::{Changes, changes};
 pub use folders::{FolderStamp, MTIME_TRUST_WINDOW_NS, Mtime, trusted};
 pub use index::{Game, Index, MAX_TEXT_BYTES, Marks, SystemGames, compare_names};

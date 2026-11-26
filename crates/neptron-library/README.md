@@ -14,7 +14,7 @@ ROM scan, index cache, core and system metadata. The crate reads the Batocera an
 
 ## Public API
 
-- `Catalog::builtin()` parses `data/systems` and `data/cores`, embedded at build time. `system_for_folder`, `core_for`, `is_bios_set`. `CoreDef::options`: the default core options of `data/cores`, sorted by key, which the app passes to the core at launch. `SystemDef::always_progressive` (default `false`): every frame of the system is progressive. The app passes it in `GameLaunch::always_progressive` (`docs/spec/arcade.md`, section 9).
+- `Catalog::builtin()` parses `data/systems` and `data/cores`, embedded at build time. `system_for_folder`, `core_for`, `is_bios_set`. `CoreDef::options`: the default core options of `data/cores`, sorted by key, which the app passes to the core at launch. `CoreDef::internal_resolution` (`InternalResolution`: the option key, the native lines, the value for each scale `k`): the option of a GL core that the session sets to the `k` of `docs/spec/hw-render.md`, section 4. `SystemDef::always_progressive` (default `false`): every frame of the system is progressive. The app passes it in `GameLaunch::always_progressive` (`docs/spec/arcade.md`, section 9).
 - `scan(roms_root, catalog, arcade, cancel, progress)` builds an `Index` and a `ScanReport`. `arcade` holds at most one arcade index per core. It checks `cancel` before each directory entry and calls `progress` after each folder.
 - `refresh(roms_root, catalog, arcade, previous, now, cancel, progress)` gives the same result as `scan`, but reads only the folders whose stamp changed ("Change detection").
 - `changes(old, new)`: the games added, removed and changed (a rename is one removed and one added), for the notice after a scan.
