@@ -5,6 +5,7 @@
 //! whose game sent none for [`HANG_WAIT_NS`].
 
 use std::io;
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixDatagram;
 use std::path::{Path, PathBuf};
 
@@ -24,6 +25,9 @@ pub const HUNG_ENV_ON: &str = "1";
 /// frontend, in nanoseconds: 15 s, room for a 3D core that compiles its
 /// shaders in its first frames.
 pub const HANG_WAIT_NS: u64 = 15_000_000_000;
+
+/// The mode of the socket file: read and write for its owner only.
+pub const SOCKET_MODE: u32 = 0o600;
 
 /// The datagram of a game whose frames advance. It arms the watchdog.
 pub const BEAT: u8 = b'B';
@@ -89,8 +93,10 @@ pub fn socket_path(dir: &Path, pid: u32) -> PathBuf {
 }
 
 impl HeartbeatSocket {
-    /// Binds a non-blocking datagram socket at `path`. A file left at the
-    /// path by an earlier launcher with the same process id goes first.
+    /// Binds a non-blocking datagram socket at `path`, with mode 0600, so
+    /// only the user of the launcher (and of the frontend it starts) can
+    /// send to it. A file left at the path by an earlier launcher with the
+    /// same process id goes first.
     ///
     /// # Errors
     ///
@@ -101,6 +107,7 @@ impl HeartbeatSocket {
             _ => {}
         }
         let socket = UnixDatagram::bind(&path)?;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(SOCKET_MODE))?;
         socket.set_nonblocking(true)?;
         Ok(Self { socket, path })
     }
@@ -174,6 +181,11 @@ mod tests {
         let dir = std::env::temp_dir();
         let path = socket_path(&dir, std::process::id());
         let socket = HeartbeatSocket::bind(path.clone()).expect("bind");
+        let mode = std::fs::metadata(&path)
+            .expect("the socket file")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, SOCKET_MODE, "only the owner sends: {mode:o}");
         let sender = UnixDatagram::unbound().expect("a sender");
         sender.send_to(&[BEAT], &path).expect("send");
         sender.send_to(&[DISARM, BEAT], &path).expect("send");
