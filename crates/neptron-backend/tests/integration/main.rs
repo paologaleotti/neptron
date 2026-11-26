@@ -3,9 +3,12 @@
 
 #![forbid(unsafe_code)]
 
-use neptron_backend::{AudioSink, Clock, Display, DisplayError, InputSource};
+use neptron_backend::{
+    AudioSink, Clock, ContextRequest, CoreRenderError, Display, DisplayError, GlApi, GlVersion,
+    InputSource,
+};
 use neptron_safety::ValidatedMode;
-use neptron_types::{Control, FlipEvent, GpuCaps, InputEvent, Modeline, Scene};
+use neptron_types::{Control, FlipEvent, FrameOrigin, GpuCaps, InputEvent, Modeline, Scene};
 
 const CAPS: GpuCaps = GpuCaps {
     pclock_min_hz: 25_000_000,
@@ -82,6 +85,7 @@ fn traits_work_as_trait_objects() {
     assert_eq!(display.caps(), &CAPS);
     assert_eq!(display.wait_flip(), Err(DisplayError::NoMode));
     assert_eq!(display.blank(), Ok(()));
+    assert!(display.core_render().is_none(), "the default hosts no core");
 
     let mut audio: Box<dyn AudioSink> = Box::new(Small { queued: 0 });
     assert_eq!(audio.write(&[0; 7]), 3);
@@ -142,5 +146,42 @@ fn display_errors_carry_context() {
         }
         .to_string(),
         "the scene cannot be shown: frame has 10 bytes, needs 1280"
+    );
+}
+
+#[test]
+fn core_render_errors_carry_context() {
+    let request = ContextRequest {
+        api: GlApi::GlCore,
+        version: GlVersion::new(3, 3),
+        depth: true,
+        stencil: false,
+        origin: FrameOrigin::BottomLeft,
+    };
+    let text = CoreRenderError::NotOffered { request }.to_string();
+    assert!(text.contains("GlCore"), "{text}");
+    assert!(text.contains("major: 3, minor: 3"), "{text}");
+    assert_eq!(
+        CoreRenderError::Size {
+            operation: "create",
+            width: 0,
+            height: 240,
+            max_width: 4096,
+            max_height: 4096,
+        }
+        .to_string(),
+        "create cannot take 0x240: the limit is 4096x4096"
+    );
+    assert_eq!(
+        CoreRenderError::BufferTooSmall { len: 3, min: 4 }.to_string(),
+        "the read back needs 4 bytes, and the buffer holds 3"
+    );
+    assert_eq!(
+        CoreRenderError::Driver {
+            operation: "eglCreateContext",
+            reason: "EGL_BAD_MATCH".to_owned(),
+        }
+        .to_string(),
+        "the graphics driver failed in eglCreateContext: EGL_BAD_MATCH"
     );
 }

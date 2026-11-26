@@ -10,10 +10,15 @@
 
 mod audio;
 mod clock;
+mod core_render;
 mod display;
 mod input;
 
 pub use audio::AudioSink;
 pub use clock::Clock;
+pub use core_render::{
+    ContextOffer, ContextRequest, CoreFrameStatus, CoreRender, CoreRenderError, CoreTarget, GlApi,
+    GlVersion,
+};
 pub use display::{Display, DisplayError};
 pub use input::InputSource;

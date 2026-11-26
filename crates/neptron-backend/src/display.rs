@@ -1,6 +1,8 @@
 use neptron_safety::ValidatedMode;
 use neptron_types::{FlipEvent, GpuCaps, Modeline, Scene};
 
+use crate::CoreRender;
+
 /// A display output: KMS, a desktop window or a test fake.
 ///
 /// The only way to change the mode is [`Display::set_mode`], and it takes a
@@ -95,6 +97,15 @@ pub trait Display {
     /// [`DisplayError::Device`] while a flip is queued, or when the device
     /// fails. On an error the output keeps its state.
     fn blank(&mut self) -> Result<(), DisplayError>;
+
+    /// The host of a GL context for a core that draws with the GPU, or
+    /// `None` for a display that cannot host one. A
+    /// [`GamePicture::Gpu`](neptron_types::GamePicture::Gpu) picture in a
+    /// scene names an image that this host made; `present` refuses an
+    /// image it does not know with [`DisplayError::SceneRefused`].
+    fn core_render(&mut self) -> Option<&mut dyn CoreRender> {
+        None
+    }
 }
 
 /// An error of a [`Display`] backend.
