@@ -348,6 +348,22 @@ Out of 0.2:
 
 ## 13. Questions for the owner
 
+**Decision: Owner, 2026-11-26: the recommendation of every question, Q1 to Q11.** The mission for each choice in this work: as plug and play as possible, and an accurate, sharp picture on a CRT.
+
+- Q1 (a): Beetle PSX HW on the PC, PCSX ReARMed on the Pi 3, 4 and 5.
+- Q2 (a): Dreamcast and Naomi are hidden on a Pi 3.
+- Q3 (b): on a panel, the PC takes the largest whole multiple that fits, at most 4x; a Pi 4 or 5 takes 1x until it is measured.
+- Q4 (a): a CRT and a TV always get 1x.
+- Q5 (a): no user setting for internal resolution in 0.2.
+- Q6 (a): scanlines force 1x.
+- Q7 (b): a system is hidden where no game of it can run; the notice H1 for the rest.
+- Q8 (b): a core with no picture ends after 10 s with the notice H3.
+- Q9 (a): one recovery of a lost context; the game ends at the second loss.
+- Q10 (b): a heartbeat and a kill after 15 s with a notice, as a package of its own.
+- Q11 (a): Naomi and Atomiswave are systems of their own.
+
+The questions as they were asked:
+
 **Q1. Which PlayStation core runs on each machine?**
 - (a) Beetle PSX HW (GL 3.3 core) on the PC, PCSX ReARMed on the Pi 3, 4 and 5. A core per machine becomes a rule of `data/cores`.
 - (b) SwanStation on every machine: GL on the PC, software on the Pis.

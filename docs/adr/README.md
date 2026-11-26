@@ -37,4 +37,4 @@ To write one, copy `0000-template.md` to the next free number. A later change th
 | [0019](0019-gpl-frontend-loads-non-commercial-cores.md) | The GPL frontend loads the non-commercial cores in its own process | accepted | M14 |
 | [0020](0020-turned-ui-canvas-in-scene.md) | The scene carries the turn and the filter of the UI canvas | accepted, amended by 0021 | N01 |
 | [0021](0021-ui-canvas-size-and-portrait-menu.md) | The UI canvas has a size of its own, and a turned screen gets a portrait canvas | accepted | N01 |
-| [0022](0022-gpu-game-picture-in-scene.md) | The scene carries a game picture that lives on the GPU, and a display can host a core context | proposed | S01 |
+| [0022](0022-gpu-game-picture-in-scene.md) | The scene carries a game picture that lives on the GPU, and a display can host a core context | accepted | S01 |

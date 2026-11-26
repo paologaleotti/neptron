@@ -1,6 +1,6 @@
 # 0022: The scene carries a game picture that lives on the GPU, and a display can host a core context
 
-- Status: proposed
+- Status: accepted (Owner, 2026-11-26)
 - Date: 2026-11-26
 - Task: S01
 
