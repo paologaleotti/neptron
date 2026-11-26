@@ -855,11 +855,11 @@ status = "merged"
 [[task]]
 id = "S02"
 wave = 16
-name = "Hardware-render for GL and GLES cores: the core draws into a frame buffer of the renderer, on the PC and on the Pi; a GL test core. Part 1 is merged (the contract of ADR 0022, the answers of the host, the GL test core and the reference GL of the fake display). Part 2 is merged (the review points of part 1, the GPU code, the probe; gles-compare 322 checks and kms-check 137, 0 failed). Part 3: first the review points of part 2 (free the core context when the last make-current of create or resize fails; bind the desktop GL API around calls on a GL core context; report a lost context with a failed end; refuse render, resize and read-back between begin and end; a bottom-left scene with a crop in gles-compare), then the session and the notices (W4), the hang watchdog, the hardware checklist lines and the measurements on hardware (W6)"
+name = "Hardware-render for GL and GLES cores: the core draws into a frame buffer of the renderer, on the PC and on the Pi; a GL test core. Part 1 is merged (the contract of ADR 0022, the answers of the host, the GL test core and the reference GL of the fake display). Part 2 is merged (the review points of part 1, the GPU code, the probe; gles-compare 322 checks and kms-check 137, 0 failed). Part 3 is merged (the review points of part 2, the session for a GL core, the notices H1 to H4, the watchdog for a hung game with its heartbeat; gles-compare 342 checks and kms-check 137, 0 failed). No real core runs yet: that is S10 and S11"
 owns = ["crates/neptron-libretro", "crates/neptron-libretro-sys", "crates/neptron-gfx", "crates/neptron-video", "crates/neptron-session", "crates/neptron-testcore"]
 needs = ["S01"]
 gate = "T2; gles-compare; kms-check"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "S03"
@@ -927,7 +927,7 @@ status = "pending"
 [[task]]
 id = "S10"
 wave = 16
-name = "PlayStation: the core and its licence check, the system in the library and the images, the picture cases"
+name = "PlayStation: the core and its licence check, the system in the library and the images, the picture cases; from S02: an `internal_resolution` table in the `data/cores` file of each GL core, a writable temp directory for the heartbeat socket of the launcher in the images, and a rule in xtask that holds the names NEPTRON_HEARTBEAT and NEPTRON_HUNG equal in the launcher and the app"
 owns = ["os", "crates/neptron-library", "apps/neptron", "docs/spec"]
 needs = ["S02", "S03", "S04", "S05", "S07"]
 gate = "T2; core-trace; image builds"
@@ -945,7 +945,7 @@ status = "pending"
 [[task]]
 id = "S12"
 wave = 16
-name = "Bench session and release 0.2"
+name = "Bench session and release 0.2; with the measurements of section 8 of `docs/spec/hw-render.md` and the GL core lines of the hardware checklist (the real drivers of Intel, the Pi 3, the Pi 4 and 5, a lost context)"
 owns = ["docs"]
 needs = ["S06", "S08", "S10", "S11"]
 gate = "the owner's bench session"
