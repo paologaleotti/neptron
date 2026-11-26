@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 use neptron_audio::{AudioPipeline, CoreTiming, FlipRateMeter};
-use neptron_backend::{AudioSink, Clock, Display, InputSource};
+use neptron_backend::{AudioSink, Clock, ContextOffer, Display, InputSource};
 use neptron_input::{Hotkeys, PortStates};
 use neptron_libretro::{
     Backup, ContentRequest, Host, HostConfig, LOG_TEXT_MAX_BYTES, LoadError, MESSAGE_MAX_BYTES,
@@ -12,6 +12,7 @@ use neptron_libretro::{
 };
 use neptron_video::VideoEngine;
 
+use super::hw::ScaleRule;
 use super::{INPUT_EVENTS_CAPACITY, Session, State};
 use crate::pacing::{FlipClock, Pacing};
 use crate::pads::PadMask;
@@ -32,15 +33,22 @@ struct SaveFile {
 impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     /// Launches a game.
     ///
-    /// 1. Makes the save folder, opens the core, gives it the core option
-    ///    values to hold, and loads the content. A core that declares its
-    ///    options during the load gets the values too.
+    /// 1. Makes the save folder, opens the core, gives it the context
+    ///    types that the display offers and the core option values to
+    ///    hold, with the internal resolution of a GL core (see
+    ///    [`internal_scale`](crate::internal_scale)), and loads the
+    ///    content. A core that declares its options during the load gets
+    ///    the values too.
     /// 2. Reads the save file and loads it into the core's save RAM.
-    /// 3. Runs the core with no display until its source settles (see
+    /// 3. For a core that asked for a GL context: makes the context with an
+    ///    image of the core's largest frame, gives the core its framebuffer
+    ///    and lookup, and calls `context_reset` inside the context
+    ///    (`docs/spec/hw-render.md`, section 3.1).
+    /// 4. Runs the core with no display until its source settles (see
     ///    [`LAUNCH_STABLE_FRAMES`](crate::LAUNCH_STABLE_FRAMES)), so the
     ///    first mode is the game's mode. The audio of these frames is
     ///    dropped and the core reads no input.
-    /// 4. Starts the audio pipeline at the core's own rate and the save
+    /// 5. Starts the audio pipeline at the core's own rate and the save
     ///    RAM writer thread.
     ///
     /// The first [`Session::run_frame`] sets the first mode. Launch is not
@@ -63,8 +71,27 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             system_dir: game.system_dir.to_owned(),
             save_dir: game.save_dir.to_owned(),
         };
+        let mut display = video.display;
+        let offer = display
+            .core_render()
+            .map_or(ContextOffer::NONE, |render| render.offer());
         let mut host = Host::open(game.core, config)?;
-        host.hold_options(game.core_options);
+        host.set_hw_offer(offer);
+        let scale_rule = game
+            .internal_scale
+            .map(|scale| ScaleRule::new(&scale, options.machine));
+        let (scale, scale_pair) = scale_rule.as_ref().map_or((1, None), |rule| {
+            rule.pick(&video.monitor.profile().kind, video.scanlines.mode)
+        });
+        // The value of the rule comes last, so it wins over a value of the
+        // core data for the same key.
+        let held: Vec<(String, String)> = game
+            .core_options
+            .iter()
+            .cloned()
+            .chain(scale_pair)
+            .collect();
+        host.hold_options(&held);
         let request = game.content.map(|path| ContentRequest {
             path,
             extensions: game.extensions,
@@ -79,6 +106,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
                 return Err(LaunchError::Refused {
                     core_errors: start_errors,
                     dropped_logs: start_dropped_logs,
+                    hw_refusal: host.hw_refusal(),
                 });
             }
             Err(e) => return Err(LaunchError::Load(e)),
@@ -86,7 +114,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         let refused_options = host.held_option_report().len();
         let save = load_save_file(&mut host, game)?;
 
-        let mut engine = VideoEngine::new(video.display, video.monitor, video.policy);
+        let mut engine = VideoEngine::new(display, video.monitor, video.policy);
         engine.set_scanlines(video.scanlines);
         let mut hotkeys = Hotkeys::new();
         hotkeys.set_start_hold_ns(options.start_hold_ns);
@@ -108,6 +136,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             fired: Vec::with_capacity(INPUT_EVENTS_CAPACITY),
             mask: PadMask::default(),
             picture: Picture::new(geometry.max_width, geometry.max_height),
+            hw: None,
+            picture_scale: 1,
+            scale_rule,
             geometry,
             timing: av.timing,
             always_progressive: game.always_progressive,
@@ -155,6 +186,10 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
                 ..Counters::default()
             },
         };
+        if let Some(request) = session.host.hw_request() {
+            let native_lines = game.internal_scale.map_or(0, |s| s.native_lines);
+            session.start_hw(request, (scale, native_lines))?;
+        }
         session.settle()?;
         session.start.said_at_launch =
             !session.start_errors.is_empty() || !session.message.is_empty();
@@ -192,6 +227,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         let mut settle = LaunchSettle::default();
         loop {
             self.run_core(false).map_err(LaunchError::Run)?;
+            self.hw_fault().map_err(LaunchError::Session)?;
             self.counters.settle_frames += 1;
             collect_errors(&mut self.start_errors, self.host.error_logs());
             self.start_dropped_logs += self.host.dropped_logs();

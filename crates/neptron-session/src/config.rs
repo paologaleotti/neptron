@@ -1,6 +1,8 @@
 use std::path::Path;
 
 use neptron_audio::Resampling;
+
+use crate::{InternalScale, Machine};
 use neptron_video::{Monitor, PolicySettings, ScanlineSettings};
 
 /// The game to launch: the core, the content and the folders.
@@ -43,6 +45,11 @@ pub struct GameLaunch<'a> {
     /// `always_progressive`): the line count of a frame does not make it
     /// interlaced.
     pub always_progressive: bool,
+    /// The core option that sets the internal resolution of a GL core, from
+    /// the core data. The session holds its value for the `k` of
+    /// [`internal_scale`](crate::internal_scale) with the core options.
+    /// `None` for a core with no such option.
+    pub internal_scale: Option<InternalScale<'a>>,
 }
 
 /// The display and the resolved video settings.
@@ -83,6 +90,8 @@ pub struct SessionOptions {
     /// From `audio.volume`, in percent: 100 is the core's own level, 0 is
     /// silence. The pipeline starts at it with no ramp.
     pub volume_percent: u32,
+    /// The machine, for the internal resolution of a GL core.
+    pub machine: Machine,
 }
 
 /// Where the session takes the run rate (core frames per second of real
@@ -104,6 +113,7 @@ impl Default for SessionOptions {
             run_rate: RunRateSource::ReadBack,
             start_hold_ns: 0,
             volume_percent: neptron_audio::VOLUME_MAX_PERCENT,
+            machine: Machine::Pc,
         }
     }
 }

@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
 use neptron_audio::AudioError;
-use neptron_libretro::{LoadError, OpenError, RunError, SaveFileError, SaveRamError};
+use neptron_backend::{ContextRequest, CoreRenderError};
+use neptron_libretro::{HwRefusal, LoadError, OpenError, RunError, SaveFileError, SaveRamError};
 use neptron_video::VideoError;
 
 /// Why a game could not launch. Nothing was written; the save file, if
@@ -35,6 +36,20 @@ pub enum LaunchError {
         /// dropped. The host keeps the first error lines of the call
         /// apart, so `core_errors` can still hold them.
         dropped_logs: usize,
+        /// The hardware context that the core asked for and the host
+        /// refused during the load, when it did: the machine does not
+        /// have it, and that is why the core refused.
+        hw_refusal: Option<HwRefusal>,
+    },
+    /// The core asked for a hardware context that the display offers, and
+    /// the display could not make it. The core is unloaded.
+    #[error("the display could not make the {request:?} context of the core: {error}")]
+    Graphics {
+        /// What the core asked for.
+        request: ContextRequest,
+        /// Why the display could not make it.
+        #[source]
+        error: CoreRenderError,
     },
     /// The core asked to stop (`SHUTDOWN`) during the load, or in a frame
     /// before its source settled: the game never showed.
@@ -68,6 +83,9 @@ pub enum LaunchError {
     /// A core frame failed while the source settled.
     #[error("the core failed in a frame at launch: {0}")]
     Run(#[source] RunError),
+    /// The GL context of the core failed while the source settled.
+    #[error("the game stopped at launch: {0}")]
+    Session(#[source] SessionError),
     /// The audio pipeline refuses the core's timing or the device.
     #[error("cannot start the audio: {0}")]
     Audio(#[source] AudioError),
@@ -94,4 +112,15 @@ pub enum SessionError {
         /// The last error of the engine.
         last: VideoError,
     },
+    /// The GPU lost the context of the GL core more often than the session
+    /// makes it again.
+    #[error("the graphics driver lost the context of the core {losses} times")]
+    ContextLost {
+        /// The losses in the session.
+        losses: u32,
+    },
+    /// The display failed to begin or end a frame of the GL core, to give
+    /// its image a new size, or to make its context again.
+    #[error("the graphics driver failed: {0}")]
+    Graphics(#[source] CoreRenderError),
 }

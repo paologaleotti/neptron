@@ -665,7 +665,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             }
             Stage::Game(game) => {
                 if let Ok(scanlines) = scanlines {
-                    game.session.video_mut().set_scanlines(scanlines);
+                    game.session.set_scanlines(scanlines);
                 }
             }
             Stage::Ended => {}

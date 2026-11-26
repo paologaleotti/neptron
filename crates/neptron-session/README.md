@@ -17,15 +17,16 @@ Game lifecycle: launch, the display-locked loop, pause, quick menu, exit and sav
   - `resume()`, `reset()`, `hide_picture(hide)` (while paused, frames show the UI with no game picture, for the screensaver), `set_start_hold_ns(ns)`, `set_volume_percent(percent)`, `write_cue(samples)` (a tone mixed into the next core frames), `quit() -> ExitReport`.
   - `slow_speed_percent()`: the speed of a game that the machine cannot keep at full speed, in percent of the mode's run rate, after 2 s of late pacing below 98% (`SLOW_NOTICE_PERMILLE`), else `None`. `sound_too_slow()`: the game runs below half speed and its sound is off.
   - Start failures: `start_errors()`, `start_dropped_logs()`, `last_message()`, `last_error()`.
-  - Reads for the UI snapshot and the control API: `paused()`, `ended()`, `video_status(&mut VideoStatusText)`, `video()`, `last_frame()`, `source()`, `input_events()`, `ports()`, `input()`, `message()`, `host()`, `core_logs()`, `audio_stats()`, `audio_sink()`, `volume_percent()`, `run_rate_mhz()`, `save_stats()`, `counters()`.
-  - Live changes: `video_mut()` (`set_settings`, `set_scanlines`, `set_monitor`, `retry` of the engine), `host_mut()` (`set_option`).
-- `GameLaunch`: the core, the content, the extensions, the BIOS and save folders, the core option values, `always_progressive`. Launch gives the option values to `Host::hold_options` before the load, so a core that declares its options in `retro_load_game` (FinalBurn Neo) gets them too (ADR 0016). `Counters::refused_options` counts the held values that did not apply, and `host().held_option_report()` names them.
+  - Reads for the UI snapshot and the control API: `paused()`, `ended()`, `video_status(&mut VideoStatusText)`, `video()`, `last_frame()` (a frame in memory), `read_picture()` (the last picture, read back from the image of a GL core on a request), `picture_scale()`, `hw_request()`, `source()`, `input_events()`, `ports()`, `input()`, `message()`, `host()`, `core_logs()`, `audio_stats()`, `audio_sink()`, `volume_percent()`, `run_rate_mhz()`, `save_stats()`, `counters()`.
+  - Live changes: `video_mut()` (`set_settings`, `set_monitor`, `retry` of the engine), `set_scanlines(ScanlineSettings)` (the engine's scanlines, and the internal resolution option of a GL core that they decide), `host_mut()` (`set_option`).
+- `GameLaunch`: the core, the content, the extensions, the BIOS and save folders, the core option values, `always_progressive`, and `internal_scale` (`InternalScale`: the option of a GL core that sets its internal resolution, from the core data). Launch gives the option values to `Host::hold_options` before the load, so a core that declares its options in `retro_load_game` (FinalBurn Neo) gets them too (ADR 0016). `Counters::refused_options` counts the held values that did not apply, and `host().held_option_report()` names them.
 - `VideoSetup<D>`: the display, the monitor, the policy settings and the scanline settings. The scanline settings are part of the launch because the engine draws none until it gets them.
-- `Devices<S, I, C>`, `SessionOptions` (`Resampling`, `RunRateSource`, the Start hold, the volume in percent), `RunRateSource::{ReadBack, Measured}`.
+- `Devices<S, I, C>`, `SessionOptions` (`Resampling`, `RunRateSource`, the Start hold, the volume in percent, the `Machine`), `RunRateSource::{ReadBack, Measured}`.
 - `FrameReport`, `PacingChange`, `EndReason`, `Counters`, `ExitReport`, `Flush`, `SaveStats`, `SaveError`, `LaunchError`, `SessionError`, `StartFacts`, `end_reason`.
 - `zip_entries`, `ZipDirectoryEntry`, `ZipError`: the zip listing of the core host, re-exported for the arcade set check of the app (`docs/spec/arcade.md`, section 10).
 - `source_geometry(width, height, &GameGeometry, &Timing, FrameRules) -> SourceGeometry` with `FrameRules { rotation, always_progressive }` (`FrameRules::CONSOLE` for no turn).
-- Constants: `LAUNCH_STABLE_FRAMES`, `LAUNCH_SETTLE_MAX_FRAMES`, `INTERLACE_MIN_LINES`, `FLIPLESS_FRAMES_LIMIT`, `SAVE_RAM_FLUSH_INTERVAL_NS`, `CORE_PORTS`, `START_ERRORS_MAX`, `START_WINDOW_NS`, `LATE_PRESS_MIN_FRAMES`, `LATE_PRESS_MAX_FRAMES`, and the pacing and speed constants of `docs/spec/pacing-audio.md`.
+- `internal_scale(&MonitorKind, Machine, ScanlineMode, native_lines, values) -> u8` and `scale_value`: the rule of the internal resolution `k` of a GL core (`docs/spec/hw-render.md`, section 4).
+- Constants: `INTERNAL_SCALE_LIMIT`, `CONTEXT_RECOVERIES_MAX`, `LAUNCH_STABLE_FRAMES`, `LAUNCH_SETTLE_MAX_FRAMES`, `INTERLACE_MIN_LINES`, `FLIPLESS_FRAMES_LIMIT`, `SAVE_RAM_FLUSH_INTERVAL_NS`, `CORE_PORTS`, `START_ERRORS_MAX`, `START_WINDOW_NS`, `LATE_PRESS_MIN_FRAMES`, `LATE_PRESS_MAX_FRAMES`, and the pacing and speed constants of `docs/spec/pacing-audio.md`.
 
 ## Rules
 
@@ -55,6 +56,17 @@ save RAM to the writer when the timer is due
 - While `current_refused()` of the engine is on, the session mutes the audio and presents no game picture.
 - The run rate is the field rate of the mode read back over the flips per core frame (`RunRateSource::ReadBack`, KMS), or the flip rate from `FlipRateMeter` (`RunRateSource::Measured`, the desktop window).
 - The user volume (`audio.volume`, `docs/spec/audio-settings.md`) is a gain in the pipeline, apart from the mute. The pipeline starts at `SessionOptions::volume_percent` with no ramp; `set_volume_percent` changes it live with a 20 ms ramp; a new pipeline for a core timing change keeps it. A sink that stops taking data (a lost device) only costs the frames it does not take: the loop never waits on it.
+
+## A GL core
+
+`docs/spec/hw-render.md` defines it. `session/hw.rs` holds the code.
+
+- Launch: the offer of `Display::core_render` goes to `Host::set_hw_offer` before the load, with the option value of `k` held with the core options. After a load whose core asked for a context: `CoreRender::create` with an image of the core's largest frame, `Host::set_hw_target`, then `context_reset` between `begin` and `end`, then the settle frames. A refused type gives `LaunchError::Refused` with `hw_refusal`; a failed `create` gives `LaunchError::Graphics`, and the core unloads.
+- Each call into the core that can draw (`retro_run`, `retro_reset`, `context_reset`) runs between `CoreRender::begin` and `CoreRender::end`, before the present of its frame. A larger maximum of the core resizes the image before the next call. While the quick menu is open the core does not run, and the image keeps the last picture under the UI.
+- `k`: 1 on a CRT and a TV, on a Raspberry Pi, and with the scanlines on; on a flat panel of a PC the largest `k` of the core data with `k * native_lines` at most the panel lines, at most 4. The policy sees the native size, the frame over `k`. A frame is taken at `k` only when the core's largest frame has at least `k` times the native lines and both sides are multiples of `k`; else it counts as native and `Counters::unscaled_frames` counts it. A live change of the scanlines sets the option again; the session also takes frames at the `k` of the launch, for a core that takes the option only at its next launch.
+- A lost context: the session makes it again once (`CONTEXT_RECOVERIES_MAX`) and calls `context_reset` with no `context_destroy`; the next loss ends the game with `SessionError::ContextLost`. A failed `begin`, `end` or `resize` ends it with `SessionError::Graphics`.
+- No picture: a GL core that sends no hardware frame in the core frames of `START_WINDOW_NS` (10 s) ends the game.
+- End: `context_destroy` runs inside the context, and the context stays current for the unload and the deinit of the host, which drops first; the display destroys the context after.
 
 ## Launch: the first mode
 

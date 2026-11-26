@@ -127,6 +127,14 @@ pub struct Counters {
     /// The audio pipeline could not be made again after a timing change.
     /// The session runs with no sound from then on.
     pub audio_lost: bool,
+    /// GL errors of a GL core, as the display reads them now and then.
+    pub gl_errors: u64,
+    /// Times the GPU lost the context of a GL core.
+    pub context_losses: u64,
+    /// Frames of a GL core at an internal resolution above 1 whose size is
+    /// not that many times a native size: the session took them as
+    /// native.
+    pub unscaled_frames: u64,
 }
 
 /// What [`Session::quit`](crate::Session::quit) did.

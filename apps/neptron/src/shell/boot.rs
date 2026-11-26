@@ -11,7 +11,10 @@ use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::PadRoster;
 use neptron_input::{Hotkeys, PortStates};
 use neptron_library::Catalog;
-use neptron_session::{Devices as SessionDevices, GameLaunch, Session, SessionOptions, VideoSetup};
+use neptron_session::{
+    Devices as SessionDevices, GameLaunch, InternalScale, Machine, Session, SessionOptions,
+    VideoSetup,
+};
 use neptron_settings::Storage;
 use neptron_ui::screens::Screens;
 use neptron_ui::snapshot::{DisplayInfo, NoticeKind, ProfileEntry, ProfileId};
@@ -596,6 +599,15 @@ fn load_theme(path: &Path, found: &mut Found) -> Theme {
     })
 }
 
+/// The machine for the internal resolution of a GL core. The ARM images
+/// are the Raspberry Pi images, whose GPU cost of a larger picture is not
+/// measured yet.
+const MACHINE: Machine = if cfg!(any(target_arch = "aarch64", target_arch = "arm")) {
+    Machine::RaspberryPi
+} else {
+    Machine::Pc
+};
+
 /// A launch that failed: the notice of the game list, and the log lines.
 type Failure = (String, Vec<String>);
 
@@ -635,6 +647,11 @@ fn launch<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone
         adopt_flat_save: files.adopt_flat,
         core_options: &core.options,
         always_progressive: system.always_progressive,
+        internal_scale: core.internal_resolution.as_ref().map(|r| InternalScale {
+            option: &r.option,
+            native_lines: r.native_lines,
+            values: &r.values,
+        }),
     };
     let policy = config.policy().map_err(|e| (e.to_string(), Vec::new()))?;
     let scanlines = config
@@ -651,6 +668,7 @@ fn launch<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone
         run_rate: runtime.run_rate,
         start_hold_ns: config.start_hold_ns(),
         volume_percent: config.volume_percent(),
+        machine: MACHINE,
     };
     let mut session = Session::launch(&game, video, devices, options).map_err(|e| {
         (

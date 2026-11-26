@@ -59,6 +59,7 @@ pub fn launch_log(error: &LaunchError) -> Vec<String> {
         LaunchError::Refused {
             core_errors,
             dropped_logs,
+            ..
         }
         | LaunchError::CoreStopped {
             core_errors,
@@ -139,6 +140,7 @@ mod tests {
         let error = LaunchError::Refused {
             core_errors: vec![KINST.to_owned(), "second".to_owned()],
             dropped_logs: 0,
+            hw_refusal: None,
         };
         assert_eq!(
             launch_notice("kinst", &error),

@@ -13,14 +13,17 @@ use std::sync::{Arc, Mutex};
 use neptron_audio::Resampling;
 use neptron_backend::{AudioSink, Clock, InputSource};
 use neptron_session::{
-    Devices, GameLaunch, LaunchError, RunRateSource, Session, SessionOptions, VideoSetup,
+    Devices, GameLaunch, InternalScale, LaunchError, Machine, RunRateSource, Session,
+    SessionOptions, VideoSetup,
 };
-use neptron_testcore::{PixelFormat as CoreFormat, SCRIPT_ENV, Size, expected_hash, hash};
+use neptron_testcore::{
+    PixelFormat as CoreFormat, SCALE_OPTION, SCRIPT_ENV, Size, expected_hash, hash,
+};
 use neptron_testkit::preset::{CAPS_LOW_CLOCK, monitor_preset};
 use neptron_testkit::{
     AudioOptions, DisplayOptions, FakeAudio, FakeDisplay, ScriptedInput, SimClock,
 };
-use neptron_types::{Control, Frame, GpuCaps, InputEvent, PixelFormat};
+use neptron_types::{Control, Frame, GpuCaps, InputEvent, MonitorProfile, PixelFormat};
 use neptron_video::{Monitor, PolicySettings, ScanlineSettings};
 
 /// The session type of the tests.
@@ -207,6 +210,44 @@ pub struct Setup {
     pub save_folders: Vec<String>,
     /// The launch may copy the flat save of the game to its own folder.
     pub adopt_flat_save: bool,
+    /// A monitor in place of the preset of `monitor`, such as a panel.
+    pub monitor_profile: Option<MonitorProfile>,
+    /// The internal resolution option of the core data: the native lines
+    /// and the value of each scale.
+    pub internal_scale: Option<(u16, Vec<(u8, String)>)>,
+    /// The machine of the internal resolution rule.
+    pub machine: Machine,
+    /// The first `create` of a core context fails with this reason.
+    pub core_create_fault: Option<String>,
+    /// The `end` calls of the core context (from 0) that report a lost
+    /// context.
+    pub core_losses: Vec<u64>,
+}
+
+/// The internal resolution option of the GL test core, with every scale it
+/// offers.
+pub fn test_core_scale(native_lines: u16) -> Option<(u16, Vec<(u8, String)>)> {
+    Some((native_lines, (1..=4).map(|k| (k, k.to_string())).collect()))
+}
+
+impl Setup {
+    fn monitor(&self) -> Monitor {
+        Monitor::Profile(
+            self.monitor_profile
+                .clone()
+                .unwrap_or_else(|| monitor_preset(self.monitor).expect("monitor preset")),
+        )
+    }
+
+    fn internal_scale(&self) -> Option<InternalScale<'_>> {
+        self.internal_scale
+            .as_ref()
+            .map(|(native_lines, values)| InternalScale {
+                option: SCALE_OPTION.key,
+                native_lines: *native_lines,
+                values,
+            })
+    }
 }
 
 impl Default for Setup {
@@ -227,6 +268,11 @@ impl Default for Setup {
             always_progressive: false,
             save_folders: Vec::new(),
             adopt_flat_save: false,
+            monitor_profile: None,
+            internal_scale: None,
+            machine: Machine::Pc,
+            core_create_fault: None,
+            core_losses: Vec::new(),
         }
     }
 }
@@ -250,7 +296,7 @@ pub fn launch_on<S: AudioSink>(
     audio: impl FnOnce(&SimClock, &FakeDisplay) -> S,
 ) -> (Session<FakeDisplay, S, ScriptedInput, SimClock>, SimClock) {
     let clock = SimClock::starting_at(START_NS);
-    let display = FakeDisplay::with_options(clock.clone(), setup.caps, setup.display);
+    let display = FakeDisplay::with_options(clock.clone(), setup.caps, setup.display.clone());
     let save_dir = dir.join("saves");
     let content = dir.join("game.ntc");
     let extensions = ["ntc".to_owned()];
@@ -266,11 +312,12 @@ pub fn launch_on<S: AudioSink>(
         always_progressive: setup.always_progressive,
         save_folders: &setup.save_folders,
         adopt_flat_save: setup.adopt_flat_save,
+        internal_scale: setup.internal_scale(),
     };
     let sink = audio(&clock, &display);
     let video = VideoSetup {
         display,
-        monitor: Monitor::Profile(monitor_preset(setup.monitor).expect("monitor preset")),
+        monitor: setup.monitor(),
         policy: setup.policy,
         scanlines: setup.scanlines,
     };
@@ -282,6 +329,7 @@ pub fn launch_on<S: AudioSink>(
     let options = SessionOptions {
         resampling: setup.resampling,
         run_rate: setup.run_rate,
+        machine: setup.machine,
         ..SessionOptions::default()
     };
     let session = Session::launch(&game, video, devices, options).expect("launch");
@@ -308,7 +356,13 @@ impl Rig {
     /// error of a launch that fails.
     pub fn start(dir: &Path, setup: Setup) -> Result<Self, Box<Failed>> {
         let clock = SimClock::starting_at(START_NS);
-        let display = FakeDisplay::with_options(clock.clone(), setup.caps, setup.display);
+        let display = FakeDisplay::with_options(clock.clone(), setup.caps, setup.display.clone());
+        if let Some(reason) = &setup.core_create_fault {
+            display.fault_core_create(reason.clone());
+        }
+        for call in &setup.core_losses {
+            display.fault_core_loss(*call);
+        }
         let audio = FakeAudio::with_options(
             clock.clone(),
             DEVICE_RATE_HZ,
@@ -335,10 +389,11 @@ impl Rig {
             always_progressive: setup.always_progressive,
             save_folders: &setup.save_folders,
             adopt_flat_save: setup.adopt_flat_save,
+            internal_scale: setup.internal_scale(),
         };
         let video = VideoSetup {
             display: display.clone(),
-            monitor: Monitor::Profile(monitor_preset(setup.monitor).expect("monitor preset")),
+            monitor: setup.monitor(),
             policy: setup.policy,
             scanlines: setup.scanlines,
         };
@@ -356,6 +411,7 @@ impl Rig {
             run_rate: setup.run_rate,
             start_hold_ns: setup.start_hold_ns,
             volume_percent: setup.volume_percent,
+            machine: setup.machine,
         };
         match Session::launch(&game, video, devices, options) {
             Ok(session) => Ok(Self {

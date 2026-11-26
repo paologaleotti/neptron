@@ -16,6 +16,7 @@ mod pads;
 mod picture;
 mod report;
 mod save;
+mod scale;
 mod session;
 mod source;
 mod speed;
@@ -33,7 +34,8 @@ pub use pacing::{
 pub use pads::{CORE_PORTS, LATE_PRESS_MAX_FRAMES, LATE_PRESS_MIN_FRAMES};
 pub use report::{Counters, EndReason, ExitReport, FrameReport, PacingChange};
 pub use save::{Flush, SAVE_RAM_FLUSH_INTERVAL_NS, SaveError, SaveStats};
-pub use session::{FLIPLESS_FRAMES_LIMIT, Session};
+pub use scale::{INTERNAL_SCALE_LIMIT, InternalScale, Machine, internal_scale, scale_value};
+pub use session::{CONTEXT_RECOVERIES_MAX, FLIPLESS_FRAMES_LIMIT, Session};
 pub use source::{
     FrameRules, INTERLACE_MIN_LINES, LAUNCH_SETTLE_MAX_FRAMES, LAUNCH_STABLE_FRAMES,
     source_geometry,

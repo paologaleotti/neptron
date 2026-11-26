@@ -6,6 +6,7 @@
 
 mod arcade;
 mod faults;
+mod gl;
 mod harness;
 mod launch;
 mod pacing;

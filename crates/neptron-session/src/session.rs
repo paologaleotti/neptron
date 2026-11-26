@@ -1,6 +1,7 @@
 //! The session: one game from launch to exit.
 
 mod frame;
+mod hw;
 mod launch;
 
 use neptron_audio::{AudioPipeline, AudioStats, FlipRateMeter, Resampling};
@@ -9,6 +10,8 @@ use neptron_input::{Hotkey, Hotkeys, PortStates};
 use neptron_libretro::{GameGeometry, Host, LogRecord, RunError, Timing};
 use neptron_types::{FlipEvent, Frame, InputEvent, SourceGeometry};
 use neptron_video::{VideoEngine, VideoStatusText};
+
+pub use hw::CONTEXT_RECOVERIES_MAX;
 
 use crate::pacing::{FlipClock, Pacing};
 use crate::pads::PadMask;
@@ -55,6 +58,15 @@ pub struct Session<D: Display, S: AudioSink, I: InputSource, C: Clock> {
     fired: Vec<Hotkey>,
     mask: PadMask,
     picture: Picture,
+    /// The GL context of a core that draws with GL; `None` for a core
+    /// that draws in memory.
+    hw: Option<hw::Hw>,
+    /// The internal resolution of the last picture: 1, or the scale of a
+    /// GL core whose picture is that many times its source.
+    picture_scale: u16,
+    /// The rule of the internal resolution of a GL core with such an
+    /// option, for a live change of the scanlines.
+    scale_rule: Option<hw::ScaleRule>,
     geometry: GameGeometry,
     timing: Timing,
     /// The system data says that every frame is progressive.
@@ -180,7 +192,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     ///
     /// The host's [`RunError`].
     pub fn reset(&mut self) -> Result<(), RunError> {
-        self.host.reset()
+        self.in_core_context(Host::reset)
     }
 
     /// Sets how long Start held alone opens the quick menu, in nanoseconds;
@@ -237,9 +249,23 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         self.host.logs()
     }
 
-    /// The last game frame, as the session presents it.
+    /// The last game frame in memory, as the session presents it. `None`
+    /// for the picture of a GL core, which is in the image of the display:
+    /// [`Session::read_picture`] reads it back.
     pub fn last_frame(&self) -> Option<Frame<'_>> {
         self.picture.frame()
+    }
+
+    /// The internal resolution of the last picture: 1, or `k` for a GL
+    /// core whose picture is `k` times its source.
+    pub fn picture_scale(&self) -> u16 {
+        self.picture_scale
+    }
+
+    /// The hardware context of a GL core, or `None` for a core that draws
+    /// in memory.
+    pub fn hw_request(&self) -> Option<neptron_backend::ContextRequest> {
+        self.host.hw_request().filter(|_| self.hw.is_some())
     }
 
     /// The source of the last core frame.
@@ -393,5 +419,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Drop for Session<D, S, 
         // A session dropped without `quit` still flushes its save RAM. Drop
         // has no caller to report to; `quit` returns the result.
         let _ = self.finish_writer();
+        // The host is the first field, so it drops next: the core unloads
+        // inside its context, and the display destroys the context after.
+        self.end_hw();
     }
 }

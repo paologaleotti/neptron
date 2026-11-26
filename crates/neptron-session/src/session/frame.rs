@@ -80,6 +80,10 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             // idle frames of the pipeline, as under the quick menu.
             self.run_core(!self.too_slow_for_sound)
                 .map_err(|e| self.fail(e))?;
+            if let Err(e) = self.hw_fault() {
+                self.state = State::Ended;
+                return Err(e);
+            }
             self.mask.core_ran();
             self.counters.core_frames += 1;
             report.ran_core = true;
@@ -133,9 +137,19 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     }
 
     /// Runs one core frame and takes its output: the picture, the events
-    /// and, with `feed_audio`, the audio.
+    /// and, with `feed_audio`, the audio. A GL core runs inside its
+    /// context; a failure of the context is kept for
+    /// [`Session::hw_fault`], and the core does not run when its context
+    /// could not begin.
     pub(super) fn run_core(&mut self, feed_audio: bool) -> Result<(), RunError> {
-        let out = self.host.run_frame()?;
+        if !self.begin_core_frame() {
+            return Ok(());
+        }
+        let out = self.host.run_frame();
+        if let Some(hw) = self.hw.as_mut() {
+            super::hw::end(&mut self.engine, hw, &mut self.counters);
+        }
+        let out = out?;
         let counters = &mut self.counters;
         counters.log_records += out.logs.len() as u64;
         counters.host_drops +=
@@ -147,6 +161,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
                     self.geometry = av.geometry;
                     self.picture
                         .reserve(av.geometry.max_width, av.geometry.max_height);
+                    if let Some(hw) = self.hw.as_mut() {
+                        hw.grow((av.geometry.max_width, av.geometry.max_height));
+                    }
                     if av.timing != self.timing {
                         self.timing = av.timing;
                         retime(&mut self.audio, &av.timing, self.resampling, counters);
@@ -160,12 +177,23 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
                 Event::PixelFormat(_) | Event::Rotation(_) | Event::Refused(_) => {}
             }
         }
-        match out.video {
-            Video::Frame(frame) => self.picture.store(&frame),
-            Video::Duplicate(_) | Video::Missing => counters.repeated_pictures += 1,
-            // The session sets no hardware offer yet, so the host gives no
-            // core a hardware context and sends no such frame.
-            Video::Rejected(_) | Video::Hardware { .. } => counters.frame_faults += 1,
+        let mut dark = false;
+        match (out.video, self.hw.as_mut()) {
+            (Video::Frame(frame), _) => self.picture.store(&frame),
+            (Video::Hardware { width, height }, Some(hw)) => {
+                self.picture.store_gpu(width, height);
+                hw.saw_picture();
+            }
+            (Video::Duplicate(_) | Video::Missing, hw) => {
+                counters.repeated_pictures += 1;
+                dark = hw.is_some();
+            }
+            // The host sends a hardware frame only after it gave the core
+            // a context, so a session with no context counts it as a fault.
+            (Video::Rejected(_) | Video::Hardware { .. }, hw) => {
+                counters.frame_faults += 1;
+                dark = hw.is_some();
+            }
         }
         if let Some(audio) = self.audio.as_mut().filter(|_| feed_audio) {
             audio.push_samples(out.audio);
@@ -174,6 +202,18 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             .picture
             .size()
             .unwrap_or((self.geometry.base_width, self.geometry.base_height));
+        self.picture_scale = match (self.hw.as_ref(), self.picture.gpu_size()) {
+            (Some(hw), Some(_)) => {
+                let max = (self.geometry.max_width, self.geometry.max_height);
+                let scale = hw.frame_scale((width, height), max);
+                if scale == 1 && hw.scale() > 1 {
+                    counters.unscaled_frames += 1;
+                }
+                scale
+            }
+            _ => 1,
+        };
+        let (width, height) = (width / self.picture_scale, height / self.picture_scale);
         let rules = FrameRules {
             rotation: self.host.rotation(),
             always_progressive: self.always_progressive,
@@ -190,6 +230,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             // made at launch, so the copy does not allocate.
             self.last_error.clear();
             self.last_error.push_str(&record.text);
+        }
+        if dark {
+            self.count_dark_frame();
         }
         Ok(())
     }
@@ -281,9 +324,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             let game = if self.engine.current_refused() || self.picture_hidden {
                 None
             } else {
-                self.picture.frame()
+                super::hw::game_picture(&self.picture, self.hw.as_ref())
             };
-            let presented = self.engine.present(game, ui);
+            let presented = self.engine.present_picture(game, self.picture_scale, ui);
             presents = presents.saturating_add(1);
             // The present only queues the GPU's work. The audio runs while
             // the GPU draws, off the path from the flip event to the GPU
