@@ -3,9 +3,9 @@
 //! stand-in draws the test card into the framebuffer of the core context,
 //! and the renderer draws the EGL image of it as a GPU picture. The output
 //! must equal the reference renderer's output for the card in memory, in
-//! both origins, at 1x, with scanlines, turned, under the UI and with
-//! sharp bilinear. A core that leaves GL state dirty or draws into
-//! framebuffer 0 must change no pixel.
+//! both origins, at 1x, with scanlines, turned, under the UI, with a crop
+//! that starts below line 0 and with sharp bilinear. A core that leaves GL
+//! state dirty or draws into framebuffer 0 must change no pixel.
 
 use neptron_gfx::gles::{CoreApi, CoreOffer, CoreSpec, GlesError, GlesRenderer};
 use neptron_gfx::{OutputBuffer, ReferenceRenderer};
@@ -128,6 +128,17 @@ fn cases() -> Vec<Case> {
             (w, h),
         )
         .with_ui(ui, rect(160, 112, 160, 120)),
+        // A part of the picture that starts below line 0: with a
+        // bottom-left origin the crop must count from the top of the
+        // picture, not from GL row 0.
+        Case::game(
+            "crop_2x",
+            card_source(),
+            rect(24, 16, 200, 150),
+            rect(0, 0, 400, 300),
+            Filter::Nearest,
+            (400, 300),
+        ),
         Case::game(
             "sharp_1_5x",
             card_source(),
