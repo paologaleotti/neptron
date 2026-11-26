@@ -1,5 +1,5 @@
 //! The scenes of the goldens. `tests/goldens.rs` compares the reference
-//! renderer with its golden images; `examples/gles_compare.rs` compares
+//! renderer with its golden images; `examples/gles_compare/main.rs` compares
 //! the GLES renderer with the reference on the same scenes.
 
 use neptron_types::{

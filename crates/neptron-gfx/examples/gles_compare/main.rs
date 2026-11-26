@@ -5,8 +5,13 @@
 //! guest: `cargo xtask gles-compare`. A pixel drawn with nearest scaling
 //! must be equal. A game pixel or a UI pixel drawn with sharp bilinear may
 //! differ by 1 per channel. The exit code is the number of failed checks.
+//!
+//! The checks of the context of a GL core come first (`core.rs`). They
+//! print the GPU pictures of the main cases on the console, because the
+//! guest cannot write to the shared folder.
 
-#![forbid(unsafe_code)]
+// Only the core stand-in calls C through an address, as a GL core does.
+#![deny(unsafe_code)]
 
 use std::process::ExitCode;
 
@@ -17,7 +22,16 @@ use neptron_types::{
     ui_dest_uniform,
 };
 
-#[path = "../tests/common/scenes.rs"]
+mod core;
+#[allow(unsafe_code)]
+#[path = "../../tests/common/core_card.rs"]
+mod core_card;
+// The card of the GL test core, as its source, so the check needs no new
+// dependency. Only a part of it is used here.
+#[allow(dead_code)]
+#[path = "../../../neptron-testcore/src/gl_card.rs"]
+mod gl_card;
+#[path = "../../tests/common/scenes.rs"]
 mod scenes;
 
 use scenes::{Case, Source, rect};
@@ -30,6 +44,18 @@ const PADDING: u8 = 0xAA;
 const SHARP_TOLERANCE: u8 = 1;
 /// The side of the pbuffer of the window checks: every scene up to 1080p.
 const WINDOW_SIDE: u32 = 1920;
+
+/// The size type that `gl_card` takes, as `neptron-testcore` names it.
+mod script {
+    /// A picture size.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct Size {
+        /// Width in pixels.
+        pub width: u32,
+        /// Height in pixels.
+        pub height: u32,
+    }
+}
 
 fn main() -> ExitCode {
     let mut gles = match GlesRenderer::headless() {
@@ -46,6 +72,13 @@ fn main() -> ExitCode {
     let mut reference = ReferenceRenderer::new();
     let mut failed = 0_u8;
     let mut count = 0;
+    for (name, ok) in core::core_checks(&mut gles, &mut reference) {
+        count += 1;
+        println!("{} core {name}", if ok { "ok  " } else { "FAIL" });
+        if !ok {
+            failed = failed.saturating_add(1);
+        }
+    }
     let cases: Vec<Case> = scenes::golden_cases()
         .into_iter()
         .chain(extra_cases())
