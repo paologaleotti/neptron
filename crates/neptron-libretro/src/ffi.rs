@@ -68,6 +68,12 @@ static HW_LOOKUP: OnceLock<fn(&CStr) -> usize> = OnceLock::new();
 /// name and the lookup of GL functions. The first lookup stays for the
 /// process: the display that made it hosts the core until the process
 /// ends, and its lookup reads no state.
+///
+/// `lookup` keeps the contract of [`Host::set_hw_target`]: 0, or the
+/// address of a C function with the signature of the GL function of that
+/// name. [`hw_get_proc_address`] relies on it.
+///
+/// [`Host::set_hw_target`]: crate::Host::set_hw_target
 pub(crate) fn set_hw_target(framebuffer: u32, lookup: fn(&CStr) -> usize) {
     HW_FRAMEBUFFER.store(framebuffer, Ordering::Release);
     // A second lookup is the lookup of the same display; keeping the first
@@ -611,9 +617,10 @@ unsafe extern "C" fn hw_get_proc_address(sym: *const c_char) -> retro_proc_addre
         if address == 0 {
             return None;
         }
-        // SAFETY: the lookup of the display gives 0 or the address of a
-        // function of its GL library; 0 is handled above. The core casts
-        // it to the signature that the name has, as libretro.h says.
+        // SAFETY: by the contract of `Host::set_hw_target`, a lookup gives
+        // 0 or the address of a C function with the signature of the GL
+        // function of `name`; 0 is handled above. The core casts it to that
+        // signature, as libretro.h says.
         Some(unsafe { std::mem::transmute::<usize, unsafe extern "C" fn()>(address) })
     })
 }

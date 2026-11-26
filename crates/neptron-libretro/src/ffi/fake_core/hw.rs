@@ -435,3 +435,13 @@ fn context_destroy_takes_the_framebuffer_away() {
     // SAFETY: as above.
     assert_eq!(unsafe { framebuffer() }, 0);
 }
+
+#[test]
+fn a_drop_with_a_live_context_has_a_warning() {
+    let mut host = loaded_with(PC, |cb| ask(cb, callback(RETRO_HW_CONTEXT_OPENGLES2, 0, 0)));
+    assert_eq!(host.drop_warning(), None, "no context yet");
+    host.context_reset().unwrap();
+    assert!(host.drop_warning().is_some());
+    host.context_destroy().unwrap();
+    assert_eq!(host.drop_warning(), None);
+}

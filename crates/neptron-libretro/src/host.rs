@@ -275,6 +275,14 @@ impl Host {
     /// framebuffer it draws into, and the lookup of GL functions. Call it
     /// after the display made the context, before
     /// [`Host::context_reset`]. The first lookup stays for the process.
+    ///
+    /// The contract of `lookup`, which the core relies on when it calls the
+    /// address: for a name, it gives 0 or the address of a C function with
+    /// the signature of the GL function of that name, valid while the
+    /// process runs. It reads no state of the display, so a core can call
+    /// it on any thread. [`CoreTarget::lookup`] of a display keeps it.
+    ///
+    /// [`CoreTarget::lookup`]: neptron_backend::CoreTarget::lookup
     pub fn set_hw_target(&mut self, framebuffer: u32, lookup: fn(&CStr) -> usize) {
         ffi::set_hw_target(framebuffer, lookup);
     }
@@ -311,6 +319,13 @@ impl Host {
         ffi::clear_hw_framebuffer();
         self.context_live = false;
         Ok(())
+    }
+
+    /// The line that a drop logs: `Some` while a core context is live,
+    /// because `context_reset` ran and `context_destroy` did not.
+    pub(crate) fn drop_warning(&self) -> Option<&'static str> {
+        self.context_live
+            .then_some("the host drops with a live core context: context_destroy did not run")
     }
 
     fn hw_callbacks(&self) -> Result<crate::state::HwRender, RunError> {
@@ -491,6 +506,13 @@ impl Host {
 
 impl Drop for Host {
     fn drop(&mut self) {
+        // The session owns the order of the teardown; a drop with a live
+        // context means it skipped `context_destroy`, and the core frees its
+        // GL objects in a context that is no longer current. Nothing reads
+        // the log of the state after the drop, so the line goes to stderr.
+        if let Some(warning) = self.drop_warning() {
+            eprintln!("neptron-libretro: {warning}");
+        }
         self.unload();
         if self.initialized {
             self.call_for_teardown(Core::deinit);
