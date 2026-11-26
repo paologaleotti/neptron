@@ -21,7 +21,8 @@ use super::{
     EglContext, EglInstance, Gl, Texture, egl_error, has_extension, load_egl, version_text,
 };
 use crate::gles::core_spec::{
-    DepthFormat, ErrorCadence, MAX_GL_ERRORS_PER_CHECK, depth_format, keep_or_undo, picture_from_gl,
+    DepthFormat, ErrorCadence, MAX_GL_ERRORS_PER_CHECK, depth_format, end_outcome, keep_or_undo,
+    picture_from_gl,
 };
 use crate::gles::{CoreApi, CoreOffer, CoreSpec, CoreStatus, GlesError, version};
 
@@ -494,7 +495,8 @@ impl CoreGl {
         }
         self.begun = false;
         let mut status = CoreStatus::default();
-        if self.cadence.tick() {
+        let due = self.cadence.tick();
+        if due {
             for _ in 0..MAX_GL_ERRORS_PER_CHECK {
                 // SAFETY: the core context is current from `begin`.
                 if unsafe { self.gl.get_error() } == GL_NO_ERROR {
@@ -502,24 +504,28 @@ impl CoreGl {
                 }
                 status.gl_errors += 1;
             }
-            if let Some(reset_status) = self.reset_status {
-                // SAFETY: the function came from eglGetProcAddress by one of
-                // the names of glGetGraphicsResetStatus, which takes nothing
-                // and returns a GLenum; the robust core context is current.
-                status.context_lost = unsafe { reset_status() } != GL_NO_ERROR;
-            }
         }
         let fenced = on_api(ctx, self.desktop, || {
             fence(ctx, &self.gl, self.fences, "the core fence")
         });
+        // A failed fence can come from a lost context, so the reset status
+        // is read then too, while the context is still current.
+        if (due || fenced.is_err())
+            && let Some(reset_status) = self.reset_status
+        {
+            // SAFETY: the function came from eglGetProcAddress by one of
+            // the names of glGetGraphicsResetStatus, which takes nothing
+            // and returns a GLenum; the robust core context is current.
+            status.context_lost = unsafe { reset_status() } != GL_NO_ERROR;
+        }
         // The core context goes, so no later GL call reaches it by mistake.
         let released = release(ctx, self.desktop);
-        let fence = fenced?;
-        if let Some(old) = std::mem::replace(&mut self.core_fence, fence) {
-            destroy_sync(ctx, old);
-        }
-        released?;
-        Ok(status)
+        let fenced = fenced.map(|fence| {
+            if let Some(old) = std::mem::replace(&mut self.core_fence, fence) {
+                destroy_sync(ctx, old);
+            }
+        });
+        end_outcome(status, fenced, released)
     }
 
     /// Orders a read of the image by the renderer after the draws of the

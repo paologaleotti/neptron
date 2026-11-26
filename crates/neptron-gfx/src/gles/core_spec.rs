@@ -2,6 +2,8 @@ use std::ffi::CStr;
 
 use neptron_types::GpuImageId;
 
+use super::GlesError;
+
 /// The GL API of the context of a core.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CoreApi {
@@ -162,6 +164,24 @@ impl DepthFormat {
     }
 }
 
+/// The result of `core_end` from what it found: the `status` of the core
+/// and whether the fence and the release held. A context that the GPU
+/// lost fails its fence or its release too; then the error says both, so
+/// the loss is not hidden behind the failure of the call.
+pub(super) fn end_outcome(
+    status: CoreStatus,
+    fenced: Result<(), GlesError>,
+    released: Result<(), GlesError>,
+) -> Result<CoreStatus, GlesError> {
+    match fenced.and(released) {
+        Ok(()) => Ok(status),
+        Err(cause) if status.context_lost => Err(GlesError::CoreContextLost {
+            cause: Box::new(cause),
+        }),
+        Err(e) => Err(e),
+    }
+}
+
 /// The end of a setup whose last step makes another context current:
 /// `made` when the step `restored` holds too. A failed setup gives its own
 /// error. A setup that held, with a failed last step, gives the error of
@@ -291,6 +311,52 @@ mod tests {
         );
         assert!(DepthFormat::Depth24Stencil8.has_stencil());
         assert!(!DepthFormat::Depth24.has_stencil());
+    }
+
+    fn egl(call: &'static str) -> GlesError {
+        GlesError::Egl {
+            call,
+            code: 0x300E,
+            message: "EGL_CONTEXT_LOST".to_owned(),
+        }
+    }
+
+    #[test]
+    fn a_lost_context_is_reported_with_a_failed_fence_or_release() {
+        let lost = CoreStatus {
+            gl_errors: 1,
+            context_lost: true,
+        };
+        assert_eq!(end_outcome(lost, Ok(()), Ok(())), Ok(lost));
+        assert_eq!(
+            end_outcome(lost, Err(egl("the core fence")), Ok(())),
+            Err(GlesError::CoreContextLost {
+                cause: Box::new(egl("the core fence"))
+            })
+        );
+        assert_eq!(
+            end_outcome(lost, Ok(()), Err(egl("release"))),
+            Err(GlesError::CoreContextLost {
+                cause: Box::new(egl("release"))
+            })
+        );
+        let text = end_outcome(lost, Ok(()), Err(egl("release")))
+            .expect_err("an error")
+            .to_string();
+        assert!(text.contains("lost") && text.contains("release"), "{text}");
+    }
+
+    #[test]
+    fn a_failed_end_of_a_live_context_gives_its_first_error() {
+        let live = CoreStatus::default();
+        assert_eq!(
+            end_outcome(live, Err(egl("the core fence")), Err(egl("release"))),
+            Err(egl("the core fence"))
+        );
+        assert_eq!(
+            end_outcome(live, Ok(()), Err(egl("release"))),
+            Err(egl("release"))
+        );
     }
 
     #[test]

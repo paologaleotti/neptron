@@ -46,14 +46,19 @@ impl CoreRender for KmsDisplay {
     }
 
     fn end(&mut self) -> Result<CoreFrameStatus, CoreRenderError> {
-        let status = self
-            .renderer
-            .core_end()
-            .map_err(|e| core_error(e, "end", None))?;
-        Ok(CoreFrameStatus {
-            gl_errors: status.gl_errors,
-            context_lost: status.context_lost,
-        })
+        match self.renderer.core_end() {
+            Ok(status) => Ok(CoreFrameStatus {
+                gl_errors: status.gl_errors,
+                context_lost: status.context_lost,
+            }),
+            // The loss is what the session acts on: it makes a new context,
+            // and the failed fence or release goes with the old one.
+            Err(GlesError::CoreContextLost { .. }) => Ok(CoreFrameStatus {
+                gl_errors: 0,
+                context_lost: true,
+            }),
+            Err(e) => Err(core_error(e, "end", None)),
+        }
     }
 
     fn read_back(

@@ -112,8 +112,9 @@ impl GlesRenderer {
     /// # Errors
     ///
     /// [`GlesError::NoCoreContext`] before [`core_create`](Self::core_create)
-    /// or without a [`core_begin`](Self::core_begin), and [`GlesError::Egl`]
-    /// for a failed fence or release.
+    /// or without a [`core_begin`](Self::core_begin), [`GlesError::Egl`]
+    /// for a failed fence or release, and [`GlesError::CoreContextLost`]
+    /// with that failure when the GPU lost the context too.
     pub fn core_end(&mut self) -> Result<CoreStatus, GlesError> {
         let core = self
             .core

@@ -163,6 +163,13 @@ pub enum GlesError {
         /// The call.
         operation: &'static str,
     },
+    /// The GPU lost the context of the core, and the end of its frame
+    /// failed too: a lost context fails its fence or its release.
+    #[error("the GPU lost the core context, and {cause}")]
+    CoreContextLost {
+        /// The failure of the end of the frame.
+        cause: Box<GlesError>,
+    },
     /// A size of a core image is 0 or above the limit.
     #[error("{operation} cannot take {width}x{height}: the limit is {max_width}x{max_height}")]
     CoreSize {
