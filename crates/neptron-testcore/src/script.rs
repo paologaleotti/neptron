@@ -16,14 +16,21 @@ pub const SCRIPT_ENV: &str = "NEPTRON_TESTCORE_SCRIPT";
 pub const HEADER_KEYWORD: &str = "neptron-testcore";
 /// The newest script version that the parser reads. Version 2 adds the
 /// setup lines `load` and `load_error`, version 3 the actions `log` and
-/// `message`, version 4 the setup line `pattern`.
-pub const SCRIPT_VERSION: u32 = 4;
+/// `message`, version 4 the setup line `pattern`, version 5 the setup line
+/// `hw_render` and the actions `hw_null`, `hw_none`, `hw_dirty` and
+/// `hw_fbo0`.
+pub const SCRIPT_VERSION: u32 = 5;
 /// The first script version with the setup lines `load` and `load_error`.
 pub const LOAD_LINES_VERSION: u32 = 2;
 /// The first script version with the actions `log` and `message`.
 pub const TEXT_ACTIONS_VERSION: u32 = 3;
 /// The first script version with the setup line `pattern`.
 pub const PATTERN_VERSION: u32 = 4;
+/// The first script version with the setup line `hw_render` and the
+/// actions `hw_null`, `hw_none`, `hw_dirty` and `hw_fbo0`.
+pub const HW_RENDER_VERSION: u32 = 5;
+/// Largest GL version number of a `hw_render` line, major or minor.
+pub const MAX_GL_VERSION: u32 = 255;
 /// Largest frame width or height, in pixels.
 pub const MAX_DIMENSION_PX: u32 = 4096;
 /// Smallest frame rate, in millihertz. It bounds the audio of one frame, and
@@ -150,6 +157,41 @@ pub enum Pattern {
     Shape,
 }
 
+/// The context type of a `hw_render` line, as libretro numbers them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HwContext {
+    /// `gles2`: `RETRO_HW_CONTEXT_OPENGLES2`.
+    Gles2,
+    /// `gles3`: `RETRO_HW_CONTEXT_OPENGLES3`.
+    Gles3,
+    /// `gles`: `RETRO_HW_CONTEXT_OPENGLES_VERSION`, with the version of the
+    /// line.
+    Gles,
+    /// `gl`: `RETRO_HW_CONTEXT_OPENGL`.
+    Gl,
+    /// `glcore`: `RETRO_HW_CONTEXT_OPENGL_CORE`, with the version of the
+    /// line.
+    GlCore,
+}
+
+/// The `SET_HW_RENDER` request of a `hw_render` line: the core draws its
+/// frames with GL into the framebuffer of the frontend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HwRender {
+    /// The context type.
+    pub context: HwContext,
+    /// The major version.
+    pub major: u32,
+    /// The minor version.
+    pub minor: u32,
+    /// The core asks for a depth buffer.
+    pub depth: bool,
+    /// The core asks for a stencil buffer.
+    pub stencil: bool,
+    /// The core draws with line 0 of its picture at the bottom.
+    pub bottom_left: bool,
+}
+
 /// The level of a `log` action, as libretro numbers them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogLevel {
@@ -220,6 +262,16 @@ pub enum Action {
         /// The index of the text in [`Script::texts`].
         text: usize,
     },
+    /// A GL core sends `NULL` for this frame and draws nothing.
+    HwNull,
+    /// A GL core draws nothing and makes no video call in this frame.
+    HwNone,
+    /// A GL core draws its frame, then leaves a scissor box, blending, a
+    /// viewport and framebuffer 0 bound.
+    HwDirty,
+    /// A GL core draws its frame into framebuffer 0, not into the
+    /// framebuffer of the frontend.
+    HwFbo0,
 }
 
 /// An action and the frame it happens at.
@@ -251,6 +303,9 @@ pub struct Script {
     pub load: LoadOutcome,
     /// What the frames show.
     pub pattern: Pattern,
+    /// The context that the core asks for with `SET_HW_RENDER`, or `None`
+    /// for a core that draws in memory.
+    pub hw_render: Option<HwRender>,
     /// A line that `retro_load_game` logs at error level, if any.
     pub load_error: Option<String>,
     /// The texts of the `log` and `message` actions.
@@ -370,6 +425,14 @@ pub enum ScriptError {
         frame: u64,
         /// The frame of the event before it.
         previous: u64,
+    },
+    /// A `hw_*` action in a script with no `hw_render` line.
+    #[error("line {line}: `{action}` needs a `hw_render` line")]
+    NeedsHwRender {
+        /// The line.
+        line: usize,
+        /// The action.
+        action: &'static str,
     },
     /// A `sram_write` offset is outside the save RAM.
     #[error("line {line}: offset {offset} is outside the save RAM of {size} bytes")]
@@ -519,6 +582,7 @@ struct Builder {
     load: Option<LoadOutcome>,
     load_error: Option<String>,
     pattern: Option<Pattern>,
+    hw_render: Option<HwRender>,
     texts: Vec<String>,
     max_line: usize,
     events: Vec<(usize, Event)>,
@@ -558,6 +622,7 @@ impl Builder {
         };
         if (LOAD_KEYWORDS.contains(&keyword) && self.version < LOAD_LINES_VERSION)
             || (keyword == "pattern" && self.version < PATTERN_VERSION)
+            || (keyword == "hw_render" && self.version < HW_RENDER_VERSION)
         {
             return Err(ScriptError::UnknownKeyword {
                 line,
@@ -614,6 +679,7 @@ impl Builder {
                 a.count(1)?;
                 a.pattern(0)
             }),
+            "hw_render" => set_once(&mut self.hw_render, &a, |a| a.hw_render()),
             _ => Err(ScriptError::UnknownKeyword {
                 line,
                 keyword: keyword.to_owned(),
@@ -706,6 +772,28 @@ impl Builder {
                 a.count(1)?;
                 Action::Rotation(a.number(0, "rotation", 0, u32::MAX)?)
             }
+            "hw_null" | "hw_none" | "hw_dirty" | "hw_fbo0" if self.version < HW_RENDER_VERSION => {
+                return Err(ScriptError::UnknownKeyword {
+                    line,
+                    keyword: (*keyword).to_owned(),
+                });
+            }
+            "hw_null" => {
+                a.count(0)?;
+                Action::HwNull
+            }
+            "hw_none" => {
+                a.count(0)?;
+                Action::HwNone
+            }
+            "hw_dirty" => {
+                a.count(0)?;
+                Action::HwDirty
+            }
+            "hw_fbo0" => {
+                a.count(0)?;
+                Action::HwFbo0
+            }
             "log" | "message" if self.version < TEXT_ACTIONS_VERSION => {
                 return Err(ScriptError::UnknownKeyword {
                     line,
@@ -759,6 +847,14 @@ impl Builder {
                     check_fits(*line, av.geometry.size, av.max)?;
                     current_max = av.max;
                 }
+                Action::HwNull | Action::HwNone | Action::HwDirty | Action::HwFbo0
+                    if self.hw_render.is_none() =>
+                {
+                    return Err(ScriptError::NeedsHwRender {
+                        line: *line,
+                        action: hw_action_name(event.action),
+                    });
+                }
                 Action::SramWrite { offset, .. } | Action::GetVariable { offset, .. }
                     if offset >= save_ram_bytes =>
                 {
@@ -784,6 +880,7 @@ impl Builder {
             rotation: self.rotation,
             load: self.load.unwrap_or_default(),
             pattern: self.pattern.unwrap_or_default(),
+            hw_render: self.hw_render,
             load_error: self.load_error,
             texts: self.texts,
             events: self.events.into_iter().map(|(_, e)| e).collect(),
@@ -791,7 +888,16 @@ impl Builder {
     }
 }
 
-const SETUP_KEYWORDS: [&str; 11] = [
+fn hw_action_name(action: Action) -> &'static str {
+    match action {
+        Action::HwNull => "hw_null",
+        Action::HwNone => "hw_none",
+        Action::HwDirty => "hw_dirty",
+        _ => "hw_fbo0",
+    }
+}
+
+const SETUP_KEYWORDS: [&str; 12] = [
     "pixel_format",
     "geometry",
     "max_size",
@@ -803,6 +909,7 @@ const SETUP_KEYWORDS: [&str; 11] = [
     "load",
     "load_error",
     "pattern",
+    "hw_render",
 ];
 
 /// The setup keywords that a script of version 1 does not have.
@@ -957,6 +1064,48 @@ impl Args<'_> {
         }
     }
 
+    /// `hw_render <type> <major> <minor> [depth] [stencil] [bottom_left]`:
+    /// each flag at most once, in any order.
+    fn hw_render(&self) -> Result<HwRender, ScriptError> {
+        if !(3..=6).contains(&self.args.len()) {
+            return Err(ScriptError::Arguments {
+                line: self.line,
+                keyword: self.keyword.to_owned(),
+                expected: 3,
+                found: self.args.len(),
+            });
+        }
+        let context = match self.token(0) {
+            "gles2" => HwContext::Gles2,
+            "gles3" => HwContext::Gles3,
+            "gles" => HwContext::Gles,
+            "gl" => HwContext::Gl,
+            "glcore" => HwContext::GlCore,
+            _ => return Err(self.value_error(0, "context type")),
+        };
+        let mut hw = HwRender {
+            context,
+            major: self.number(1, "GL major version", 0, MAX_GL_VERSION)?,
+            minor: self.number(2, "GL minor version", 0, MAX_GL_VERSION)?,
+            depth: false,
+            stencil: false,
+            bottom_left: false,
+        };
+        for index in 3..self.args.len() {
+            let flag = match self.token(index) {
+                "depth" => &mut hw.depth,
+                "stencil" => &mut hw.stencil,
+                "bottom_left" => &mut hw.bottom_left,
+                _ => return Err(self.value_error(index, "hw_render flag")),
+            };
+            if *flag {
+                return Err(self.value_error(index, "hw_render flag, given once"));
+            }
+            *flag = true;
+        }
+        Ok(hw)
+    }
+
     fn audio_mode(&self, index: usize) -> Result<AudioMode, ScriptError> {
         match self.token(index) {
             "batch" => Ok(AudioMode::Batch),
@@ -1032,6 +1181,111 @@ mod tests {
         assert!(matches!(
             Script::parse("neptron-testcore 4\nat 1 dupe\npattern shape\n"),
             Err(ScriptError::SetupAfterEvent { line: 3, .. })
+        ));
+    }
+
+    #[test]
+    fn version_5_has_the_hw_render_line_and_actions() {
+        assert_eq!(parse("").unwrap().hw_render, None);
+        let s = Script::parse(
+            "neptron-testcore 5\nhw_render glcore 3 3 bottom_left depth\n\
+             at 1 hw_null\nat 2 hw_none\nat 3 hw_dirty\nat 4 hw_fbo0\n",
+        )
+        .unwrap();
+        assert_eq!(
+            s.hw_render,
+            Some(HwRender {
+                context: HwContext::GlCore,
+                major: 3,
+                minor: 3,
+                depth: true,
+                stencil: false,
+                bottom_left: true,
+            })
+        );
+        let actions: Vec<Action> = s.events.iter().map(|e| e.action).collect();
+        assert_eq!(
+            actions,
+            [
+                Action::HwNull,
+                Action::HwNone,
+                Action::HwDirty,
+                Action::HwFbo0
+            ]
+        );
+        for (name, context) in [
+            ("gles2", HwContext::Gles2),
+            ("gles3", HwContext::Gles3),
+            ("gles", HwContext::Gles),
+            ("gl", HwContext::Gl),
+            ("glcore", HwContext::GlCore),
+        ] {
+            let s = Script::parse(&format!("neptron-testcore 5\nhw_render {name} 0 0\n")).unwrap();
+            assert_eq!(s.hw_render.map(|h| h.context), Some(context));
+        }
+        let s = Script::parse("neptron-testcore 5\nhw_render gles2 2 0 stencil\n").unwrap();
+        assert!(
+            s.hw_render
+                .is_some_and(|h| h.stencil && !h.depth && !h.bottom_left)
+        );
+    }
+
+    #[test]
+    fn the_hw_render_line_and_actions_are_checked() {
+        let err = |body: &str| Script::parse(&format!("neptron-testcore 5\n{body}")).unwrap_err();
+        assert!(matches!(
+            Script::parse("neptron-testcore 4\nhw_render gles2 2 0\n"),
+            Err(ScriptError::UnknownKeyword { line: 2, .. })
+        ));
+        assert!(matches!(
+            Script::parse("neptron-testcore 4\nat 1 hw_null\n"),
+            Err(ScriptError::UnknownKeyword { line: 2, .. })
+        ));
+        assert!(matches!(
+            err("hw_render vulkan 1 0\n"),
+            ScriptError::Value {
+                what: "context type",
+                ..
+            }
+        ));
+        assert!(matches!(
+            err("hw_render gles2 2\n"),
+            ScriptError::Arguments {
+                expected: 3,
+                found: 2,
+                ..
+            }
+        ));
+        assert!(matches!(
+            err("hw_render gles2 2 0 depth stencil bottom_left depth\n"),
+            ScriptError::Arguments { found: 7, .. }
+        ));
+        assert!(matches!(
+            err("hw_render gles2 2 0 depth depth\n"),
+            ScriptError::Value { line: 2, .. }
+        ));
+        assert!(matches!(
+            err("hw_render gles2 2 0 mipmaps\n"),
+            ScriptError::Value { line: 2, .. }
+        ));
+        assert!(matches!(
+            err("hw_render glcore 256 0\n"),
+            ScriptError::OutOfRange { value: 256, .. }
+        ));
+        assert_eq!(
+            err("at 3 hw_dirty\n"),
+            ScriptError::NeedsHwRender {
+                line: 2,
+                action: "hw_dirty"
+            }
+        );
+        assert!(matches!(
+            err("hw_render gles2 2 0\nat 1 hw_fbo0 now\n"),
+            ScriptError::Arguments { line: 3, .. }
+        ));
+        assert!(matches!(
+            err("hw_render gles2 2 0\nhw_render gles2 2 0\n"),
+            ScriptError::Duplicate { line: 3, .. }
         ));
     }
 
@@ -1303,10 +1557,10 @@ rotation 2"
             Err(ScriptError::Header { .. })
         ));
         assert_eq!(
-            Script::parse("neptron-testcore 5"),
+            Script::parse("neptron-testcore 6"),
             Err(ScriptError::Version {
                 line: 1,
-                version: 5
+                version: 6
             })
         );
         assert!(matches!(

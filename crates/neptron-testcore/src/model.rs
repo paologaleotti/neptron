@@ -88,9 +88,24 @@ pub enum Video {
         /// Bytes from one row to the next.
         pitch: usize,
     },
-    /// No call at all. Only a call of `retro_run` from inside a frontend
-    /// callback gets this, because the buffers are then in use.
+    /// No call at all: a `hw_none` action, or a call of `retro_run` from
+    /// inside a frontend callback, because the buffers are then in use.
     Nothing,
+    /// A GL core draws the card of [`gl_card`](crate::gl_card) and sends
+    /// `RETRO_HW_FRAME_BUFFER_VALID`.
+    Hardware {
+        /// The frame size.
+        size: Size,
+        /// The card goes into framebuffer 0 (`hw_fbo0`), not into the
+        /// framebuffer of the frontend.
+        framebuffer_zero: bool,
+        /// After the card the core leaves its GL state dirty (`hw_dirty`).
+        dirty: bool,
+        /// The turn at load, which the card takes, as the shape card does.
+        rotation: u32,
+        /// The core draws with line 0 at the bottom.
+        bottom_left: bool,
+    },
 }
 
 /// Everything one `retro_run` does, in this order: the requests, the video,
@@ -259,9 +274,13 @@ impl Core {
             requests.push(Request::AvInfo(self.av));
         }
         let mut texts = Vec::new();
-        let dupe = self.run_events(&mut requests, &mut texts);
+        let flags = self.run_events(&mut requests, &mut texts);
         let mut frame_buffer = mem::take(&mut self.frame_buffer);
-        let video = self.video(&mut frame_buffer, buttons, dupe);
+        let video = if self.script.hw_render.is_some() {
+            self.hardware_video(flags)
+        } else {
+            self.video(&mut frame_buffer, buttons, flags.dupe)
+        };
         let mut audio_buffer = mem::take(&mut self.audio_buffer);
         let audio_frames = self.audio(&mut audio_buffer);
         let step = Step {
@@ -308,9 +327,10 @@ impl Core {
         }
     }
 
-    /// Applies the events of this frame. Returns true when one is `dupe`.
-    fn run_events(&mut self, requests: &mut Vec<Request>, texts: &mut Vec<String>) -> bool {
-        let mut dupe = false;
+    /// Applies the events of this frame and returns the video actions
+    /// among them.
+    fn run_events(&mut self, requests: &mut Vec<Request>, texts: &mut Vec<String>) -> Flags {
+        let mut flags = Flags::default();
         while let Some(event) = self.script.events.get(self.next_event)
             && event.frame == self.frame
         {
@@ -330,7 +350,11 @@ impl Core {
                     requests.push(Request::AvInfo(av));
                 }
                 Action::Size(size) => self.size = size,
-                Action::Dupe => dupe = true,
+                Action::Dupe => flags.dupe = true,
+                Action::HwNull => flags.null = true,
+                Action::HwNone => flags.none = true,
+                Action::HwDirty => flags.dirty = true,
+                Action::HwFbo0 => flags.framebuffer_zero = true,
                 Action::SramWrite { offset, value } => {
                     // The parser checks the offset against the save RAM size.
                     self.save_ram.write(to_usize(offset), value);
@@ -358,7 +382,29 @@ impl Core {
             }
             self.next_event += 1;
         }
-        dupe
+        flags
+    }
+
+    /// The video of a GL core: the card, or `NULL` for `hw_null` and for a
+    /// `dupe` that the frontend allows, or no call for `hw_none`.
+    fn hardware_video(&mut self, flags: Flags) -> Video {
+        if flags.none {
+            return Video::Nothing;
+        }
+        if flags.null || (flags.dupe && self.can_dupe && self.last_frame_size.is_some()) {
+            return Video::Dupe {
+                size: self.last_frame_size.unwrap_or(self.size),
+                pitch: 0,
+            };
+        }
+        self.last_frame_size = Some(self.size);
+        Video::Hardware {
+            size: self.size,
+            framebuffer_zero: flags.framebuffer_zero,
+            dirty: flags.dirty,
+            rotation: self.script.rotation.unwrap_or(0),
+            bottom_left: self.script.hw_render.is_some_and(|h| h.bottom_left),
+        }
     }
 
     fn video(&mut self, buffer: &mut [u8], buttons: u16, dupe: bool) -> Video {
@@ -416,6 +462,16 @@ impl Core {
         self.next_sample = self.next_sample.wrapping_add(count);
         to_usize_u64(count)
     }
+}
+
+/// The video actions of one frame.
+#[derive(Debug, Clone, Copy, Default)]
+struct Flags {
+    dupe: bool,
+    null: bool,
+    none: bool,
+    dirty: bool,
+    framebuffer_zero: bool,
 }
 
 fn to_usize(value: u32) -> usize {
@@ -511,6 +567,35 @@ mod tests {
             );
         }
         assert_eq!(c.frame(), 3);
+    }
+
+    #[test]
+    fn a_gl_core_sends_hardware_frames_and_its_actions() {
+        let mut c = Core::new(
+            Script::parse(
+                "neptron-testcore 5\nhw_render gles2 2 0 bottom_left\nrotation 1\n\
+                 at 0 hw_null\nat 1 hw_none\nat 2 hw_dirty\nat 3 hw_fbo0\nat 4 dupe\n",
+            )
+            .unwrap(),
+            true,
+        );
+        let card = |framebuffer_zero, dirty| Video::Hardware {
+            size: QVGA,
+            framebuffer_zero,
+            dirty,
+            rotation: 1,
+            bottom_left: true,
+        };
+        let null = Video::Dupe {
+            size: QVGA,
+            pitch: 0,
+        };
+        assert_eq!(run(&mut c, 0).video, null, "NULL before any frame");
+        assert_eq!(run(&mut c, 0).video, Video::Nothing);
+        assert_eq!(run(&mut c, 0).video, card(false, true));
+        assert_eq!(run(&mut c, 0).video, card(true, false));
+        assert_eq!(run(&mut c, 0).video, null, "a dupe after a frame");
+        assert_eq!(run(&mut c, 0).video, card(false, false));
     }
 
     #[test]

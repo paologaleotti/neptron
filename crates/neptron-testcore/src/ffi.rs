@@ -32,11 +32,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use neptron_libretro_sys::*;
 
+use crate::gl_card::{
+    GL_BLEND, GL_COLOR_BUFFER_BIT, GL_FRAMEBUFFER, GL_FUNCTIONS, GL_NO_ERROR, GL_SCISSOR_TEST,
+    gl_card,
+};
 use crate::model::{Core, Request, Step, UNKNOWN_ENVIRONMENT_COMMAND, Video};
 use crate::options::{CORE_OPTIONS, VALUE_NOT_LISTED, VALUE_NOT_SET, value_code};
 use crate::script::{
-    AudioMode, AvInfo, Geometry, LoadOutcome, LogLevel, OptionTiming, PixelFormat, Script, Size,
+    AudioMode, AvInfo, Geometry, HwContext, HwRender, LoadOutcome, LogLevel, OptionTiming,
+    PixelFormat, Script, Size,
 };
+
+/// `RETRO_HW_FRAME_BUFFER_VALID` of libretro.h, `(void *)-1`. bindgen does
+/// not translate the pointer macro.
+const RETRO_HW_FRAME_BUFFER_VALID: *const c_void = usize::MAX as *const c_void;
 
 /// The callbacks that the frontend gives the core.
 #[derive(Debug, Clone, Copy)]
@@ -48,6 +57,10 @@ struct Callbacks {
     input_poll: retro_input_poll_t,
     input_state: retro_input_state_t,
     log: retro_log_printf_t,
+    /// The two callbacks of an accepted `SET_HW_RENDER`.
+    hw: Option<HwFrontend>,
+    /// The GL functions, from `context_reset` to `context_destroy`.
+    gl: Option<Gl>,
 }
 
 impl Callbacks {
@@ -59,8 +72,64 @@ impl Callbacks {
         input_poll: None,
         input_state: None,
         log: None,
+        hw: None,
+        gl: None,
     };
 }
+
+/// The callbacks that the frontend writes into `retro_hw_render_callback`.
+#[derive(Debug, Clone, Copy)]
+struct HwFrontend {
+    framebuffer: unsafe extern "C" fn() -> usize,
+    proc_address: unsafe extern "C" fn(*const c_char) -> retro_proc_address_t,
+}
+
+/// The GL functions of the card, in the order of [`GL_FUNCTIONS`].
+#[derive(Debug, Clone, Copy)]
+struct Gl {
+    bind_framebuffer: unsafe extern "C" fn(u32, u32),
+    viewport: unsafe extern "C" fn(i32, i32, i32, i32),
+    enable: unsafe extern "C" fn(u32),
+    disable: unsafe extern "C" fn(u32),
+    scissor: unsafe extern "C" fn(i32, i32, i32, i32),
+    clear_color: unsafe extern "C" fn(f32, f32, f32, f32),
+    clear: unsafe extern "C" fn(u32),
+    get_error: unsafe extern "C" fn() -> u32,
+}
+
+/// `retro_hw_render_callback` with its `bool` fields as bytes, so that any
+/// byte the frontend writes back is a valid value.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct HwRenderBytes {
+    context_type: retro_hw_context_type,
+    context_reset: retro_hw_context_reset_t,
+    get_current_framebuffer: retro_hw_get_current_framebuffer_t,
+    get_proc_address: retro_hw_get_proc_address_t,
+    depth: u8,
+    stencil: u8,
+    bottom_left_origin: u8,
+    version_major: u32,
+    version_minor: u32,
+    cache_context: u8,
+    context_destroy: retro_hw_context_reset_t,
+    debug_context: u8,
+}
+
+const _: () = {
+    use std::mem::offset_of;
+    type C = retro_hw_render_callback;
+    type B = HwRenderBytes;
+    assert!(size_of::<B>() == size_of::<C>() && align_of::<B>() == align_of::<C>());
+    assert!(offset_of!(B, get_current_framebuffer) == offset_of!(C, get_current_framebuffer));
+    assert!(offset_of!(B, get_proc_address) == offset_of!(C, get_proc_address));
+    assert!(offset_of!(B, depth) == offset_of!(C, depth));
+    assert!(offset_of!(B, bottom_left_origin) == offset_of!(C, bottom_left_origin));
+    assert!(offset_of!(B, version_major) == offset_of!(C, version_major));
+    assert!(offset_of!(B, cache_context) == offset_of!(C, cache_context));
+    assert!(offset_of!(B, context_destroy) == offset_of!(C, context_destroy));
+    assert!(offset_of!(B, debug_context) == offset_of!(C, debug_context));
+};
 
 /// All state of the core.
 struct Global {
@@ -399,6 +468,16 @@ pub extern "C" fn retro_load_game(_game: *const retro_game_info) -> bool {
                 &raw mut rotation,
             );
         }
+        if let Some(hw) = script.hw_render
+            && !set_hw_render(&callbacks, hw)
+        {
+            log(
+                &callbacks,
+                RETRO_LOG_ERROR,
+                &format!("the frontend refused the hardware context {hw:?}"),
+            );
+            return false;
+        }
         if let Some(text) = &script.load_error {
             log(&callbacks, RETRO_LOG_ERROR, text);
         }
@@ -414,6 +493,178 @@ pub extern "C" fn retro_load_game(_game: *const retro_game_info) -> bool {
         let core = Core::new(script, can_dupe);
         with_global(|g| g.core = Some(core)).is_some()
     })
+}
+
+/// Asks for the context of `hw` with `SET_HW_RENDER` and keeps the two
+/// callbacks that the frontend writes. False when the frontend refuses or
+/// leaves a callback null.
+fn set_hw_render(callbacks: &Callbacks, hw: HwRender) -> bool {
+    let context_type = match hw.context {
+        HwContext::Gles2 => RETRO_HW_CONTEXT_OPENGLES2,
+        HwContext::Gles3 => RETRO_HW_CONTEXT_OPENGLES3,
+        HwContext::Gles => RETRO_HW_CONTEXT_OPENGLES_VERSION,
+        HwContext::Gl => RETRO_HW_CONTEXT_OPENGL,
+        HwContext::GlCore => RETRO_HW_CONTEXT_OPENGL_CORE,
+    };
+    let mut request = HwRenderBytes {
+        context_type,
+        context_reset: Some(context_reset),
+        get_current_framebuffer: None,
+        get_proc_address: None,
+        depth: u8::from(hw.depth),
+        stencil: u8::from(hw.stencil),
+        bottom_left_origin: u8::from(hw.bottom_left),
+        version_major: hw.major,
+        version_minor: hw.minor,
+        cache_context: 0,
+        context_destroy: Some(context_destroy),
+        debug_context: 0,
+    };
+    if !env(callbacks, RETRO_ENVIRONMENT_SET_HW_RENDER, &raw mut request) {
+        return false;
+    }
+    let (Some(framebuffer), Some(proc_address)) =
+        (request.get_current_framebuffer, request.get_proc_address)
+    else {
+        return false;
+    };
+    with_global(|g| {
+        g.callbacks.hw = Some(HwFrontend {
+            framebuffer,
+            proc_address,
+        });
+    })
+    .is_some()
+}
+
+/// The `context_reset` of the core: looks up every GL function of the card
+/// and logs an error for each one that the frontend does not have.
+extern "C" fn context_reset() {
+    guarded((), || {
+        let Some(callbacks) = with_global(|g| g.callbacks) else {
+            return;
+        };
+        let Some(hw) = callbacks.hw else {
+            return;
+        };
+        let gl = resolve_gl(&callbacks, hw);
+        with_global(|g| g.callbacks.gl = gl);
+    });
+}
+
+/// The `context_destroy` of the core: the GL functions go with the
+/// context.
+extern "C" fn context_destroy() {
+    update(|g| g.callbacks.gl = None);
+}
+
+fn resolve_gl(callbacks: &Callbacks, hw: HwFrontend) -> Option<Gl> {
+    let mut found = [None; GL_FUNCTIONS.len()];
+    for (slot, name) in found.iter_mut().zip(GL_FUNCTIONS) {
+        // SAFETY: the frontend wrote `proc_address` in SET_HW_RENDER and
+        // keeps it valid while the core is loaded; `name` is a static C
+        // string.
+        *slot = unsafe { (hw.proc_address)(name.as_ptr()) };
+        if slot.is_none() {
+            log(
+                callbacks,
+                RETRO_LOG_ERROR,
+                &format!("the frontend has no {}", name.to_string_lossy()),
+            );
+        }
+    }
+    let [
+        Some(bind_framebuffer),
+        Some(viewport),
+        Some(enable),
+        Some(disable),
+        Some(scissor),
+        Some(clear_color),
+        Some(clear),
+        Some(get_error),
+    ] = found
+    else {
+        return None;
+    };
+    type Any = unsafe extern "C" fn();
+    // SAFETY: libretro.h: `get_proc_address` gives the GL function of the
+    // name, and each GL function has the C signature that the GL
+    // specification gives its name; each cast below is that signature.
+    unsafe {
+        Some(Gl {
+            bind_framebuffer: std::mem::transmute::<Any, unsafe extern "C" fn(u32, u32)>(
+                bind_framebuffer,
+            ),
+            viewport: std::mem::transmute::<Any, unsafe extern "C" fn(i32, i32, i32, i32)>(
+                viewport,
+            ),
+            enable: std::mem::transmute::<Any, unsafe extern "C" fn(u32)>(enable),
+            disable: std::mem::transmute::<Any, unsafe extern "C" fn(u32)>(disable),
+            scissor: std::mem::transmute::<Any, unsafe extern "C" fn(i32, i32, i32, i32)>(scissor),
+            clear_color: std::mem::transmute::<Any, unsafe extern "C" fn(f32, f32, f32, f32)>(
+                clear_color,
+            ),
+            clear: std::mem::transmute::<Any, unsafe extern "C" fn(u32)>(clear),
+            get_error: std::mem::transmute::<Any, unsafe extern "C" fn() -> u32>(get_error),
+        })
+    }
+}
+
+/// Draws the card with `gl` into the framebuffer of the frontend, or into
+/// framebuffer 0, and leaves the GL state dirty when asked.
+fn draw_card(callbacks: &Callbacks, gl: Gl, hw: HwFrontend, video: &Video) {
+    let Video::Hardware {
+        size,
+        framebuffer_zero,
+        dirty,
+        rotation,
+        bottom_left,
+    } = *video
+    else {
+        return;
+    };
+    let side = |v: u32| i32::try_from(v).unwrap_or(i32::MAX);
+    // SAFETY: each function came from `get_proc_address` in
+    // `context_reset`, with its GL signature, and the frontend makes the
+    // context current around `retro_run`, as libretro.h says. Every
+    // argument is a plain value.
+    unsafe {
+        let framebuffer = if framebuffer_zero {
+            0
+        } else {
+            u32::try_from((hw.framebuffer)()).unwrap_or(0)
+        };
+        (gl.bind_framebuffer)(GL_FRAMEBUFFER, framebuffer);
+        (gl.viewport)(0, 0, side(size.width), side(size.height));
+        (gl.enable)(GL_SCISSOR_TEST);
+        for rect in gl_card(size, rotation, bottom_left) {
+            let channel = |shift: u32| ((rect.rgb >> shift) & 0xFF) as f32 / 255.0;
+            (gl.scissor)(
+                side(rect.x),
+                side(rect.y),
+                side(rect.width),
+                side(rect.height),
+            );
+            (gl.clear_color)(channel(16), channel(8), channel(0), 1.0);
+            (gl.clear)(GL_COLOR_BUFFER_BIT);
+        }
+        if dirty {
+            (gl.scissor)(1, 2, 3, 4);
+            (gl.enable)(GL_BLEND);
+            (gl.viewport)(5, 6, 7, 8);
+            (gl.bind_framebuffer)(GL_FRAMEBUFFER, 0);
+        } else {
+            (gl.disable)(GL_SCISSOR_TEST);
+        }
+        let error = (gl.get_error)();
+        if error != GL_NO_ERROR {
+            log(
+                callbacks,
+                RETRO_LOG_WARN,
+                &format!("GL error {error:#06x} in the card"),
+            );
+        }
+    }
 }
 
 /// Returns false: the core has no special content types.
@@ -709,6 +960,14 @@ fn send_video(callbacks: &Callbacks, step: &Step) {
             // SAFETY: as above. A null pointer is the libretro signal for a
             // duplicate frame, which the frontend allowed with `GET_CAN_DUPE`.
             unsafe { refresh(ptr::null(), size.width, size.height, pitch) };
+        }
+        Video::Hardware { size, .. } => {
+            if let (Some(gl), Some(hw)) = (callbacks.gl, callbacks.hw) {
+                draw_card(callbacks, gl, hw, &step.video);
+            }
+            // SAFETY: as above. The marker tells the frontend that the
+            // frame is in its framebuffer; the frontend reads no bytes.
+            unsafe { refresh(RETRO_HW_FRAME_BUFFER_VALID, size.width, size.height, 0) };
         }
         Video::Nothing => {}
     }

@@ -15,7 +15,7 @@ A libretro core that follows a script, for tests. It reads its script from the f
 
 A script is a UTF-8 text file. A byte sequence that is not UTF-8 is an error, reported with its line. Each line holds one keyword and its arguments, separated by spaces. A `#` starts a comment to the end of the line. Blank lines do not count. Every number is an unsigned decimal integer, ASCII digits only (no sign, no separators): frequencies in millihertz or hertz, sizes in pixels, aspect ratios in thousandths.
 
-The first line is the header `neptron-testcore <version>`, version 1, 2, 3 or 4. Version 2 adds the setup lines `load` and `load_error`. Version 3 adds the actions `log` and `message`. Version 4 adds the setup line `pattern`. A script of an older version that has one of them is an error.
+The first line is the header `neptron-testcore <version>`, version 1 to 5. Version 2 adds the setup lines `load` and `load_error`. Version 3 adds the actions `log` and `message`. Version 4 adds the setup line `pattern`. Version 5 adds the setup line `hw_render` and the actions `hw_null`, `hw_none`, `hw_dirty` and `hw_fbo0`. A script of an older version that has one of them is an error.
 
 The setup lines come next. Each one is optional and can appear once.
 
@@ -31,6 +31,7 @@ The setup lines come next. Each one is optional and can appear once.
 | `rotation <value>` | The core calls `SET_ROTATION` with this value in `retro_load_game`, after the options. Any value up to 4294967295, so a test can send one that the frontend refuses | none |
 | `load_error <text>` | Version 2. `retro_load_game` logs the text (the rest of the line) at error level, after the rotation, as a core logs why a game cannot run | none |
 | `load <ok\|refuse\|shutdown>` | Version 2. What `retro_load_game` does last: return true; return false, as a core that refuses the content; or call `RETRO_ENVIRONMENT_SHUTDOWN` and return true, as a core that shows its own error screen | `ok` |
+| `hw_render <type> <major> <minor> [depth] [stencil] [bottom_left]` | Version 5. The core draws with GL (see GL core). `<type>` is `gles2`, `gles3`, `gles` (`OPENGLES_VERSION`), `gl` (`OPENGL`) or `glcore` (`OPENGL_CORE`); the version is 0 to 255. Each flag at most once, in any order | none: the core draws in memory |
 | `pattern <noise\|shape>` | Version 4. What the frames show. `noise`: a hash of the frame number, the buttons and the position (`pixel`), so every frame differs. `shape`: the same test card in every frame (`shape_pixel`), drawn on the upright picture: a white border, a green diagonal from the top-left to the bottom-right corner, a red circle that is round on the glass, a yellow arrow that points to the top and a blue top-left corner. The card takes the turn of the `rotation` setup line and the reported aspect as the shape of the upright picture (0: square pixels). A `rotation` action does not change it | `noise` |
 
 Event lines follow: `at <frame> <action>`. Frame 0 is the first `retro_run` after `retro_load_game` or `retro_reset`. The frame numbers must not go down. Events of one frame run in file order, before the core sends that frame.
@@ -48,8 +49,12 @@ Event lines follow: `at <frame> <action>`. Frame 0 is the first `retro_run` afte
 | `rotation <value>` | Calls `SET_ROTATION` with the value. The frames do not change: the core sends them as the board draws them |
 | `log <debug\|info\|warn\|error> <text>` | Version 3. Writes the text (the rest of the line) to the log interface at that level |
 | `message <frames> <text>` | Version 3. Calls `SET_MESSAGE` with the text (the rest of the line) for that many frames |
+| `hw_null` | Version 5, GL core only. Sends `NULL` for this frame and draws nothing |
+| `hw_none` | Version 5, GL core only. Draws nothing and makes no video call |
+| `hw_dirty` | Version 5, GL core only. Draws the card, then leaves a scissor box with the scissor test on, blending on, another viewport and framebuffer 0 bound |
+| `hw_fbo0` | Version 5, GL core only. Draws the card into framebuffer 0, not into the framebuffer of the frontend, and sends the frame |
 
-The parser checks every value. A size must fit the maximum size in force at that line. Limits: sizes 1 to 4096 pixels, rotation 0 to 4294967295, frame rate 1,000 to 1,000,000 mHz, sample rate 1 to 384,000 Hz, aspect up to 100,000, save RAM up to 16 MiB (the constants in `src/script.rs`). An error names the line. A script with an error makes `retro_load_game` return false.
+The parser checks every value. A size must fit the maximum size in force at that line. A `hw_*` action in a script with no `hw_render` line is an error. Limits: sizes 1 to 4096 pixels, rotation 0 to 4294967295, frame rate 1,000 to 1,000,000 mHz, sample rate 1 to 384,000 Hz, aspect up to 100,000, save RAM up to 16 MiB (the constants in `src/script.rs`). An error names the line. A script with an error makes `retro_load_game` return false.
 
 The format is append-only. A new keyword or action can come in a later version. A keyword never changes its meaning or its arguments.
 
@@ -79,6 +84,14 @@ rotation 1
 
 at 60 rotation 3                  # a turn in a frame: 270 degrees
 ```
+
+## GL core
+
+With `hw_render`, `retro_load_game` calls `SET_HW_RENDER` after the rotation, with the type, the version and the flags of the line, and with its own `context_reset` and `context_destroy`. When the frontend refuses, or leaves `get_current_framebuffer` or `get_proc_address` null, the core logs `the frontend refused the hardware context ...` at error level and returns false.
+
+`context_reset` looks up the eight functions of the card with `get_proc_address` (`GL_FUNCTIONS`: `glBindFramebuffer`, `glViewport`, `glEnable`, `glDisable`, `glScissor`, `glClearColor`, `glClear`, `glGetError`) and logs an error for each one the frontend does not have. `context_destroy` drops them. These functions exist in every context type, need no shader, and show shape and direction.
+
+Each frame draws the card into the framebuffer that `get_current_framebuffer` names, then sends `RETRO_HW_FRAME_BUFFER_VALID` with the frame size. The card is the `shape` card without its circle, drawn with scissored `glClear` calls only (`gl_card`): a white border, a blue top-left corner, a green staircase from the top-left to the bottom-right corner, and a yellow arrow of stacked rectangles that points to the top, on the upright picture after the turn of the `rotation` line. With `bottom_left` the core draws line 0 of the frame at GL row `height - 1`; without it at GL row 0. `gl_card_pixel(size, rotation, x, y)` gives the colour of each pixel of the frame, line 0 at the top, so a test checks the picture whatever the origin. The draw ends with the scissor test off, and a `glGetError` that is not `GL_NO_ERROR` gives a log line at warn level. A `dupe` sends `NULL` when the frontend allows it; the frame buffer in memory is not used.
 
 ## Core options
 
@@ -126,5 +139,6 @@ Panics: no panic crosses the C boundary. Each entry point runs in `catch_unwind`
 
 `cargo xtask test -p neptron-testcore`.
 
-- Unit tests of the parser, the generators, the core model and the FFI helpers.
+- Unit tests of the parser, the generators, the GL card, the core model and the FFI helpers.
+- The GL core runs end to end in `crates/neptron-libretro/tests/test_core.rs`, with the reference core GL of `neptron-testkit`.
 - `tests/load.rs` opens the built library with `libloading` (a dev-dependency), checks that all 25 entry points are exported, and runs scripts through the raw API with frontend callbacks: frame hashes, the order of the environment calls, audio, save RAM, reset, the load failures, and the `load refuse` and `load shutdown` lines. The test plays the frontend, so it uses `unsafe` to call the core. Each test needs its own process, which `cargo nextest` gives.
