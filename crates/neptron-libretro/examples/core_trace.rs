@@ -387,6 +387,11 @@ fn run_frames(args: &Args, out: &Out<'_>, host: &mut Host) -> bool {
             Video::Duplicate(last) => (Shown::Duplicate, last),
             Video::Missing => (Shown::Missing, None),
             Video::Rejected(fault) => (Shown::Rejected(fault.to_string()), None),
+            // The trace sets no offer, so no core gets a hardware context.
+            Video::Hardware { width, height } => (
+                Shown::Rejected(format!("hardware frame {width}x{height}")),
+                None,
+            ),
         };
         match &shown {
             Some((_, kind)) if *kind == now => {}

@@ -142,6 +142,9 @@ pub enum RunError {
     /// No game is loaded.
     #[error("no game is loaded")]
     NoGame,
+    /// The core has no accepted `SET_HW_RENDER`.
+    #[error("the core has no hardware context")]
+    NoHwRender,
     /// The callback state did not come back from a call into the core.
     #[error("the host state was lost in a call into the core")]
     HostPoisoned,

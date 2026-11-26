@@ -30,16 +30,18 @@ mod env;
 mod fake_core;
 
 use std::cell::RefCell;
-use std::ffi::{c_char, c_uint, c_void};
+use std::ffi::{CStr, c_char, c_uint, c_void};
+use std::fmt;
 use std::mem::ManuallyDrop;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use libloading::Library;
 use neptron_libretro_sys::*;
 
 use crate::content::LoadedContent;
-use crate::output::FrameFault;
 use crate::save::{MAX_SAVE_RAM_BYTES, SaveRamError, SaveRamLoad};
 use crate::state::{CoreAvInfo, State};
 
@@ -51,6 +53,51 @@ const RETRO_HW_FRAME_BUFFER_VALID: *const c_void = usize::MAX as *const c_void;
 thread_local! {
     /// The state of the host while it is inside a call into the core.
     static SLOT: RefCell<Option<Box<State>>> = const { RefCell::new(None) };
+}
+
+/// The framebuffer that `get_current_framebuffer` gives. A process global,
+/// not the lent state, so that a core can ask on any thread: one core runs
+/// per process.
+static HW_FRAMEBUFFER: AtomicU32 = AtomicU32::new(0);
+
+/// The lookup that `get_proc_address` uses. A process global, for the
+/// reason of [`HW_FRAMEBUFFER`].
+static HW_LOOKUP: OnceLock<fn(&CStr) -> usize> = OnceLock::new();
+
+/// Sets what the two hardware callbacks of the core give: the framebuffer
+/// name and the lookup of GL functions. The first lookup stays for the
+/// process: the display that made it hosts the core until the process
+/// ends, and its lookup reads no state.
+pub(crate) fn set_hw_target(framebuffer: u32, lookup: fn(&CStr) -> usize) {
+    HW_FRAMEBUFFER.store(framebuffer, Ordering::Release);
+    // A second lookup is the lookup of the same display; keeping the first
+    // one changes no answer.
+    let _ = HW_LOOKUP.set(lookup);
+}
+
+/// A `context_reset` or `context_destroy` callback of a core.
+#[derive(Clone, Copy)]
+pub(crate) struct HwCallback(unsafe extern "C" fn());
+
+impl HwCallback {
+    /// The callback, or `None` for a null pointer.
+    pub(crate) fn of(callback: retro_hw_context_reset_t) -> Option<Self> {
+        callback.map(Self)
+    }
+
+    /// Calls the core. The host calls it with the core context current,
+    /// as libretro.h asks; the session makes it current.
+    pub(crate) fn call(self) {
+        // SAFETY: a callback that the core gave with SET_HW_RENDER, with no
+        // arguments. The library is never closed, so it stays valid.
+        unsafe { (self.0)() }
+    }
+}
+
+impl fmt::Debug for HwCallback {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("HwCallback")
+    }
 }
 
 /// The longest string that the host reads from a core, NUL included.
@@ -502,7 +549,7 @@ unsafe extern "C" fn video_refresh(
                 return;
             }
             if data == RETRO_HW_FRAME_BUFFER_VALID {
-                state.video_mut().reject(FrameFault::HardwareFrame);
+                state.hardware_frame(width, height);
                 return;
             }
             let plan = match state.frame_plan(width, height, pitch) {
@@ -530,6 +577,39 @@ unsafe extern "C" fn video_refresh(
             video.finish(plan);
         });
     });
+}
+
+/// `retro_hw_get_current_framebuffer_t`: the framebuffer that the core
+/// draws into. It reads only a process global, so any thread can call it.
+extern "C" fn hw_get_current_framebuffer() -> usize {
+    guard(0, || HW_FRAMEBUFFER.load(Ordering::Acquire) as usize)
+}
+
+/// `retro_hw_get_proc_address_t`: the GL function of the name `sym`, or
+/// null. It reads only a process global, so any thread can call it.
+///
+/// # Safety
+///
+/// The core keeps libretro.h: `sym` is null or a NUL-terminated string,
+/// valid for the length of the call.
+unsafe extern "C" fn hw_get_proc_address(sym: *const c_char) -> retro_proc_address_t {
+    guard(None, || {
+        let lookup = HW_LOOKUP.get()?;
+        // SAFETY: the caller's guarantee.
+        let name = unsafe { c_str_bytes(sym) }?;
+        // SAFETY: `c_str_bytes` found the NUL at `name.len()`, so the
+        // string with its NUL is `name.len() + 1` readable bytes.
+        let with_nul = unsafe { std::slice::from_raw_parts(sym.cast::<u8>(), name.len() + 1) };
+        let name = CStr::from_bytes_with_nul(with_nul).ok()?;
+        let address = lookup(name);
+        if address == 0 {
+            return None;
+        }
+        // SAFETY: the lookup of the display gives 0 or the address of a
+        // function of its GL library; 0 is handled above. The core casts
+        // it to the signature that the name has, as libretro.h says.
+        Some(unsafe { std::mem::transmute::<usize, unsafe extern "C" fn()>(address) })
+    })
 }
 
 /// `retro_audio_sample_t`: one stereo frame.

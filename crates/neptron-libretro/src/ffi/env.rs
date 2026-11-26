@@ -11,8 +11,12 @@ use std::ffi::{c_char, c_void};
 
 use neptron_libretro_sys::*;
 
-use super::{c_str_bytes, core_av_info, neptron_libretro_log_printf};
+use super::{
+    HwCallback, c_str_bytes, core_av_info, hw_get_current_framebuffer, hw_get_proc_address,
+    neptron_libretro_log_printf,
+};
 use crate::descriptor::{MAX_INPUT_DESCRIPTORS, RawDescriptor};
+use crate::hw::RawHwRender;
 use crate::options::MAX_OPTIONS;
 use crate::state::{MAX_CONTENT_OVERRIDES, State};
 
@@ -181,11 +185,48 @@ pub(super) unsafe fn dispatch(state: &mut State, cmd: u32, data: *mut c_void) ->
             value.is_some_and(|v| state.set_rotation(v))
         }
         RETRO_ENVIRONMENT_SET_MEMORY_MAPS => state.refuse(cmd, "memory maps are not used"),
-        RETRO_ENVIRONMENT_SET_HW_RENDER
-        | RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE
-        | RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE
-        | RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER => {
-            state.refuse(cmd, "hardware rendering is not supported")
+        RETRO_ENVIRONMENT_SET_HW_RENDER => {
+            // SAFETY: SET_HW_RENDER takes a `struct retro_hw_render_callback *`,
+            // read with its `bool` fields as bytes.
+            let Some(raw) = (unsafe { read::<HwRenderBytes>(data) }) else {
+                return false;
+            };
+            let request = RawHwRender {
+                context_type: raw.context_type,
+                version_major: raw.version_major,
+                version_minor: raw.version_minor,
+                depth: raw.depth != 0,
+                stencil: raw.stencil != 0,
+                bottom_left_origin: raw.bottom_left_origin != 0,
+            };
+            let reset = HwCallback::of(raw.context_reset);
+            let destroy = HwCallback::of(raw.context_destroy);
+            if !state.set_hw_render(&request, reset, destroy) {
+                return false;
+            }
+            let answer = HwRenderBytes {
+                get_current_framebuffer: Some(hw_get_current_framebuffer),
+                get_proc_address: Some(hw_get_proc_address),
+                ..raw
+            };
+            // SAFETY: as above; the core fills the struct and the frontend
+            // writes the two callbacks into it.
+            unsafe { write(data, answer) }
+        }
+        RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER => match state.preferred_hw_render() {
+            // SAFETY: GET_PREFERRED_HW_RENDER takes an `unsigned *`.
+            Some(context_type) => unsafe { write::<u32>(data, context_type) },
+            None => state.refuse(cmd, "the display offers no hardware context"),
+        },
+        RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE => {
+            state.refuse(cmd, "a GL context has no render interface")
+        }
+        RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE
+        | RETRO_ENVIRONMENT_GET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_SUPPORT => {
+            state.refuse(cmd, "context negotiation is for Vulkan only")
+        }
+        RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT => {
+            state.refuse(cmd, "the core never shares the context of the frontend")
         }
         _ => state.unknown(cmd),
     }
@@ -296,6 +337,43 @@ const _: () = assert!(
     size_of::<OverrideBytes>() == size_of::<retro_system_content_info_override>()
         && align_of::<OverrideBytes>() == align_of::<retro_system_content_info_override>()
 );
+
+/// `retro_hw_render_callback` with its `bool` fields as bytes, so that any
+/// byte the core wrote is a valid value.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct HwRenderBytes {
+    context_type: retro_hw_context_type,
+    context_reset: retro_hw_context_reset_t,
+    get_current_framebuffer: retro_hw_get_current_framebuffer_t,
+    get_proc_address: retro_hw_get_proc_address_t,
+    depth: u8,
+    stencil: u8,
+    bottom_left_origin: u8,
+    version_major: u32,
+    version_minor: u32,
+    cache_context: u8,
+    context_destroy: retro_hw_context_reset_t,
+    debug_context: u8,
+}
+
+const _: () = {
+    use std::mem::offset_of;
+    type C = retro_hw_render_callback;
+    type B = HwRenderBytes;
+    assert!(size_of::<B>() == size_of::<C>() && align_of::<B>() == align_of::<C>());
+    assert!(offset_of!(B, context_reset) == offset_of!(C, context_reset));
+    assert!(offset_of!(B, get_current_framebuffer) == offset_of!(C, get_current_framebuffer));
+    assert!(offset_of!(B, get_proc_address) == offset_of!(C, get_proc_address));
+    assert!(offset_of!(B, depth) == offset_of!(C, depth));
+    assert!(offset_of!(B, stencil) == offset_of!(C, stencil));
+    assert!(offset_of!(B, bottom_left_origin) == offset_of!(C, bottom_left_origin));
+    assert!(offset_of!(B, version_major) == offset_of!(C, version_major));
+    assert!(offset_of!(B, version_minor) == offset_of!(C, version_minor));
+    assert!(offset_of!(B, cache_context) == offset_of!(C, cache_context));
+    assert!(offset_of!(B, context_destroy) == offset_of!(C, context_destroy));
+    assert!(offset_of!(B, debug_context) == offset_of!(C, debug_context));
+};
 
 /// Reads a `T` from `data`. `None` for null.
 ///

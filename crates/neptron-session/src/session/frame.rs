@@ -163,7 +163,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         match out.video {
             Video::Frame(frame) => self.picture.store(&frame),
             Video::Duplicate(_) | Video::Missing => counters.repeated_pictures += 1,
-            Video::Rejected(_) => counters.frame_faults += 1,
+            // The session sets no hardware offer yet, so the host gives no
+            // core a hardware context and sends no such frame.
+            Video::Rejected(_) | Video::Hardware { .. } => counters.frame_faults += 1,
         }
         if let Some(audio) = self.audio.as_mut().filter(|_| feed_audio) {
             audio.push_samples(out.audio);

@@ -17,6 +17,7 @@ mod error;
 mod ffi;
 mod geometry;
 mod host;
+mod hw;
 mod log;
 mod options;
 mod output;
@@ -35,6 +36,7 @@ pub use geometry::{
     MAX_SAMPLE_RATE_MHZ, MIN_FPS_MHZ, MIN_SAMPLE_RATE_MHZ, Timing,
 };
 pub use host::{Host, HostConfig, SystemInfo};
+pub use hw::{HwApi, HwRefusal, HwRefusalReason};
 pub use log::{
     ERROR_LOG_CAPACITY, LOG_CAPACITY, LOG_TEXT_MAX_BYTES, LogLevel, LogRecord, LogSource,
 };

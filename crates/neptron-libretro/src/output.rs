@@ -28,6 +28,15 @@ pub enum Video<'a> {
     /// A new frame. Its rows are packed: the pitch is the width times the
     /// bytes per pixel.
     Frame(Frame<'a>),
+    /// A new frame in the hardware framebuffer, from a core with an
+    /// accepted `SET_HW_RENDER`. The size passed the checks of a frame in
+    /// memory.
+    Hardware {
+        /// Width, in pixels.
+        width: u16,
+        /// Height, in lines.
+        height: u16,
+    },
     /// The core sent no data: show the last frame again. The last good
     /// frame is given when there is one.
     Duplicate(Option<Frame<'a>>),
@@ -89,9 +98,9 @@ pub enum Refusal {
 /// Why a frame of the core was not copied.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum FrameFault {
-    /// The core passed `RETRO_HW_FRAME_BUFFER_VALID`: a frame in a hardware
-    /// framebuffer, which the host does not support.
-    #[error("hardware-rendered frame; the host supports software frames only")]
+    /// The core passed `RETRO_HW_FRAME_BUFFER_VALID`, a frame in a hardware
+    /// framebuffer, with no accepted `SET_HW_RENDER`.
+    #[error("hardware-rendered frame from a core with no hardware context")]
     HardwareFrame,
     /// No geometry is known yet: the frame came before `load_game` read it.
     #[error("frame before the geometry is known")]

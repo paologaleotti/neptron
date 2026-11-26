@@ -50,21 +50,7 @@ impl FramePlan {
         format: PixelFormat,
         geometry: Option<&GameGeometry>,
     ) -> Result<Self, FrameFault> {
-        let geometry = geometry.ok_or(FrameFault::NoGeometry)?;
-        if width == 0 || height == 0 {
-            return Err(FrameFault::ZeroSize { width, height });
-        }
-        let over = FrameFault::OverMaximum {
-            width,
-            height,
-            max_width: geometry.max_width,
-            max_height: geometry.max_height,
-        };
-        let w = u16::try_from(width).map_err(|_| over)?;
-        let h = u16::try_from(height).map_err(|_| over)?;
-        if w > geometry.max_width || h > geometry.max_height {
-            return Err(over);
-        }
+        let (w, h) = check_size(width, height, geometry)?;
         let row_bytes = usize::from(w) * format.bytes_per_pixel();
         if pitch < row_bytes {
             return Err(FrameFault::PitchTooSmall { pitch, row_bytes });
@@ -90,11 +76,37 @@ impl FramePlan {
     }
 }
 
+/// Checks the size of a frame against the geometry: the checks of a frame
+/// in memory and of a frame in a hardware framebuffer.
+pub(crate) fn check_size(
+    width: u32,
+    height: u32,
+    geometry: Option<&GameGeometry>,
+) -> Result<(u16, u16), FrameFault> {
+    let geometry = geometry.ok_or(FrameFault::NoGeometry)?;
+    if width == 0 || height == 0 {
+        return Err(FrameFault::ZeroSize { width, height });
+    }
+    let over = FrameFault::OverMaximum {
+        width,
+        height,
+        max_width: geometry.max_width,
+        max_height: geometry.max_height,
+    };
+    let w = u16::try_from(width).map_err(|_| over)?;
+    let h = u16::try_from(height).map_err(|_| over)?;
+    if w > geometry.max_width || h > geometry.max_height {
+        return Err(over);
+    }
+    Ok((w, h))
+}
+
 /// What the video callback did in the current frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Current {
     Missing,
     New,
+    Hardware { width: u16, height: u16 },
     Duplicate,
     Rejected(FrameFault),
 }
@@ -137,6 +149,11 @@ impl VideoBuffer {
         self.current = Current::Rejected(fault);
     }
 
+    /// A frame of `width` by `height` in the hardware framebuffer.
+    pub(crate) fn hardware(&mut self, width: u16, height: u16) {
+        self.current = Current::Hardware { width, height };
+    }
+
     /// The bytes that a frame of `plan` is copied into, or `None` when the
     /// buffer is too small, which `reserve_for` prevents.
     pub(crate) fn target(&mut self, plan: &FramePlan) -> Option<&mut [u8]> {
@@ -153,6 +170,7 @@ impl VideoBuffer {
         match self.current {
             Current::Missing => Video::Missing,
             Current::New => self.last_frame().map_or(Video::Missing, Video::Frame),
+            Current::Hardware { width, height } => Video::Hardware { width, height },
             Current::Duplicate => Video::Duplicate(self.last_frame()),
             Current::Rejected(fault) => Video::Rejected(fault),
         }
@@ -282,6 +300,38 @@ mod tests {
         v.begin();
         v.duplicate();
         assert_eq!(v.video(), Video::Duplicate(Some(frame)));
+        v.begin();
+        v.hardware(4, 2);
+        assert_eq!(
+            v.video(),
+            Video::Hardware {
+                width: 4,
+                height: 2
+            }
+        );
+    }
+
+    #[test]
+    fn a_size_is_checked_against_the_maximum() {
+        let g = geometry(320, 240);
+        assert_eq!(check_size(320, 240, Some(&g)), Ok((320, 240)));
+        assert_eq!(check_size(1, 1, None), Err(FrameFault::NoGeometry));
+        assert_eq!(
+            check_size(0, 0, Some(&g)),
+            Err(FrameFault::ZeroSize {
+                width: 0,
+                height: 0
+            })
+        );
+        assert_eq!(
+            check_size(1 << 16, 1, Some(&g)),
+            Err(FrameFault::OverMaximum {
+                width: 1 << 16,
+                height: 1,
+                max_width: 320,
+                max_height: 240
+            })
+        );
     }
 
     #[test]

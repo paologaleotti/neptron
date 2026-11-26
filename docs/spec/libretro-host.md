@@ -14,10 +14,11 @@ In scope:
 - Save RAM in memory and in a `.srm` file.
 - Core options with the version 0 API (`SET_VARIABLES`).
 - Rotation (`SET_ROTATION`): the host stores the turn that the core asks for and reports it. The renderers turn the picture (ADR 0015).
+- Hardware rendering with GL and GLES (`SET_HW_RENDER`): the answers to the core and the two callbacks of the frontend. `docs/spec/hw-render.md` is the design; section "Hardware rendering" below is the part of the host.
 
 Out of scope for the MVP:
 
-- Hardware rendering (`SET_HW_RENDER` and its interfaces).
+- Vulkan, the hardware render interfaces, context negotiation and shared contexts.
 - Save states, disk control, VFS, rumble, the frame-time callback, audio buffer status, the software framebuffer, memory maps, achievements, subsystems.
 - `.7z` content. Zip content for a core that needs a path on disk.
 
@@ -67,6 +68,12 @@ impl Host {
     pub fn dropped_logs(&self) -> usize;
     pub fn copy_save_ram(&mut self, out: &mut Vec<u8>) -> Result<usize, SaveRamError>;
     pub fn load_save_ram(&mut self, bytes: &[u8]) -> Result<SaveRamLoad, SaveRamError>;
+    pub fn set_hw_offer(&mut self, offer: ContextOffer);
+    pub fn hw_request(&self) -> Option<ContextRequest>;
+    pub fn hw_refusal(&self) -> Option<HwRefusal>;
+    pub fn set_hw_target(&mut self, framebuffer: u32, lookup: fn(&CStr) -> usize);
+    pub fn context_reset(&mut self) -> Result<(), RunError>;
+    pub fn context_destroy(&mut self) -> Result<(), RunError>;
 }
 
 pub struct ContentRequest<'a> {
@@ -84,6 +91,7 @@ pub struct FrameOutput<'a> {
 
 pub enum Video<'a> {
     Frame(Frame<'a>),             // a new frame, packed rows
+    Hardware { width: u16, height: u16 }, // a new frame in the hardware framebuffer
     Duplicate(Option<Frame<'a>>), // the core sent NULL; the last frame, if one exists
     Missing,                      // the core did not call video_refresh this frame
     Rejected(FrameFault),         // the core sent a frame that failed a check
@@ -104,7 +112,14 @@ pub struct GameGeometry { pub base_width: u16, pub base_height: u16,
                           pub aspect_from_core: bool }
 pub struct Timing { pub fps_mhz: u32, pub sample_rate_mhz: u32 }
 pub struct AvInfo { pub geometry: GameGeometry, pub timing: Timing }
+
+pub struct HwRefusal { pub context_type: u32, pub api: HwApi, pub major: u32, pub minor: u32,
+                       pub reason: HwRefusalReason }
+pub enum HwApi { OpenGl, OpenGles, Vulkan, Other }
+pub enum HwRefusalReason { NotOffered, OutsideLoad }
 ```
+
+`ContextOffer`, `ContextRequest`, `GlApi` and `GlVersion` are the plain types of `neptron-backend` (ADR 0022).
 
 Free functions for save files (they do file I/O, so the session calls them off the frame thread):
 
@@ -135,6 +150,8 @@ The session does not get a `SourceGeometry` from the host. The engine builds it 
 3. `load_game`: prepares the content, calls `retro_load_game`, reads `retro_get_system_av_info`, makes the buffers, calls `retro_set_controller_port_device(port, RETRO_DEVICE_JOYPAD)` for ports 0 to 3, every port the host answers for (`MAX_PORTS`). Then the session reads `held_option_report()` and counts each entry in `Counters::refused_options`.
 4. The session calls `read_save_file` and `load_save_ram`.
 5. Each frame: `set_pad` for each port, then `run_frame`. The session uses the output before the next call.
+
+For hardware rendering, `set_hw_offer` comes before step 3. After step 3, a core with `hw_request()` gets its context: the display makes it, then `set_hw_target` and `context_reset`, with the core context current (`docs/spec/hw-render.md`, section 3.1).
 6. On a timer and on exit: `copy_save_ram`, then `write_save_file` on a worker thread or at exit.
 7. Drop: `retro_unload_game` (if a game is loaded), `retro_deinit`.
 
@@ -190,7 +207,7 @@ Checks on each frame, in order. A failed check gives `Video::Rejected(fault)` an
 | Check | Fault |
 | --- | --- |
 | `data` is null | not a fault: `Video::Duplicate(last frame)` |
-| `data` is `RETRO_HW_FRAME_BUFFER_VALID` (`(void*)-1`) | `HardwareFrame` |
+| `data` is `RETRO_HW_FRAME_BUFFER_VALID` (`(void*)-1`) and no `SET_HW_RENDER` is accepted | `HardwareFrame` |
 | no AV info yet (before `load_game` returned) | `NoGeometry` |
 | `width` and `height` are 1 or more | `ZeroSize` |
 | `width <= max_width`, `height <= max_height` (the current maximum) | `OverMaximum` |
@@ -200,6 +217,8 @@ Checks on each frame, in order. A failed check gives `Video::Rejected(fault)` an
 The last good frame stays in the buffer, so a duplicate gives the caller the pixels to show again. A core that calls `video_refresh` more than once in one `retro_run` gives the last call's result.
 
 The host does not check the alignment of the video pointer, because it copies bytes.
+
+A core with an accepted `SET_HW_RENDER` sends `RETRO_HW_FRAME_BUFFER_VALID` with the size of its picture. The host checks the size as for a frame in memory (`NoGeometry`, `ZeroSize`, `OverMaximum`; the pitch is not used) and gives `Video::Hardware { width, height }`. It copies nothing: the picture is in the framebuffer of the display. A null `data` stays a duplicate, with no last frame in memory.
 
 ## Audio
 
@@ -303,7 +322,11 @@ An unknown call returns `false` and gets one log record (level warn) per command
 | `SET_MESSAGE` | `true`, `Event::Message` with the text (at most 1,024 bytes) and the frame count |
 | `GET_AUDIO_VIDEO_ENABLE` | `true`, writes video and audio enabled (3) |
 | `SET_ROTATION` | see Rotation |
-| `SET_HW_RENDER`, `GET_HW_RENDER_INTERFACE`, `SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE`, `GET_PREFERRED_HW_RENDER` | `false`, logged once |
+| `SET_HW_RENDER` | see Hardware rendering |
+| `GET_PREFERRED_HW_RENDER` | `true` with the preferred type of the offer (see Hardware rendering); `false`, logged once, with an empty offer |
+| `GET_HW_RENDER_INTERFACE` | `false`, logged once: a GL context has no interface |
+| `SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE`, `GET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_SUPPORT` | `false`, logged once: Vulkan only |
+| `SET_HW_SHARED_CONTEXT` | `false`, logged once: the core never shares the context of the frontend |
 | `SET_CONTENT_INFO_OVERRIDE` | `true`, records `need_fullpath` per extension (see Content) |
 | `GET_GAME_INFO_EXT` | `true` during and after `retro_load_game`, writes a pointer to the extended content information; `false` with no content |
 | any other | `false`, logged once |
@@ -317,6 +340,39 @@ All three cores use the `libretro_core_options.h` template of libretro-common (c
 ### Calls that the MVP cores need for content
 
 FCEUmm and Genesis Plus GX report `need_fullpath = true` in `retro_get_system_info`. They call `SET_CONTENT_INFO_OVERRIDE` with `need_fullpath = false` for their ROM extensions, and read the data through `GET_GAME_INFO_EXT`. Without these two calls they read the file from its path, and zip content would be impossible for NES and Mega Drive. The host supports both calls for this reason. Snes9x reports `need_fullpath = false`.
+
+## Hardware rendering
+
+A core that draws with GL or GLES asks for a context with `SET_HW_RENDER` in `retro_load_game`. The display makes the context (`CoreRender` of `neptron-backend`, ADR 0022); the host answers the core and gives it the two callbacks of the frontend. The host decides nothing about the GPU.
+
+### The offer and the answer
+
+The session gives the host the offer of the display with `set_hw_offer` before `load_game`. Until then the offer is empty, and the host answers every `SET_HW_RENDER` with `false`, as before hardware rendering.
+
+The host reads `retro_hw_render_callback` with its `bool` fields as bytes, so any byte that the core wrote is a valid value. It turns the context type and the version into a `ContextRequest`:
+
+| Context type | Request |
+| --- | --- |
+| `OPENGL` | `GlCompatibility` 2.0 |
+| `OPENGLES2` | `Gles` 2.0 |
+| `OPENGLES3` | `Gles` 3.0 |
+| `OPENGLES_VERSION` | `Gles`, `version_major.version_minor` |
+| `OPENGL_CORE` | `GlCore`, `version_major.version_minor` |
+| `VULKAN`, Direct3D, RSX, any other value | no request |
+
+libretro.h uses the version fields only for `OPENGL_CORE` and `OPENGLES_VERSION`. A version above 255 has no request. `stencil` counts only with `depth`, as the header says. `bottom_left_origin` gives the `FrameOrigin` of the request.
+
+`SET_HW_RENDER` returns `true` when the call comes inside `retro_load_game` and the offer holds the API at the version or later (`ContextOffer::holds`). Then the host writes `get_current_framebuffer` and `get_proc_address` into the struct of the core, keeps the request and the two context callbacks, and `hw_request()` gives the request. Otherwise it returns `false`, writes nothing, and `hw_refusal()` gives what the core asked for (`HwApi`, major, minor) and why (`NotOffered`, `OutsideLoad`), for the notice of a game that does not start. The last call of the load wins: an accepted call replaces the earlier request and clears the refusal; a refused call drops the earlier request. A call outside the load never drops an accepted request: the core has its context already. Each call gets one log record (level info).
+
+`GET_PREFERRED_HW_RENDER` writes the preferred type of the offer: `OPENGL_CORE` when the offer has desktop GL with the core profile, else `OPENGLES3` for GLES 3.0 or later, else `OPENGLES2` for GLES 2.0, else `OPENGL` for desktop GL with the compatibility profile. A core that picks its renderer by this call then picks GL.
+
+### The callbacks of the frontend
+
+`get_current_framebuffer` and `get_proc_address` read process globals, not the lent state: the framebuffer name in an `AtomicU32` and the lookup in a `OnceLock`. So a core that asks on its own thread still gets the answer. One core runs per process, so a process global is correct. `set_hw_target(framebuffer, lookup)` sets both after the display made the context. Until then the framebuffer is 0 and every lookup gives null. The first lookup stays for the process. `get_proc_address` reads the name as every core string (at most `MAX_CORE_STRING_BYTES`) and returns null for a lookup of 0.
+
+### The context callbacks of the core
+
+`context_reset()` calls the `context_reset` of the core, and `context_destroy()` calls its `context_destroy`, each with the state lent as for any call into the core. The caller makes the core context current first. A null callback gets no call. `context_destroy` runs only once after each `context_reset`, so a second call does nothing; after a lost context the session calls `context_reset` again with no `context_destroy`, as the header says. Both return `RunError::NoGame` before `load_game` and `RunError::NoHwRender` with no accepted request. The host never calls them on its own: the session calls `context_destroy` before it drops the host, with the core context current, so that `retro_unload_game` also finds it current.
 
 ## Log
 

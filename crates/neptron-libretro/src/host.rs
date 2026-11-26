@@ -1,10 +1,11 @@
 //! The safe host: one core, one game, one thread.
 
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use neptron_backend::{ContextOffer, ContextRequest};
 use neptron_libretro_sys::{RETRO_API_VERSION, RETRO_DEVICE_JOYPAD};
 use neptron_types::{PixelFormat, Rotation};
 
@@ -13,6 +14,7 @@ use crate::descriptor::InputDescriptor;
 use crate::error::{LoadError, OpenError, RunError};
 use crate::ffi::{self, Core, CoreSystemInfo, OpenFailure, Poisoned};
 use crate::geometry::AvInfo;
+use crate::hw::HwRefusal;
 use crate::log::LogRecord;
 use crate::options::{CoreOption, OptionError};
 use crate::output::FrameOutput;
@@ -68,6 +70,8 @@ pub struct Host {
     system_info: SystemInfo,
     initialized: bool,
     game_loaded: bool,
+    /// `context_reset` ran and `context_destroy` did not run after it.
+    context_live: bool,
     /// The content of the loaded game. The core can keep pointers into it
     /// until `retro_unload_game`.
     content: Option<LoadedContent>,
@@ -114,6 +118,7 @@ impl Host {
             system_info: SystemInfo::default(),
             initialized: false,
             game_loaded: false,
+            context_live: false,
             content: None,
             _one_thread: PhantomData,
         };
@@ -204,11 +209,15 @@ impl Host {
         self.content = content;
         if let Some(state) = self.state.as_deref_mut() {
             state.set_game_info_ext(info_ext);
+            state.begin_load();
         }
         let core = &self.core;
         let content = self.content.as_ref();
         let loaded =
             ffi::lend(&mut self.state, || core.load_game(content)).map_err(poisoned_load)?;
+        if let Some(state) = self.state.as_deref_mut() {
+            state.end_load();
+        }
         if !loaded {
             self.drop_content();
             return Err(LoadError::Refused);
@@ -237,6 +246,78 @@ impl Host {
         })
         .map_err(poisoned_load)?;
         Ok(av)
+    }
+
+    /// Sets the context types and versions that the display can make, for
+    /// the answers to `SET_HW_RENDER` and `GET_PREFERRED_HW_RENDER`. Call
+    /// it before [`Host::load_game`]. Until then the offer is empty, and
+    /// every `SET_HW_RENDER` is refused.
+    pub fn set_hw_offer(&mut self, offer: ContextOffer) {
+        if let Some(state) = self.state.as_deref_mut() {
+            state.set_hw_offer(offer);
+        }
+    }
+
+    /// The context of the last `SET_HW_RENDER` of the load, when the host
+    /// accepted it. `None` for a core that draws in memory.
+    pub fn hw_request(&self) -> Option<ContextRequest> {
+        self.state().and_then(State::hw).map(|hw| hw.request)
+    }
+
+    /// The last `SET_HW_RENDER` call, when the host refused it: what the
+    /// core asked for and why it got `false`. A later accepted call clears
+    /// it.
+    pub fn hw_refusal(&self) -> Option<HwRefusal> {
+        self.state().and_then(State::hw_refusal)
+    }
+
+    /// Sets what the two hardware callbacks give the core: the name of the
+    /// framebuffer it draws into, and the lookup of GL functions. Call it
+    /// after the display made the context, before
+    /// [`Host::context_reset`]. The first lookup stays for the process.
+    pub fn set_hw_target(&mut self, framebuffer: u32, lookup: fn(&CStr) -> usize) {
+        ffi::set_hw_target(framebuffer, lookup);
+    }
+
+    /// Calls the `context_reset` of the core: its context is new, and it
+    /// makes its GL objects. The caller makes the context current first.
+    /// A core with a null callback gets no call.
+    pub fn context_reset(&mut self) -> Result<(), RunError> {
+        let callback = self.hw_callbacks()?.context_reset;
+        self.begin_call();
+        if let Some(callback) = callback {
+            self.call(|_| callback.call())
+                .map_err(|Poisoned| RunError::HostPoisoned)?;
+        }
+        self.context_live = true;
+        Ok(())
+    }
+
+    /// Calls the `context_destroy` of the core, once after each
+    /// [`Host::context_reset`]: the context goes away. The caller makes
+    /// the context current first, and calls it before the host drops.
+    /// After a lost context the host calls `context_reset` again with no
+    /// `context_destroy`, as libretro.h says.
+    pub fn context_destroy(&mut self) -> Result<(), RunError> {
+        let callback = self.hw_callbacks()?.context_destroy;
+        if !self.context_live {
+            return Ok(());
+        }
+        self.begin_call();
+        if let Some(callback) = callback {
+            self.call(|_| callback.call())
+                .map_err(|Poisoned| RunError::HostPoisoned)?;
+        }
+        self.context_live = false;
+        Ok(())
+    }
+
+    fn hw_callbacks(&self) -> Result<crate::state::HwRender, RunError> {
+        if !self.game_loaded {
+            return Err(RunError::NoGame);
+        }
+        let state = self.state().ok_or(RunError::HostPoisoned)?;
+        state.hw().copied().ok_or(RunError::NoHwRender)
     }
 
     /// The geometry and timing in force, after `load_game`.

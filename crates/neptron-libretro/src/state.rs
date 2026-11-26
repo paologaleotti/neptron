@@ -4,18 +4,21 @@
 
 use std::ffi::{CStr, CString};
 
+use neptron_backend::{ContextOffer, ContextRequest};
 use neptron_libretro_sys::retro_game_info_ext;
 use neptron_types::{PixelFormat, Rotation};
 
 use crate::audio::AudioBuffer;
 use crate::content::{ContentOverride, overrides_of};
 use crate::descriptor::{InputDescriptor, MAX_INPUT_DESCRIPTORS, RawDescriptor};
+use crate::ffi::HwCallback;
 use crate::geometry::{AvInfo, GameGeometry, Timing};
+use crate::hw::{self, HwRefusal, HwRefusalReason, RawHwRender};
 use crate::log::{LogLevel, LogQueue, LogRecord, LogSource};
 use crate::options::{CoreOption, MAX_OPTIONS, OptionError, OptionStore};
 use crate::output::{Dropped, Event, FrameFault, FrameOutput, Refusal};
 use crate::pad::{MAX_PORTS, Pad};
-use crate::video::{FramePlan, VideoBuffer, pixel_format_from_core};
+use crate::video::{FramePlan, VideoBuffer, check_size, pixel_format_from_core};
 
 /// The most events kept in one frame.
 pub const EVENT_CAPACITY: usize = 32;
@@ -53,6 +56,14 @@ impl CoreAvInfo {
     }
 }
 
+/// An accepted `SET_HW_RENDER`: the request and the callbacks of the core.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct HwRender {
+    pub request: ContextRequest,
+    pub context_reset: Option<HwCallback>,
+    pub context_destroy: Option<HwCallback>,
+}
+
 #[derive(Debug)]
 pub(crate) struct State {
     pixel_format: PixelFormat,
@@ -71,6 +82,12 @@ pub(crate) struct State {
     logs: LogQueue,
     logged_commands: Vec<u32>,
     in_run: bool,
+    /// Inside `retro_load_game`, the one call where `SET_HW_RENDER` can
+    /// succeed.
+    in_load: bool,
+    hw_offer: ContextOffer,
+    hw: Option<HwRender>,
+    hw_refusal: Option<HwRefusal>,
     options: OptionStore,
     held_cut_logged: bool,
     descriptors: Vec<InputDescriptor>,
@@ -98,6 +115,10 @@ impl State {
             logs: LogQueue::new(),
             logged_commands: Vec::with_capacity(MAX_LOGGED_COMMANDS),
             in_run: false,
+            in_load: false,
+            hw_offer: ContextOffer::NONE,
+            hw: None,
+            hw_refusal: None,
             options: OptionStore::default(),
             held_cut_logged: false,
             descriptors: Vec::new(),
@@ -127,6 +148,103 @@ impl State {
     pub(crate) fn end_run(&mut self) {
         self.in_run = false;
         self.events_delivered = true;
+    }
+
+    pub(crate) fn begin_load(&mut self) {
+        self.in_load = true;
+    }
+
+    pub(crate) fn end_load(&mut self) {
+        self.in_load = false;
+    }
+
+    pub(crate) fn set_hw_offer(&mut self, offer: ContextOffer) {
+        self.hw_offer = offer;
+    }
+
+    pub(crate) fn hw(&self) -> Option<&HwRender> {
+        self.hw.as_ref()
+    }
+
+    pub(crate) fn hw_refusal(&self) -> Option<HwRefusal> {
+        self.hw_refusal
+    }
+
+    /// `SET_HW_RENDER`: true when the call comes inside `retro_load_game`
+    /// and the offer holds the request. The last call of the load wins: an
+    /// accepted call replaces the earlier request and refusal, and a
+    /// refused call drops the earlier request and is kept for the notice.
+    /// A call outside the load is refused and never drops an accepted
+    /// request: the core already has its context.
+    pub(crate) fn set_hw_render(
+        &mut self,
+        raw: &RawHwRender,
+        context_reset: Option<HwCallback>,
+        context_destroy: Option<HwCallback>,
+    ) -> bool {
+        let decision = match hw::request_of(raw) {
+            Ok(request) if !self.in_load => {
+                Err((hw::describe(&request), HwRefusalReason::OutsideLoad))
+            }
+            Ok(request) if self.hw_offer.holds(&request) => Ok(request),
+            Ok(request) => Err((hw::describe(&request), HwRefusalReason::NotOffered)),
+            Err(found) if !self.in_load => Err((found, HwRefusalReason::OutsideLoad)),
+            Err(found) => Err((found, HwRefusalReason::NotOffered)),
+        };
+        match decision {
+            Ok(request) => {
+                self.logs.push_fmt(
+                    LogLevel::Info,
+                    LogSource::Host,
+                    format_args!("hardware context accepted: {request:?}"),
+                );
+                self.hw = Some(HwRender {
+                    request,
+                    context_reset,
+                    context_destroy,
+                });
+                self.hw_refusal = None;
+                true
+            }
+            Err(((api, major, minor), reason)) => {
+                let refusal = HwRefusal {
+                    context_type: raw.context_type,
+                    api,
+                    major,
+                    minor,
+                    reason,
+                };
+                self.logs.push_fmt(
+                    LogLevel::Info,
+                    LogSource::Host,
+                    format_args!("hardware context refused: {refusal:?}"),
+                );
+                if reason == HwRefusalReason::NotOffered || self.hw.is_none() {
+                    self.hw = None;
+                    self.hw_refusal = Some(refusal);
+                }
+                false
+            }
+        }
+    }
+
+    /// `GET_PREFERRED_HW_RENDER`: the context type to write, or `None`
+    /// when the display offers no context.
+    pub(crate) fn preferred_hw_render(&self) -> Option<u32> {
+        hw::preferred(&self.hw_offer)
+    }
+
+    /// A frame in the hardware framebuffer: checked as the size of a frame
+    /// in memory, and a fault for a core with no accepted request.
+    pub(crate) fn hardware_frame(&mut self, width: u32, height: u32) {
+        if self.hw.is_none() {
+            self.video.reject(FrameFault::HardwareFrame);
+            return;
+        }
+        match check_size(width, height, self.av.as_ref().map(|av| &av.geometry)) {
+            Ok((w, h)) => self.video.hardware(w, h),
+            Err(fault) => self.video.reject(fault),
+        }
     }
 
     fn clear_delivered_events(&mut self) {
