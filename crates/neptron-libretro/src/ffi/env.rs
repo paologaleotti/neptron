@@ -201,7 +201,7 @@ pub(super) unsafe fn dispatch(state: &mut State, cmd: u32, data: *mut c_void) ->
             };
             let reset = HwCallback::of(raw.context_reset);
             let destroy = HwCallback::of(raw.context_destroy);
-            if !state.set_hw_render(&request, reset, destroy) {
+            if !state.set_hw_render(cmd, &request, reset, destroy) {
                 return false;
             }
             let answer = HwRenderBytes {

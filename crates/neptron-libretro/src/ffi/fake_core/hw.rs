@@ -158,6 +158,28 @@ fn a_call_outside_the_load_is_refused() {
 }
 
 #[test]
+fn a_refusal_in_each_frame_is_logged_once() {
+    script(|s| {
+        s.on_run = Some(|cb| {
+            ask(cb, callback(RETRO_HW_CONTEXT_OPENGLES2, 0, 0));
+            ask(cb, callback(RETRO_HW_CONTEXT_OPENGLES2, 0, 0));
+        });
+    });
+    let mut host = loaded_with(PC, |_| {});
+    let refused = |host: &Host| {
+        host.logs()
+            .iter()
+            .filter(|l| l.text.starts_with("hardware context refused"))
+            .count()
+    };
+    host.run_frame().unwrap();
+    assert_eq!(refused(&host), 1, "two calls in the first frame, one line");
+    host.run_frame().unwrap();
+    assert_eq!(refused(&host), 0, "no line in a later frame");
+    assert!(!answer().unwrap().0);
+}
+
+#[test]
 fn a_call_outside_the_load_keeps_an_accepted_context() {
     script(|s| s.on_run = Some(|cb| ask(cb, callback(RETRO_HW_CONTEXT_VULKAN, 1, 0))));
     let mut host = loaded_with(PC, |cb| {

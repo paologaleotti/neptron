@@ -179,9 +179,12 @@ impl State {
     /// accepted call replaces the earlier request and refusal, and a
     /// refused call drops the earlier request and is kept for the notice.
     /// A call outside the load is refused and never drops an accepted
-    /// request: the core already has its context.
+    /// request: the core already has its context. A refusal is logged once
+    /// for the command, as every refused call is, so a core that asks in
+    /// each frame does not fill the log.
     pub(crate) fn set_hw_render(
         &mut self,
+        cmd: u32,
         raw: &RawHwRender,
         context_reset: Option<HwCallback>,
         context_destroy: Option<HwCallback>,
@@ -218,11 +221,13 @@ impl State {
                     minor,
                     reason,
                 };
-                self.logs.push_fmt(
-                    LogLevel::Info,
-                    LogSource::Host,
-                    format_args!("hardware context refused: {refusal:?}"),
-                );
+                if self.first_time(cmd) {
+                    self.logs.push_fmt(
+                        LogLevel::Info,
+                        LogSource::Host,
+                        format_args!("hardware context refused: {refusal:?}"),
+                    );
+                }
                 if reason == HwRefusalReason::NotOffered || self.hw.is_none() {
                     self.hw = None;
                     self.hw_refusal = Some(refusal);
