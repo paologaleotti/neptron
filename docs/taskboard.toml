@@ -826,13 +826,31 @@ gate = "T2; screen golden"
 status = "merged"
 
 [[task]]
+id = "N09"
+wave = 15
+name = "TATE in the screen simulator: the orientation settings through the engine path of the product, the measures of the picture as the player sees it, stored cases; a test card that shows shape and direction for the turned goldens"
+owns = ["crates/neptron-testkit", "crates/neptron-testcore", "apps/neptron", "docs/spec"]
+needs = ["N01", "N02"]
+gate = "T2; screen golden"
+status = "merged"
+
+[[task]]
+id = "N10"
+wave = 15
+name = "Tidy-up after release 0.1.1: one place for the version number (the crates, the Buildroot package, the licence file paths) and a release check that the tag matches it; smaller files for the 36 turned goldens; the time limits of the load-sensitive xtask tests; remove the draft and the tag of v0.1.0-rc1 on the owner's word"
+owns = ["xtask", "os", "apps/neptron", ".github"]
+needs = []
+gate = "T1; image builds"
+status = "pending"
+
+[[task]]
 id = "S01"
 wave = 16
 name = "Milestone 0.2, design: the hardware-render interface of libretro for GL and GLES cores in the host and the renderer, with an ADR and the questions for the owner; no product code"
 owns = ["docs/spec", "docs/adr"]
 needs = []
 gate = "T0; the owner's answers"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "S02"
