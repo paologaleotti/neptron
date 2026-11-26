@@ -2,7 +2,8 @@
 
 use neptron_backend::DisplayError;
 use neptron_types::{
-    Filter, FlipEvent, GamePicture, Modeline, PixelFormat, Rect, Rotation, Scene, TvStandard,
+    Filter, FlipEvent, FrameOrigin, GamePicture, Modeline, PixelFormat, Rect, Rotation, Scene,
+    TvStandard,
 };
 
 use super::FakeDisplay;
@@ -49,8 +50,12 @@ pub struct ModeSwitch {
 /// What a scene held, without its pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SceneSummary {
-    /// Width, height and format of the game frame, if any.
+    /// Width, height and format of the game frame, if any. A GPU picture
+    /// gives its size and XRGB8888, the format the display reads it in.
     pub game: Option<(u16, u16, PixelFormat)>,
+    /// The origin of a GPU picture; `None` for a frame in memory or no
+    /// game.
+    pub gpu_origin: Option<FrameOrigin>,
     /// The crop rectangle.
     pub crop: Rect,
     /// The destination rectangle.
@@ -114,7 +119,12 @@ impl SceneSummary {
         Self {
             game: match scene.game {
                 Some(GamePicture::Memory(f)) => Some((f.width, f.height, f.format)),
-                Some(GamePicture::Gpu(_)) | None => None,
+                Some(GamePicture::Gpu(g)) => Some((g.width, g.height, PixelFormat::Xrgb8888)),
+                None => None,
+            },
+            gpu_origin: match scene.game {
+                Some(GamePicture::Gpu(g)) => Some(g.origin),
+                Some(GamePicture::Memory(_)) | None => None,
             },
             crop: scene.crop,
             dest: scene.dest,

@@ -1,22 +1,25 @@
 //! A fake display that behaves like the `Display` contract on the
 //! simulated clock, and records every mode and every frame.
 
+mod core_host;
 mod record;
 mod screen;
 mod timing;
 
+pub use core_host::{CORE_MAX_SIDE_PX, CoreCall, CoreRecord};
 pub use record::{BlankRecord, FrameRecord, ModeRecord, ModeSwitch, SceneSummary};
 pub use timing::Jitter;
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use neptron_backend::{Clock, Display, DisplayError};
+use neptron_backend::{Clock, ContextOffer, CoreRender, Display, DisplayError};
 use neptron_safety::ValidatedMode;
-use neptron_types::{FlipEvent, GpuCaps, Modeline, Scene, TvStandard};
+use neptron_types::{FlipEvent, GamePicture, GpuCaps, Modeline, Scene, TvStandard};
 
 use crate::{RgbImage, SimClock, rng};
 
+use core_host::CoreHost;
 use screen::Screen;
 use timing::{Grid, GridError};
 
@@ -83,6 +86,13 @@ pub const DEFAULT_FLIP_TIMEOUT_NS: u64 = 100_000_000;
 /// - A scene that the reference renderer refuses returns
 ///   [`DisplayError::SceneRefused`].
 /// - `caps` returns the capabilities given to the constructor.
+/// - With [`DisplayOptions::core_offer`], `core_render` hosts the context
+///   of a GL core on the reference core GL of this crate, and `present`
+///   reads a [`GamePicture::Gpu`](neptron_types::GamePicture::Gpu) picture
+///   from its image, upright by its origin, before it renders. A picture
+///   of an image that the display did not make, or that is gone, returns
+///   [`DisplayError::SceneRefused`]. The GL state is a thread-local, so
+///   the core, `create` and `present` run on one thread.
 ///
 /// # Faults
 ///
@@ -137,6 +147,10 @@ pub struct DisplayOptions {
     /// `Some` lists the standards its values can set, and `Some` of an
     /// empty list is a property with no value.
     pub tv_standards: Option<Vec<TvStandard>>,
+    /// The context types that `core_render` offers a GL core. `None`, the
+    /// default, is a display that hosts no core context, as the window
+    /// backend: `core_render` returns `None`.
+    pub core_offer: Option<ContextOffer>,
 }
 
 /// What the fake display does with each scene. Every mode checks the
@@ -240,6 +254,7 @@ impl Default for DisplayOptions {
             gpu_ns: 0,
             frozen_vblank_count: false,
             tv_standards: None,
+            core_offer: None,
         }
     }
 }
@@ -270,6 +285,7 @@ impl FakeDisplay {
                 blanks: Vec::new(),
                 frames: Vec::new(),
                 screen: Screen::default(),
+                core: CoreHost::default(),
             })),
         }
     }
@@ -410,6 +426,14 @@ impl Display for FakeDisplay {
         });
         result
     }
+
+    fn core_render(&mut self) -> Option<&mut dyn CoreRender> {
+        if self.lock().options.core_offer.is_some() {
+            Some(self)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -429,6 +453,7 @@ struct State {
     blanks: Vec<BlankRecord>,
     frames: Vec<FrameRecord>,
     screen: Screen,
+    core: CoreHost,
 }
 
 #[derive(Debug)]
@@ -561,9 +586,23 @@ impl State {
             _ => self.random_late(index),
         }
         .next_multiple_of(step);
+        let resolved = self
+            .core
+            .resolve(scene)
+            .map_err(|reason| DisplayError::SceneRefused { reason })?;
+        let (scene, gpu_origin) = match resolved {
+            Some((frame, origin)) => (
+                Scene {
+                    game: Some(GamePicture::Memory(frame)),
+                    ..*scene
+                },
+                Some(origin),
+            ),
+            None => (*scene, None),
+        };
         let hash = self
             .screen
-            .present(index, scene)
+            .present(index, &scene, gpu_origin)
             .map_err(|e| DisplayError::SceneRefused {
                 reason: e.to_string(),
             })?;

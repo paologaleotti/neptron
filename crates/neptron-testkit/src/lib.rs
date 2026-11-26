@@ -9,6 +9,7 @@
 mod audio;
 mod clock;
 mod display;
+pub mod gl;
 pub mod golden;
 mod hash;
 mod image;
@@ -20,8 +21,13 @@ pub mod screen;
 pub use audio::{AudioOptions, AudioWrite, FakeAudio, Underrun};
 pub use clock::{ClockError, SimClock};
 pub use display::{
-    BlankRecord, DEFAULT_FLIP_TIMEOUT_NS, DisplayOptions, FakeDisplay, FlipFault, FrameRecord,
-    Jitter, LateFlips, ModeFault, ModeRecord, ModeSwitch, Render, SceneSummary,
+    BlankRecord, CORE_MAX_SIDE_PX, CoreCall, CoreRecord, DEFAULT_FLIP_TIMEOUT_NS, DisplayOptions,
+    FakeDisplay, FlipFault, FrameRecord, Jitter, LateFlips, ModeFault, ModeRecord, ModeSwitch,
+    Render, SceneSummary,
+};
+pub use gl::{
+    GL_INVALID_ENUM, GL_INVALID_OPERATION, GL_INVALID_VALUE, GL_NO_ERROR, GlLeftState,
+    gl_calls_without_context, gl_left_state, gl_lookup,
 };
 pub use golden::Golden;
 pub use hash::frame_hash;

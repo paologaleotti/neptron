@@ -7,8 +7,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use neptron_gfx::{OutputBuffer, ReferenceRenderer, RenderError};
 use neptron_types::{
-    Filter, Frame, GamePicture, Modeline, PixelFormat, Rect, Rotation, ScanlineKind, Scanlines,
-    Scene,
+    Filter, Frame, FrameOrigin, GamePicture, Modeline, PixelFormat, Rect, Rotation, ScanlineKind,
+    Scanlines, Scene,
 };
 
 use crate::{RgbImage, frame_hash};
@@ -50,11 +50,14 @@ impl Screen {
     }
 
     /// Checks `scene`, keeps what the render mode needs, and returns the
-    /// hash of the mode, or `None` when rendering is off.
+    /// hash of the mode, or `None` when rendering is off. `gpu_origin` is
+    /// the origin of a GPU picture that the display read into the memory
+    /// frame of `scene`, which the hash of [`Render::Scene`] includes.
     pub(crate) fn present(
         &mut self,
         index: u64,
         scene: &Scene<'_>,
+        gpu_origin: Option<FrameOrigin>,
     ) -> Result<Option<u64>, RenderError> {
         match self.render {
             Render::Pixels => {
@@ -69,7 +72,8 @@ impl Screen {
             }
             Render::Scene => {
                 draw(&mut self.renderer, scene, &mut [], 0, 0)?;
-                self.queued.copy_from(scene, self.width, self.height);
+                self.queued
+                    .copy_from(scene, self.width, self.height, gpu_origin);
                 if self.capture_requests.remove(&index)
                     && let Some(image) = self.render_owned(Which::Queued)
                 {
@@ -146,8 +150,10 @@ enum Which {
 /// A scene copied into one buffer: a header with the mode size, the crop,
 /// the destination and the UI destination, the filter, the scanline kind and
 /// strength, the rotation, the turn and the filter of the UI canvas, and
-/// the size and format of each frame, then the
-/// rows of the game frame and of the UI canvas with no padding. All values
+/// the kind, size and format of each frame, then the
+/// rows of the game frame and of the UI canvas with no padding. The kind
+/// byte is 0 for no frame, 1 for a frame in memory, and 2 for a GPU
+/// picture, followed by a byte for its origin. All values
 /// are little-endian. The hash of [`Render::Scene`] is the hash of these
 /// bytes, so it is the same on every host.
 #[derive(Debug, Default)]
@@ -176,8 +182,14 @@ struct Layout {
 
 impl OwnedScene {
     /// Copies `scene`, which the renderer checked: each frame holds its
-    /// rows.
-    fn copy_from(&mut self, scene: &Scene<'_>, width: u32, height: u32) {
+    /// rows. `gpu_origin` marks a game frame that a GPU picture gave.
+    fn copy_from(
+        &mut self,
+        scene: &Scene<'_>,
+        width: u32,
+        height: u32,
+        gpu_origin: Option<FrameOrigin>,
+    ) {
         let bytes = &mut self.bytes;
         bytes.clear();
         bytes.extend_from_slice(&width.to_le_bytes());
@@ -201,11 +213,20 @@ impl OwnedScene {
             Some(GamePicture::Memory(frame)) => Some(frame),
             Some(GamePicture::Gpu(_)) | None => None,
         };
-        for frame in [&game, &scene.ui] {
-            match frame {
-                None => bytes.push(0),
-                Some(f) => {
-                    bytes.push(1);
+        for (frame, origin) in [(&game, gpu_origin), (&scene.ui, None)] {
+            match (frame, origin) {
+                (None, _) => bytes.push(0),
+                (Some(f), origin) => {
+                    match origin {
+                        None => bytes.push(1),
+                        Some(origin) => {
+                            bytes.push(2);
+                            bytes.push(match origin {
+                                FrameOrigin::TopLeft => 0,
+                                FrameOrigin::BottomLeft => 1,
+                            });
+                        }
+                    }
                     bytes.extend_from_slice(&f.width.to_le_bytes());
                     bytes.extend_from_slice(&f.height.to_le_bytes());
                     bytes.push(match f.format {
