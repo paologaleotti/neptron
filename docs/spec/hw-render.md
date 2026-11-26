@@ -346,6 +346,45 @@ Out of 0.2:
 - `glGetError` once every 60 frames (6.3).
 - The reference core GL in `neptron-testkit` (7.2).
 
+## 13a. The hang watchdog (Q10)
+
+The owner took Q10 (b): a heartbeat, and a kill after 15 s with a notice. It is a package of its own, not tied to the GL path: any core can hang. This section is the design; S02 builds it.
+
+### What it watches
+
+A core that does not return from a call holds the main thread of the frontend: the frame loop, the display and the input stop with it. Only a process outside the frontend can end that. The launcher is that process: it already starts the frontend, holds the DRM descriptor and looks at its child every 20 ms (`CHILD_POLL`).
+
+The watchdog watches a game only, from its launch to its end. The boot, the game list and the load of a game (`retro_load_game`, which can read a large file for many seconds) are not watched. A hang in `retro_load_game` stays a hang in 0.2.
+
+### How the heartbeat crosses
+
+- The launcher binds a Unix datagram socket at `<temp dir>/neptron-launch-<pid>.heartbeat` and gives its path to each frontend in `NEPTRON_HEARTBEAT`. Std has the socket: no new crate and no new dependency. The launcher removes the file when it exits.
+- The frontend runs one heartbeat thread, which the KMS run starts and owns: it stops it and joins it before the run ends. The frame thread does no I/O for it: after each game frame it adds 1 to an atomic counter, and it sets an atomic flag when a game starts and clears it before the game ends (before the last save RAM flush, which can take long).
+- The heartbeat thread looks once per second (`HEARTBEAT_PERIOD_NS`). In a game, it sends one byte `B` when the counter moved since its last look, and at its first look in the game. Out of a game it sends `D`. A send never blocks: the socket is non-blocking, and a full socket drops the byte.
+- The launcher reads every datagram at each look at its child. `B` arms the watchdog and marks the time; `D` disarms it. A new run starts disarmed.
+
+### What is killed
+
+- When the watchdog is armed and no `B` came for 15 s (`HANG_WAIT_NS`), the launcher sends SIGKILL to the frontend and logs one line. No SIGTERM first: the frontend reads its stop flag on the main thread, which the core holds.
+- 15 s leaves room for a 3D core that compiles its shaders in its first frames (section 8). The first beat of a game comes at its first look, so the first frame has 15 s too.
+- The run counts as a crash for the backoff of the launcher (a short wait), and the launcher starts the frontend again.
+
+### The save RAM on disk
+
+- The writer thread writes every save file as temp file, fsync, rename, and keeps one `.bak`. A kill at any point leaves the last complete save file and its backup. A kill during a write leaves a temp file that the next write replaces. The settings and the guard record are written the same way.
+- The save RAM that the core changed after its last flush is lost: at most `SAVE_RAM_FLUSH_INTERVAL_NS` of play, less when the quick menu opened since then. No code can copy it, because the core holds the thread that owns it. This is the same loss as a power cut.
+
+### What the user sees
+
+- The relaunch file of the game was taken at the start of the run, so the new run boots to the game list, not into the hung game: no loop.
+- The launcher gives that start `NEPTRON_HUNG=1` (`HUNG_ENV`), once, as it does with `NEPTRON_POWER_FAILED`. The frontend then shows the Warning notice: "The game stopped: it did not answer for 15 seconds." The game list does not know the name of the game, so the text has none. The owner approves the text.
+
+### What changes, plainly
+
+- A new thread with an owner in the frontend: the heartbeat thread of the KMS run.
+- The launcher protocol: two new environment variables, `NEPTRON_HEARTBEAT` (the socket path) and `NEPTRON_HUNG` (once, after a kill). A frontend with no `NEPTRON_HEARTBEAT` sends nothing; a launcher that gets no `B` never kills.
+- User data: a kill loses the save RAM since the last flush, as section "The save RAM on disk" says. Nothing on disk is lost.
+
 ## 13. Questions for the owner
 
 **Decision: Owner, 2026-11-26: the recommendation of every question, Q1 to Q11.** The mission for each choice in this work: as plug and play as possible, and an accurate, sharp picture on a CRT.
