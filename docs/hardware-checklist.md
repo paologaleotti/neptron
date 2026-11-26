@@ -1096,3 +1096,69 @@ The checks of `docs/spec/tate.md`, section 11.5. Each one needs a monitor that a
   - Do: set Screen orientation to Tate left (90). Read the frame statistics of the control protocol in the game list and in the quick menu over a game, then the same at Yoko (0).
   - Expect: the render time with the turned canvas stays inside the frame budget, near the time at 0.
   - Record: p50, p99 and the maximum of the render time at 90 and at 0, in the game list and in the quick menu.
+
+## A core that draws with GL (S02)
+
+The checks of `docs/spec/hw-render.md`, sections 7.3 and 8, that only hardware can prove. `gles-compare` and `kms-check` prove the path on softpipe and `vkms` in QEMU; the fake display proves the session. The GL test core of `neptron-testcore` (script version 5, `hw_render`) is the core of the first checks; the real cores come with S10 (PlayStation) and S11 (Dreamcast and Naomi). Each check names its machine.
+
+### What the drivers give (W1)
+
+- [ ] `needs-hardware` **The context types of `iris` on the PC.** PC i3-6100T, any monitor, the PC image.
+  - Do: run `gles_compare` on the target. Read the line `core offer:` and the checks `core gles2`, `core gles3`, `core glcore`, `core gl`.
+  - Expect: the offer holds OpenGL ES 3.2, the core profile 4.6 and the compatibility profile 4.6 (`docs/spec/hw-render.md`, section 1.1). Every core check passes: the picture, both origins, the crop, `hw_dirty`, `hw_fbo0`, the resize, the read back, the release after `core_end` for each type, and the refusals inside a core frame.
+  - Record: the offer line, the `gles_compare` summary, and the EGL and GL strings. Write here whether the image has a desktop GL library with EGL and no GLX (section 11).
+- [ ] `needs-hardware` **The context types of `vc4` on the Pi 3.** Pi 3 B or B+, HDMI, the Pi image.
+  - Do: run `gles_compare` on the target and read the `core offer:` line and the core checks.
+  - Expect: the offer holds OpenGL ES 2.0 only, and no desktop GL. The `gles2` checks pass. If the offer is empty, the log names the missing extension (`EGL_KHR_surfaceless_context`, `EGL_KHR_image_base`, `EGL_KHR_gl_texture_2D_image` or `GL_OES_EGL_image`).
+  - Record: the offer line, the summary, and each missing extension.
+- [ ] `needs-hardware` **The context types of `v3d` on the Pi 4 and the Pi 5, through `kmsro`.** Pi 4 and Pi 5, HDMI, the new Pi 4 and 5 images (not in S02).
+  - Do: run `gles_compare` on each board.
+  - Expect: the offer holds OpenGL ES 3.1; the EGL display on the card of `vc4` renders with `v3d`, and no check falls back to software.
+  - Record: the offer line, the GL renderer string and the summary of each board.
+
+### The picture of a GL core
+
+- [ ] `needs-hardware` **The GL test core on a 15 kHz CRT at 1x.** PC or Pi 3 with a 15 kHz display (section 4 or section 6), `generic_15`.
+  - Do: put a script `neptron-testcore 5`, `hw_render gles2 2 0`, `geometry 320 240 0` in a system folder of the test core and start it.
+  - Expect: 320x240p at the rate of the core (the status line), every pixel exact: a white border, a blue top-left corner, a green staircase to the bottom-right corner, a yellow arrow that points up. No tear, no black frame.
+  - Record: a photo and the status line.
+- [ ] `needs-hardware` **The GL test core on a 1080p panel at 4x.** PC i3-6100T on a flat panel (section 2), the script above.
+  - Do: start the game, then turn Scanlines On in the quick menu, and start the game again.
+  - Expect: with scanlines Off the card fills the height, upright and sharp; the session draws it at 4x (1280x960), which the tier 2 test `a_pc_panel_takes_the_largest_whole_internal_resolution` proves on the fake display. With scanlines On the card shows at 4x of its 240 lines with a scanline on each line.
+  - Record: a photo of each.
+
+### Cost and real cores (W6)
+
+Measure each with the bench build (`cargo xtask os push`) and the frame statistics of the control protocol.
+
+- [ ] `needs-hardware` **The two context switches per frame.** PC i3-6100T and Pi 4.
+  - Do: run the GL test core 60 s, then a software core of the same size 60 s, and read the frame time.
+  - Expect: the GL core costs less than 0.5 ms more per frame.
+  - Record: p50 and p99 of the frame time of each.
+- [ ] `needs-hardware` **The fence wait against `glFinish`.** PC i3-6100T and Pi 4.
+  - Do: read the log line that says whether EGL has `EGL_KHR_fence_sync` and `EGL_KHR_wait_sync`, and the GPU time per frame of the GL test core.
+  - Expect: both extensions on `iris` and `v3d`; the GPU time of the composition of a GPU picture is the time of an uploaded frame of the same size, within the noise.
+  - Record: the extensions and both GPU times.
+- [ ] `needs-hardware` **Beetle PSX HW on the PC at 1x and 4x.** PC i3-6100T, a 15 kHz CRT and a 1080p panel (S10 packages the core).
+  - Do: play a 3D game for 5 minutes on each display.
+  - Expect: full speed (no slow-speed notice) at 1x on the CRT and at 4x on the panel; the picture is upright, the right way up, with no black border from the origin.
+  - Record: the slow-speed counter, a photo of each, and the time to the first picture.
+- [ ] `needs-hardware` **Flycast on the Pi 4 and the PC at 1x.** Pi 4 on HDMI and PC i3-6100T (S11 packages the core).
+  - Do: play a Dreamcast game and a Naomi game for 5 minutes each.
+  - Expect: full speed on the PC; the speed on the Pi 4 is a number for the owner. The first picture comes in less than 10 s, so no notice H3.
+  - Record: the slow-speed counter and the time to the first picture of each.
+- [ ] `needs-hardware` **A lost context on Intel.** PC i3-6100T, the GL test core.
+  - Do: during the game, cause a GPU reset (`echo 1 > /sys/kernel/debug/dri/0/i915_wedged` as root, then wait for the recovery), once, then a second time.
+  - Expect: after the first reset the game goes on with a new context; after the second the game ends with the notice "The game stopped: the graphics driver lost the picture of the game two times." The machine never freezes.
+  - Record: the log lines of each reset and a photo of the notice.
+
+### The watchdog of a hung game
+
+- [ ] `needs-hardware` **A hung core ends after 15 s.** Any machine with the launcher, the development variant.
+  - Do: start a game, then stop the frontend in the middle of a frame (`kill -STOP` of the frontend process from SSH).
+  - Expect: after 15 s the launcher logs `the game sent no heartbeat for 15000 ms; SIGKILL`, the game list comes back with the notice "The game stopped: it did not answer for 15 seconds.", and the save file of the game is the last one written before the stop.
+  - Record: the log lines, a photo of the notice, and the size and time of the save file before and after.
+- [ ] `needs-hardware` **A slow first frame is not killed.** Pi 4, Flycast (S11).
+  - Do: start a Dreamcast game with an empty shader cache.
+  - Expect: the game starts; no kill and no notice.
+  - Record: the time to the first picture.
