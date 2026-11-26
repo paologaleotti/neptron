@@ -17,6 +17,7 @@ pub mod devices;
 pub mod display;
 pub mod display_wait;
 pub mod game_files;
+pub mod gl_offer;
 pub mod heartbeat;
 pub mod library;
 pub mod logbook;

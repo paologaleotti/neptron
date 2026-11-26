@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use neptron_audio::Resampling;
+use neptron_backend::ContextOffer;
 
 use crate::{InternalScale, Machine};
 use neptron_video::{Monitor, PolicySettings, ScanlineSettings};
@@ -65,6 +66,11 @@ pub struct VideoSetup<D> {
     /// draws no scanlines until it gets them, so they are part of the
     /// launch.
     pub scanlines: ScanlineSettings,
+    /// The context types that the display offers to a GL core, as the app
+    /// keeps them from an earlier probe of the same display. `None` asks
+    /// the display, which probes its GPU once per process: a cost that a
+    /// software core should not pay at each launch.
+    pub core_offer: Option<ContextOffer>,
 }
 
 /// The audio, input and time of the session.

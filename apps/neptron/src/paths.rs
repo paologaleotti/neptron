@@ -138,6 +138,12 @@ impl Paths {
         self.run.join("pad-notes.toml")
     }
 
+    /// `run/gl-offer.toml`, the context types that the display offers to
+    /// a GL core, kept for the boot ([`crate::gl_offer`]).
+    pub fn gl_offer(&self) -> PathBuf {
+        self.run.join("gl-offer.toml")
+    }
+
     /// `run/next.toml`, the relaunch file.
     pub fn relaunch(&self) -> PathBuf {
         self.run.join("next.toml")

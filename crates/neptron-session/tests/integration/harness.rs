@@ -227,6 +227,9 @@ pub struct Setup {
     pub core_begin_losses: Vec<u64>,
     /// The `begin` calls of the core context that fail with a driver error.
     pub core_begin_faults: Vec<u64>,
+    /// The offer that the app kept from an earlier probe; `None` asks the
+    /// display.
+    pub core_offer: Option<neptron_backend::ContextOffer>,
 }
 
 /// The internal resolution option of the GL test core, with every scale it
@@ -280,6 +283,7 @@ impl Default for Setup {
             core_losses: Vec::new(),
             core_begin_losses: Vec::new(),
             core_begin_faults: Vec::new(),
+            core_offer: None,
         }
     }
 }
@@ -327,6 +331,7 @@ pub fn launch_on<S: AudioSink>(
         monitor: setup.monitor(),
         policy: setup.policy,
         scanlines: setup.scanlines,
+        core_offer: setup.core_offer,
     };
     let devices = Devices {
         audio: sink,
@@ -409,6 +414,7 @@ impl Rig {
             monitor: setup.monitor(),
             policy: setup.policy,
             scanlines: setup.scanlines,
+            core_offer: setup.core_offer,
         };
         let devices = Devices {
             audio: audio.clone(),

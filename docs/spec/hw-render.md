@@ -128,6 +128,8 @@ CoreRender::begin; Host::context_reset; CoreRender::end
 settle frames, then the loop                  as today (LAUNCH_STABLE_FRAMES)
 ```
 
+The probe makes a context of each API, so it costs a GL setup. Every launch is a new process, so the app keeps the offer of the display in the RAM folder (`run/gl-offer.toml`) for the boot: the first launch of a boot probes, and each later launch, of a software core too, reads the file and asks the display nothing (`VideoSetup::core_offer`).
+
 `context_reset` comes after `retro_load_game`, as the header requires. A failed `create` ends the launch with notice H2, and the session unloads the core.
 
 ### 3.2 One frame
@@ -183,6 +185,13 @@ A GL core can draw above its native size (internal resolution: Beetle PSX HW, Sw
 The policy always sees the native size: the frame size over the scale factor `k` that NEPTRON set. The scene crop is in frame pixels, so the engine multiplies the native crop by `k`. `INTERLACE_MIN_LINES` applies to the native lines.
 
 NEPTRON sets `k` itself, through the core option that the core metadata names (a new key in `data/cores`, append-only). It does not guess `k` from the frame. When the frame size is not `k` times a size the native geometry allows, the session uses `k = 1` for that frame and logs it once.
+
+As built:
+
+- "Fits" counts lines only: the largest whole `k` of the core data with `k * native_lines` at most the lines of the largest mode of the panel (`vactive`), at most 4. The width does not count: the policy scales the columns. `native_lines` comes from the core data, because the session sets the option before the load, when the core has reported no geometry yet.
+- A frame counts as `k` times its source only when the core's largest frame has at least `k * native_lines` lines (a core that ignored the option reports its native maximum), both sides are multiples of `k`, and the native size fits the native maximum.
+- The scene: every rule runs on the native size, and the crop is `k` times the native crop. The filter of the placement stays when the destination is a whole multiple of the scaled crop on both axes (a 4x picture in a 4x destination is nearest, 1:1); otherwise it is sharp bilinear (a 4x picture in a 4.5x fit, or 4x columns in a 5x destination).
+- `k` is picked again on a live change of the scanlines and on a change of the monitor or of its class in a game.
 
 ### 4.2 Default per display class (proposal, Q3 to Q6)
 

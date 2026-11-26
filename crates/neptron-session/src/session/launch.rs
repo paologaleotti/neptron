@@ -72,9 +72,11 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             save_dir: game.save_dir.to_owned(),
         };
         let mut display = video.display;
-        let offer = display
-            .core_render()
-            .map_or(ContextOffer::NONE, |render| render.offer());
+        let offer = video.core_offer.unwrap_or_else(|| {
+            display
+                .core_render()
+                .map_or(ContextOffer::NONE, |render| render.offer())
+        });
         let mut host = Host::open(game.core, config)?;
         host.set_hw_offer(offer);
         let mut scale_rule = game

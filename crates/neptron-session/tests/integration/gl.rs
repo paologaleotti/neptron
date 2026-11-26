@@ -569,6 +569,35 @@ fn a_driver_failure_at_begin_ends_the_game_cleanly() {
 }
 
 #[test]
+fn a_kept_offer_is_used_and_the_display_is_not_asked() {
+    let script = "neptron-testcore 5\nhw_render glcore 4 6\ngeometry 320 240 0\n";
+    with_script!(
+        "a_kept_offer_is_used_and_the_display_is_not_asked",
+        script,
+        |dir| {
+            // The display could make the context, but the kept offer of
+            // this machine says it cannot: the launch follows the kept one.
+            let setup = Setup {
+                core_offer: Some(PI3_OFFER),
+                ..gl_setup(PC_OFFER)
+            };
+            let failed = Rig::start(dir, setup).err().expect("a refusal");
+            assert!(
+                matches!(
+                    failed.error,
+                    LaunchError::Refused {
+                        hw_refusal: Some(_),
+                        ..
+                    }
+                ),
+                "{:?}",
+                failed.error
+            );
+        }
+    );
+}
+
+#[test]
 fn the_end_of_a_gl_game_destroys_its_context_inside_it() {
     with_script!(
         "the_end_of_a_gl_game_destroys_its_context_inside_it",

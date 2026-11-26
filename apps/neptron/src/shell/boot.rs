@@ -7,7 +7,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
 
-use neptron_backend::{AudioSink, Clock, Display, InputSource};
+use neptron_backend::{AudioSink, Clock, ContextOffer, Display, InputSource};
 use neptron_input::PadRoster;
 use neptron_input::{Hotkeys, PortStates};
 use neptron_library::Catalog;
@@ -39,8 +39,8 @@ use crate::paths::Paths;
 use crate::presets::Presets;
 use crate::record;
 use crate::relaunch::{GameRef, NextRun, PadRecord};
-use crate::start_failure;
 use crate::storage::StorageStatus;
+use crate::{gl_offer, start_failure};
 
 /// A run that cannot start. The binary reports it and exits; the launcher
 /// starts it again after its backoff.
@@ -243,6 +243,10 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 // Taken before the launch takes the input: a launch that
                 // fails gives the order of the players back to the list.
                 let pads = PadRecord::list(&input.roster());
+                let mut display = devices.display;
+                let offer = gl_offer::kept_offer(&paths.gl_offer(), &mut display, &mut |w| {
+                    found.warn(w);
+                });
                 let launched = launch(
                     &paths,
                     &library,
@@ -256,7 +260,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                         input,
                         clock: devices.clock.clone(),
                     },
-                    devices.display,
+                    (display, offer),
                 );
                 let mut game = match launched {
                     Ok(game) => {
@@ -629,7 +633,7 @@ fn launch<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone
     wanted: &DisplayConfig,
     runtime: &Runtime,
     devices: SessionDevices<S, ControlInput<I>, C>,
-    display: D,
+    (display, core_offer): (D, ContextOffer),
 ) -> Result<GameStage<D, S, I, C>, Failure> {
     let name = game_name(&reference.path);
     let (system, core) = library.resolve(&reference.system).ok_or_else(|| {
@@ -668,6 +672,7 @@ fn launch<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone
         monitor: wanted.monitor.clone(),
         policy,
         scanlines,
+        core_offer: Some(core_offer),
     };
     let options = SessionOptions {
         resampling: runtime.resampling,
