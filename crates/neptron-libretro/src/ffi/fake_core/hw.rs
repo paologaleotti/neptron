@@ -192,6 +192,53 @@ fn the_last_call_of_the_load_wins() {
 }
 
 #[test]
+fn a_second_load_reports_nothing_of_a_refused_load() {
+    script(|s| {
+        s.on_set_environment = Some(|cb| {
+            let mut yes = true;
+            assert!(cb.env(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &raw mut yes));
+        });
+        s.load_result = false;
+        s.on_load = Some(|cb| ask(cb, callback(RETRO_HW_CONTEXT_OPENGLES3, 0, 0)));
+    });
+    let mut host = open().unwrap();
+    host.set_hw_offer(PI3);
+    assert!(matches!(host.load_game(None), Err(LoadError::Refused)));
+    assert!(
+        host.hw_refusal().is_some(),
+        "the refused load keeps its refusal"
+    );
+
+    script(|s| {
+        s.load_result = true;
+        s.on_load = None;
+    });
+    host.load_game(None).unwrap();
+    assert_eq!(host.hw_refusal(), None);
+    assert_eq!(host.hw_request(), None);
+    drop(host);
+
+    script(|s| {
+        s.load_result = false;
+        s.on_load = Some(|cb| ask(cb, callback(RETRO_HW_CONTEXT_OPENGLES2, 0, 0)));
+    });
+    let mut host = open().unwrap();
+    host.set_hw_offer(PI3);
+    assert!(matches!(host.load_game(None), Err(LoadError::Refused)));
+    assert!(host.hw_request().is_some());
+    script(|s| {
+        s.load_result = true;
+        s.on_load = None;
+    });
+    host.load_game(None).unwrap();
+    assert_eq!(
+        host.hw_request(),
+        None,
+        "a software load after a refused hardware load"
+    );
+}
+
+#[test]
 fn a_hardware_frame_is_checked_as_a_memory_frame() {
     script(|s| {
         s.on_run = Some(|cb| {

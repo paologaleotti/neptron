@@ -150,8 +150,12 @@ impl State {
         self.events_delivered = true;
     }
 
+    /// Starts `retro_load_game`. A request or a refusal of an earlier load
+    /// that the core refused belongs to that load, so it goes.
     pub(crate) fn begin_load(&mut self) {
         self.in_load = true;
+        self.hw = None;
+        self.hw_refusal = None;
     }
 
     pub(crate) fn end_load(&mut self) {
