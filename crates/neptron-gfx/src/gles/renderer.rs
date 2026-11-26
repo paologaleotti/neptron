@@ -1,19 +1,21 @@
 use std::ops::Range;
 use std::rc::Rc;
 
-use neptron_types::{Filter, Frame, GamePicture, Rect, Rotation, Scene};
+use neptron_types::{Frame, FrameOrigin, GamePicture, GpuFrame, Rect, Scene};
 
-use super::GlesError;
 use super::changed::Shown;
 use super::cover::{Area, outside};
 use super::ffi::{
-    Buffer, EglContext, Framebuffer, GbmTarget, Gl, Program, Storage, Texture, Uniform,
+    Buffer, CoreGl, EglContext, Framebuffer, GbmTarget, Gl, Program, Storage, Texture, Uniform,
 };
+use super::{CoreOffer, GlesError};
+
+mod core;
 use super::quad::{Quad, quad};
 use super::shader::{self, VARIANTS, Variant};
 use super::texels;
 use crate::reference::{Pattern, Turn, check_frame, check_output, check_rect, check_scanlines};
-use crate::{Image, OutputBuffer, RectKind, RenderError};
+use crate::{Image, OutputBuffer, RectKind};
 
 /// Draws a [`Scene`] with EGL and OpenGL ES 2, with the pixel rules of
 /// [`ReferenceRenderer`](crate::ReferenceRenderer).
@@ -105,6 +107,17 @@ use crate::{Image, OutputBuffer, RectKind, RenderError};
 /// are canvas rows: a turn or a change of the turn sends nothing.
 /// The game frame goes whole in every call.
 ///
+/// # GPU pictures
+///
+/// A [`GamePicture::Gpu`] picture names the image of the context of a GL
+/// core that this renderer made ([`core_create`](Self::core_create)). The
+/// renderer samples that image through the same quad, shader, scale,
+/// filter, scanlines and turn as a frame in memory; a bottom-left origin
+/// turns the frame lines upside down before the turn. An image that the
+/// renderer does not hold gives [`GlesError::UnknownImage`]. The draw
+/// waits in the GPU for the draws of the core and orders the next core
+/// frame after itself.
+///
 /// # Byte order
 ///
 /// Source pixels are native-endian. An `XRGB8888` pixel goes to GL as the
@@ -117,6 +130,14 @@ pub struct GlesRenderer {
     game_uploads: u64,
     game_parts_drawn: u64,
     target: Option<Offscreen>,
+    /// The context of a core that draws with GL, and its image. It goes
+    /// before `context` in the drop order, though [`Drop`] destroys it
+    /// first in any case.
+    core: Option<CoreGl>,
+    /// The probe of [`core_offer`](Self::core_offer), once per renderer.
+    core_offer: Option<CoreOffer>,
+    /// The id of the last core image made.
+    last_image: u32,
     /// One program for each [`Variant`], in [`Variant::index`] order.
     programs: [(Program, Uniforms); VARIANTS],
     corners: Buffer,
@@ -250,6 +271,9 @@ impl GlesRenderer {
             game_uploads: 0,
             game_parts_drawn: 0,
             target: None,
+            core: None,
+            core_offer: None,
+            last_image: 0,
             programs,
             corners,
             max_texture,
@@ -298,17 +322,26 @@ impl GlesRenderer {
     ) -> Result<bool, GlesError> {
         let size = (width, height);
         let game = match &scene.game {
-            Some(GamePicture::Gpu(_)) => return Err(RenderError::NoPixels.into()),
+            Some(GamePicture::Gpu(gpu)) => {
+                let storage = self.gpu_storage(gpu)?;
+                self.game_draw(scene, (gpu.width, gpu.height), size)?
+                    .map(|mut quad| {
+                        if gpu.origin == FrameOrigin::BottomLeft {
+                            quad.flip_rows();
+                        }
+                        Draw {
+                            picture: Picture::Gpu { storage },
+                            quad,
+                        }
+                    })
+            }
             Some(GamePicture::Memory(frame)) => {
                 check_frame(frame, Image::Game)?;
-                check_rect(&scene.crop, RectKind::Crop)?;
-                check_rect(&scene.dest, RectKind::Dest)?;
-                check_scanlines(&scene.scanlines)?;
-                let turn = Turn::of(scene.crop, (frame.width, frame.height), scene.rotation);
-                let pattern = Pattern::of(scene.scanlines, turn.lines.crop_len, scene.dest.h);
-                let rects = (scene.crop, scene.dest);
-                let look = (scene.rotation, scene.filter);
-                draw_of(frame, rects, look, pattern, RectKind::Dest, size)?
+                self.game_draw(scene, (frame.width, frame.height), size)?
+                    .map(|quad| Draw {
+                        picture: Picture::Memory(*frame),
+                        quad,
+                    })
             }
             None => None,
         };
@@ -323,8 +356,12 @@ impl GlesRenderer {
                     h: u32::from(frame.height),
                 };
                 let (rects, kind) = ((whole, scene.ui_dest), RectKind::UiDest);
-                let look = (scene.ui_rotation, scene.ui_filter);
-                draw_of(frame, rects, look, None, kind, size)?
+                let (rotation, filter) = (scene.ui_rotation, scene.ui_filter);
+                let picture = (frame.width, frame.height);
+                quad(picture, rects, rotation, filter, None, kind, size)?.map(|quad| Draw {
+                    picture: Picture::Memory(*frame),
+                    quad,
+                })
             }
             None => None,
         };
@@ -350,10 +387,24 @@ impl GlesRenderer {
             (area, None) => [area, None, None, None],
             (None, Some(_)) => [None; 4],
         };
+        let mut read_core = false;
         if let Some(draw) = game.as_ref().filter(|_| parts.iter().any(Option::is_some)) {
-            self.game.upload(&gl, &draw.frame)?;
-            self.game_uploads = self.game_uploads.saturating_add(1);
-            self.bind(&gl, draw, &self.game, (width, height));
+            let (texture, storage) = match draw.picture {
+                Picture::Memory(frame) => {
+                    self.game.upload(&gl, &frame)?;
+                    self.game_uploads = self.game_uploads.saturating_add(1);
+                    (self.game.texture, self.game.size)
+                }
+                Picture::Gpu { storage } => {
+                    let core = self.core.as_mut().ok_or(GlesError::NoCoreContext {
+                        operation: "draw a GPU picture",
+                    })?;
+                    core.before_read(&self.context)?;
+                    read_core = true;
+                    (core.imported(), storage)
+                }
+            };
+            self.bind(&gl, draw, texture, storage, (width, height));
             for part in parts.into_iter().flatten() {
                 gl.scissor(cover.map(|_| part), height);
                 gl.draw_quad();
@@ -362,22 +413,81 @@ impl GlesRenderer {
             gl.scissor(None, height);
         }
         if let Some(draw) = &ui {
-            let rows = self.ui.upload_changed(&gl, &draw.frame)?;
-            self.ui_rows_uploaded = self.ui_rows_uploaded.saturating_add(u64::from(rows));
-            self.bind(&gl, draw, &self.ui, (width, height));
+            if let Picture::Memory(frame) = draw.picture {
+                let rows = self.ui.upload_changed(&gl, &frame)?;
+                self.ui_rows_uploaded = self.ui_rows_uploaded.saturating_add(u64::from(rows));
+            }
+            self.bind(&gl, draw, self.ui.texture, self.ui.size, (width, height));
             gl.draw_quad();
         }
         gl.check("draw")?;
+        if read_core && let Some(core) = self.core.as_mut() {
+            core.after_read(&self.context, &gl)?;
+        }
         Ok(true)
     }
 
-    /// Binds the program, `texture` and the uniforms of `draw`.
-    fn bind(&self, gl: &Gl<'_>, draw: &Draw<'_>, texture: &SourceTexture, size: (u32, u32)) {
+    /// Binds the program, `texture` with its `storage` size in texels, and
+    /// the uniforms of `draw`.
+    fn bind(
+        &self,
+        gl: &Gl<'_>,
+        draw: &Draw<'_>,
+        texture: Texture,
+        storage: (u32, u32),
+        size: (u32, u32),
+    ) {
         // Variant::index is below VARIANTS for every variant: the shader
         // tests check it for each one.
         let (program, uniforms) = &self.programs[draw.quad.variant.index()];
-        gl.bind_quad(*program, self.corners, texture.texture);
-        uniforms.set(gl, &draw.quad, size, texture.size);
+        gl.bind_quad(*program, self.corners, texture);
+        uniforms.set(gl, &draw.quad, size, storage);
+    }
+
+    /// The quad of the game picture of `scene`, a picture of `picture`
+    /// pixels, after the checks of the reference.
+    fn game_draw(
+        &self,
+        scene: &Scene<'_>,
+        picture: (u16, u16),
+        size: (u32, u32),
+    ) -> Result<Option<Quad>, GlesError> {
+        check_rect(&scene.crop, RectKind::Crop)?;
+        check_rect(&scene.dest, RectKind::Dest)?;
+        check_scanlines(&scene.scanlines)?;
+        let turn = Turn::of(scene.crop, picture, scene.rotation);
+        let pattern = Pattern::of(scene.scanlines, turn.lines.crop_len, scene.dest.h);
+        let rects = (scene.crop, scene.dest);
+        let (rotation, filter) = (scene.rotation, scene.filter);
+        quad(
+            picture,
+            rects,
+            rotation,
+            filter,
+            pattern,
+            RectKind::Dest,
+            size,
+        )
+    }
+
+    /// The storage size of the core image that `gpu` names, after a check
+    /// that the renderer holds it and that the picture fits it.
+    fn gpu_storage(&self, gpu: &GpuFrame) -> Result<(u32, u32), GlesError> {
+        let core = self
+            .core
+            .as_ref()
+            .filter(|core| core.id() == gpu.image)
+            .ok_or(GlesError::UnknownImage { image: gpu.image })?;
+        let (max_width, max_height) = core.size();
+        if gpu.width > max_width || gpu.height > max_height {
+            return Err(GlesError::PictureTooLarge {
+                width: gpu.width,
+                height: gpu.height,
+                max_width,
+                max_height,
+            });
+        }
+        Ok((u32::from(max_width), u32::from(max_height)))
     }
 
     /// The GL renderer and version strings, such as `softpipe` and
@@ -437,8 +547,10 @@ impl GlesRenderer {
             });
         }
         for (draw, image) in [(game, Image::Game), (ui, Image::Ui)] {
-            let Some(draw) = draw else { continue };
-            let (width, height) = texture_size(&draw.frame);
+            let Some(Picture::Memory(frame)) = draw.map(|d| d.picture) else {
+                continue;
+            };
+            let (width, height) = texture_size(&frame);
             if width > u64::from(self.max_texture) || height > self.max_texture {
                 return Err(GlesError::TextureTooLarge {
                     image,
@@ -461,26 +573,22 @@ enum Surface {
     Window,
 }
 
-/// One quad to draw, with the image that it shows.
+/// One quad to draw, with the picture that it shows.
 struct Draw<'a> {
-    frame: Frame<'a>,
+    picture: Picture<'a>,
     quad: Quad,
 }
 
-fn draw_of<'a>(
-    frame: &Frame<'a>,
-    rects: (Rect, Rect),
-    (rotation, filter): (Rotation, Filter),
-    pattern: Option<Pattern>,
-    kind: RectKind,
-    size: (u32, u32),
-) -> Result<Option<Draw<'a>>, GlesError> {
-    Ok(
-        quad(frame, rects, rotation, filter, pattern, kind, size)?.map(|quad| Draw {
-            frame: *frame,
-            quad,
-        }),
-    )
+/// The source of a quad.
+#[derive(Clone, Copy)]
+enum Picture<'a> {
+    /// A frame in memory, uploaded to a texture of the renderer.
+    Memory(Frame<'a>),
+    /// The image of the core context, with its storage size in texels.
+    Gpu {
+        /// Width and height of the storage.
+        storage: (u32, u32),
+    },
 }
 
 /// The texture of a source image: one texel per pixel.

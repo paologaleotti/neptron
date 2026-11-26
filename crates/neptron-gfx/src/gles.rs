@@ -15,6 +15,8 @@ compile_error!("the GLES renderer uploads XRGB8888 pixels as little-endian bytes
 #[forbid(unsafe_code)]
 mod changed;
 #[forbid(unsafe_code)]
+mod core_spec;
+#[forbid(unsafe_code)]
 mod cover;
 #[forbid(unsafe_code)]
 mod error;
@@ -32,6 +34,10 @@ mod texels;
 #[forbid(unsafe_code)]
 mod version;
 
+pub use core_spec::{
+    CoreApi, CoreOffer, CoreSpec, CoreStatus, CoreSurface, GL_ERROR_PERIOD_FRAMES,
+    MAX_GL_ERRORS_PER_CHECK,
+};
 pub use error::GlesError;
 #[cfg(feature = "gles")]
 pub use ffi::GbmTarget;

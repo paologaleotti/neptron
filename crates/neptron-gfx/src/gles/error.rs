@@ -1,3 +1,6 @@
+use neptron_types::GpuImageId;
+
+use super::CoreApi;
 use crate::{Image, RectKind, RenderError};
 
 /// Why [`GlesRenderer`](super::GlesRenderer) could not start or draw.
@@ -137,6 +140,71 @@ pub enum GlesError {
         dest_len: u32,
         /// [`MAX_AXIS_PRODUCT`](super::MAX_AXIS_PRODUCT).
         limit: u64,
+    },
+    /// EGL lacks an extension that the context of a core needs.
+    #[error("EGL has no {name}")]
+    MissingEglExtension {
+        /// The name of the extension.
+        name: &'static str,
+    },
+    /// The renderer cannot make the context that a core asks for.
+    #[error("the renderer offers no {api:?} {major}.{minor} context")]
+    CoreNotOffered {
+        /// The API.
+        api: CoreApi,
+        /// The major version.
+        major: u8,
+        /// The minor version.
+        minor: u8,
+    },
+    /// A call needs the context of a core, and none is made or begun.
+    #[error("{operation} needs a core context, and none is ready")]
+    NoCoreContext {
+        /// The call.
+        operation: &'static str,
+    },
+    /// A size of a core image is 0 or above the limit.
+    #[error("{operation} cannot take {width}x{height}: the limit is {max_width}x{max_height}")]
+    CoreSize {
+        /// The call.
+        operation: &'static str,
+        /// The width given.
+        width: u16,
+        /// The height given.
+        height: u16,
+        /// The largest width.
+        max_width: u16,
+        /// The largest height.
+        max_height: u16,
+    },
+    /// The output buffer of a read back is too short.
+    #[error("the read back needs {min} bytes, and the buffer holds {len}")]
+    CoreBufferTooSmall {
+        /// Bytes in the buffer.
+        len: usize,
+        /// Bytes needed.
+        min: usize,
+    },
+    /// A scene names a GPU image that the renderer did not make, or that
+    /// is gone.
+    #[error("the scene names the GPU image {image:?}, which the renderer does not hold")]
+    UnknownImage {
+        /// The image of the scene.
+        image: GpuImageId,
+    },
+    /// The GPU picture of a scene is larger than its image.
+    #[error(
+        "the GPU picture of {width}x{height} is larger than its image of {max_width}x{max_height}"
+    )]
+    PictureTooLarge {
+        /// The width of the picture.
+        width: u16,
+        /// The height of the picture.
+        height: u16,
+        /// The width of the image.
+        max_width: u16,
+        /// The height of the image.
+        max_height: u16,
     },
     /// A buffer is smaller than a GL transfer needs. The renderer checks
     /// every image first, so this means a fault in the renderer.

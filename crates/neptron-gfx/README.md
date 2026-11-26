@@ -7,14 +7,15 @@ Renderers for a `Scene`. `ReferenceRenderer` (CPU, pure Rust) defines the correc
 - `neptron-kms`, `neptron-video`, `neptron-ui`
 - EGL or GL crates outside the `gles` feature
 
-`unsafe` is allowed only in `src/gles/ffi.rs`, with a safe wrapper; every other module carries `#[forbid(unsafe_code)]`. Every `unsafe` block has a `// SAFETY:` comment. Features: `gles`, off by default.
+`unsafe` is allowed only in `src/gles/ffi.rs` and its child `src/gles/ffi/core_gl.rs`, with a safe wrapper,; every other module carries `#[forbid(unsafe_code)]`. Every `unsafe` block has a `// SAFETY:` comment. Features: `gles`, off by default.
 
 ## Public API sketch
 
 - `ReferenceRenderer` with `render(&mut self, &Scene, &mut OutputBuffer) -> Result<(), RenderError>`
 - `OutputBuffer { data: &mut [u8], width: u32, height: u32, pitch: usize }`, owned by the caller
-- `RenderError`, `Image`, `RectKind`, `MAX_RECT_SIDE_PX`. `ScanlineStrengthTooHigh` refuses a strength above 100 %. `NoPixels` refuses a `GamePicture::Gpu` picture: the reference renderer reads only pixels in memory, and the `GlesRenderer` does not draw a GPU picture yet.
+- `RenderError`, `Image`, `RectKind`, `MAX_RECT_SIDE_PX`. `ScanlineStrengthTooHigh` refuses a strength above 100 %. `NoPixels` refuses a `GamePicture::Gpu` picture: the reference renderer reads only pixels in memory. The fake display of `neptron-testkit` resolves a GPU picture to memory first.
 - `gles::GlesRenderer` (feature `gles`): `headless()`, `on_gbm(Rc<dyn GbmTarget>)`, `pbuffer(width, height)` and `read_window(&mut OutputBuffer)` for checks of the window path, `render(&Scene, &mut OutputBuffer)`, `draw_to_window(&Scene, width, height)`, `gl_strings()`, `max_texture_side()`, `max_output_side()`, and the counters `ui_rows_uploaded()`, `game_uploads()`, `game_parts_drawn()`. Errors are `GlesError`.
+- The context of a GL core on the renderer's display (feature `gles`): `core_offer() -> CoreOffer`, `core_create(&CoreSpec, max_width, max_height) -> CoreSurface` (framebuffer name, `GpuImageId`, the lookup `fn(&CStr) -> usize`), `core_resize`, `core_begin`, `core_end() -> CoreStatus`, `core_read_back(&mut [u8], width, height, FrameOrigin)`, `core_destroy`. `render` and `draw_to_window` draw a `GamePicture::Gpu` picture of that image. The KMS backend maps these to `CoreRender` of `neptron-backend`; this crate does not depend on it.
 - `gles::MAX_AXIS_PRODUCT`, `gles::GbmTarget` (an unsafe trait: the GBM device and surface pointers)
 
 ## Reference renderer
@@ -56,6 +57,17 @@ The doc comment of `ReferenceRenderer` states every pixel rule. In short:
 - Allocation: textures, the texel buffer, the framebuffer and the read-back buffer are made on the first call. A source texture and the texel buffer only grow; a smaller frame goes to the top left, and `u_frame` gives the storage size. So a game that switches sizes allocates once, at the first frame of its largest size (only the session knows the core's maximum geometry). The framebuffer and read-back buffer are made again when the output size changes. Other calls allocate nothing.
 - The game under the UI: the game quad is drawn only in the parts outside the UI quad (at most four scissor rectangles), and not at all, with no upload, when the UI covers it. The pixels do not change. On the Pi 3 this took a game under the confirm dialog from 4.9 ms to 2.2 ms of GPU time a frame.
 - UI uploads (a menu changes only on input or once a second): the renderer keeps a copy of the canvas rows and sends only the rows from the first to the last that differ; an unchanged canvas sends nothing. The texture holds the canvas upright, so the rows are canvas rows for every turn, and a change of the turn alone sends nothing. The game frame goes whole each call. New storage, a canvas of another size or format, and a failed upload send the whole canvas next time.
+
+### The context of a GL core
+
+`docs/spec/hw-render.md` defines it. `core_create` makes a second EGL context on the display of the renderer, of the API and version of the core, with no surface (`EGL_KHR_surfaceless_context`) and no shared objects, and a reset notice where `EGL_EXT_create_context_robustness` exists. It makes an RGBA colour texture of the maximum size, a depth renderbuffer (24 bits, or 16 on OpenGL ES 2 without `GL_OES_depth24`) or a packed depth and stencil one, and the framebuffer the core draws into. The texture goes to the renderer as an EGL image (`EGL_KHR_gl_texture_2D_image`, `GL_OES_EGL_image`), and the shader samples it as it samples an uploaded frame; `u_frame` gives the storage size. A bottom-left origin is one more sign on the axis of the turn that reads the frame lines (`Quad::flip_rows`), so it costs no pass.
+
+- Order: `core_end` adds an EGL fence after the core's draws, and a draw of the GPU picture waits on it in the GPU (`eglWaitSync`); the draw adds a fence that `core_begin` waits on. With no `EGL_KHR_fence_sync` and `EGL_KHR_wait_sync`, the side that would wait calls `glFinish` instead.
+- The core context is current only between `core_begin` and `core_end`; `core_end` releases it. A failed `core_begin` leaves no context current, so a core call then draws nowhere.
+- `core_end` reads the GL errors of the core and the reset status once every `GL_ERROR_PERIOD_FRAMES` (60) calls, because `glGetError` can stall a threaded Mesa context.
+- `core_resize` makes a new texture and image, keeps the framebuffer name and the image id, and puts back the framebuffer, renderbuffer, texture and unpack buffer bindings of the core. `core_read_back` reads the image through a framebuffer of the renderer, so it changes no state of the core.
+- `core_offer` makes a context of each API once (OpenGL ES 2, core profile 3.2, compatibility 2.0), reads the version it gets, and keeps the answer. It is empty when an extension of the path is missing.
+- The lookup is a process global: the EGL library loaded once, so a core can call it on any thread.
 
 ### The check against the reference
 

@@ -1,4 +1,4 @@
-use neptron_types::{Filter, Frame, Rect, Rotation};
+use neptron_types::{Filter, Rect, Rotation};
 
 use super::GlesError;
 use super::shader::Variant;
@@ -52,11 +52,12 @@ pub(super) struct Quad {
     pub(super) scan: [f32; 4],
 }
 
-/// The draw that maps `crop` of `frame`, turned by `rotation`, to `dest`
-/// on an output of `out_width` by `out_height`, with the scanline
-/// `pattern` of the destination lines, or `None` when it shows nothing.
+/// The draw that maps `crop` of a frame of `frame` pixels (width, height),
+/// turned by `rotation`, to `dest` on an output of `out_width` by
+/// `out_height`, with the scanline `pattern` of the destination lines, or
+/// `None` when it shows nothing.
 pub(super) fn quad(
-    frame: &Frame<'_>,
+    frame: (u16, u16),
     (crop, dest): (Rect, Rect),
     rotation: Rotation,
     filter: Filter,
@@ -66,13 +67,14 @@ pub(super) fn quad(
 ) -> Result<Option<Quad>, GlesError> {
     // A frame with a zero side has no pixel to sample, so every sample is
     // outside it and the destination stays black, as in the reference.
-    if frame.width == 0 || frame.height == 0 {
+    let (frame_width, frame_height) = frame;
+    if frame_width == 0 || frame_height == 0 {
         return Ok(None);
     }
     if crop.w == 0 || crop.h == 0 || dest.w == 0 || dest.h == 0 {
         return Ok(None);
     }
-    let turn = Turn::of(crop, (frame.width, frame.height), rotation);
+    let turn = Turn::of(crop, frame, rotation);
     let (columns, lines) = (turn.columns, turn.lines);
     for (source_len, dest_len) in [(columns.crop_len, dest.w), (lines.crop_len, dest.h)] {
         if u64::from(source_len) * u64::from(dest_len) > MAX_AXIS_PRODUCT {
@@ -98,7 +100,7 @@ pub(super) fn quad(
             columns.crop_len as f32,
             lines.crop_len as f32,
         ],
-        frame: [f32::from(frame.width), f32::from(frame.height), 0.0, 0.0],
+        frame: [f32::from(frame_width), f32::from(frame_height), 0.0, 0.0],
         axis: [x.recip, y.recip, x.prescale, y.prescale],
         bounds: [x.bounds.0, y.bounds.0, x.bounds.1, y.bounds.1],
         turn: [x.offset, x.sign, y.offset, y.sign],
@@ -118,6 +120,21 @@ pub(super) fn quad(
             ]
         }),
     }))
+}
+
+impl Quad {
+    /// Turns the rows of the frame upside down before the turn: frame line
+    /// `y` reads texel row `height - 1 - y`, as a GPU picture with a
+    /// bottom-left origin stores it. The axis of the turn that reads the
+    /// frame lines gets the offset `height - 1 - offset` and the opposite
+    /// sign. Every value is an integer below 2^16, so the result is exact,
+    /// and it costs no extra pass.
+    pub(super) fn flip_rows(&mut self) {
+        let at = if self.swap[0] == 1.0 { 0 } else { 2 };
+        let last_row = self.frame[1] - 1.0;
+        self.turn[at] = last_row - self.turn[at];
+        self.turn[at + 1] = -self.turn[at + 1];
+    }
 }
 
 /// The values of one axis of a [`Quad`].
@@ -182,8 +199,6 @@ impl Axis {
 
 #[cfg(test)]
 mod tests {
-    use neptron_types::PixelFormat;
-
     use super::*;
 
     const OUT: (u32, u32) = (320, 240);
@@ -192,21 +207,13 @@ mod tests {
         Rect { x, y, w, h }
     }
 
-    fn frame(format: PixelFormat) -> Frame<'static> {
-        Frame {
-            data: &[],
-            width: 10,
-            height: 8,
-            pitch: 64,
-            format,
-        }
-    }
+    /// The size of the test frame.
+    const FRAME: (u16, u16) = (10, 8);
 
     fn game(crop: Rect, dest: Rect) -> Result<Option<Quad>, GlesError> {
-        let f = frame(PixelFormat::Rgb565);
         let filter = Filter::SharpBilinear;
         quad(
-            &f,
+            FRAME,
             (crop, dest),
             Rotation::R0,
             filter,
@@ -237,10 +244,9 @@ mod tests {
     }
 
     fn turned(rotation: Rotation, dest: Rect) -> Quad {
-        let f = frame(PixelFormat::Rgb565);
         let rects = (rect(1, 2, 8, 6), dest);
         quad(
-            &f,
+            FRAME,
             rects,
             rotation,
             Filter::SharpBilinear,
@@ -287,10 +293,9 @@ mod tests {
     /// the last lines.
     #[test]
     fn a_turned_quad_covers_only_pixels_inside_the_frame() {
-        let f = frame(PixelFormat::Rgb565);
         let rects = (rect(-2, 0, 8, 6), rect(0, 0, 6, 8));
         let q = quad(
-            &f,
+            FRAME,
             rects,
             Rotation::R90,
             Filter::Nearest,
@@ -305,7 +310,6 @@ mod tests {
 
     #[test]
     fn the_scanline_pattern_goes_to_its_uniform() {
-        let f = frame(PixelFormat::Xrgb8888);
         let pattern = Pattern {
             period: 4,
             first_dark: 2,
@@ -313,7 +317,7 @@ mod tests {
         };
         let rects = (rect(0, 0, 8, 6), rect(0, 0, 8, 24));
         let q = quad(
-            &f,
+            FRAME,
             rects,
             Rotation::R0,
             Filter::Nearest,
@@ -345,16 +349,9 @@ mod tests {
 
     #[test]
     fn a_frame_with_a_zero_side_draws_nothing() {
-        for (width, height, pitch) in [(0, 240, 640), (320, 0, 0)] {
-            let f = Frame {
-                data: &[],
-                width,
-                height,
-                pitch,
-                format: PixelFormat::Rgb565,
-            };
+        for (width, height) in [(0, 240), (320, 0)] {
             let q = quad(
-                &f,
+                (width, height),
                 (rect(0, 0, 8, 6), rect(0, 0, 8, 6)),
                 Rotation::R0,
                 Filter::Nearest,
@@ -390,6 +387,32 @@ mod tests {
         assert_eq!(q.bounds, [6.0, 3.0, 9.0, 7.0]);
     }
 
+    /// A flip of the rows maps frame line `y` to row `height - 1 - y` on
+    /// the axis that reads the frame lines, for every turn.
+    #[test]
+    fn a_flip_of_the_rows_turns_the_axis_of_the_frame_lines() {
+        let frame_line = |q: &Quad, c: f32, l: f32| {
+            let (tc, tl) = (q.turn[0] + q.turn[1] * c, q.turn[2] + q.turn[3] * l);
+            if q.swap[0] == 1.0 { tc } else { tl }
+        };
+        for rotation in [Rotation::R0, Rotation::R90, Rotation::R180, Rotation::R270] {
+            let dest = rect(0, 0, 24, 24);
+            let upright = turned(rotation, dest);
+            let mut flipped = upright;
+            flipped.flip_rows();
+            for (c, l) in [(0.0, 0.0), (1.0, 3.0), (5.0, 2.0), (7.0, 7.0)] {
+                assert_eq!(
+                    frame_line(&flipped, c, l),
+                    7.0 - frame_line(&upright, c, l),
+                    "{rotation:?} ({c}, {l})"
+                );
+            }
+            let mut back = flipped;
+            back.flip_rows();
+            assert_eq!(back, upright, "{rotation:?}");
+        }
+    }
+
     #[test]
     fn the_axis_product_limit_is_inclusive() {
         assert!(game(rect(0, 0, 2048, 6), rect(0, 0, 4096, 6)).is_ok());
@@ -407,18 +430,11 @@ mod tests {
     /// The quad of the whole 320x240 UI canvas turned by `rotation` into
     /// `dest`, with sharp bilinear, on a 720x480 output.
     fn canvas_quad(rotation: Rotation, dest: Rect) -> Result<Option<Quad>, GlesError> {
-        let canvas = Frame {
-            data: &[],
-            width: 320,
-            height: 240,
-            pitch: 1280,
-            format: PixelFormat::Xrgb8888,
-        };
         let whole = rect(0, 0, 320, 240);
         let kind = RectKind::UiDest;
         let filter = Filter::SharpBilinear;
         quad(
-            &canvas,
+            (320, 240),
             (whole, dest),
             rotation,
             filter,
@@ -491,11 +507,18 @@ mod tests {
             (Filter::SharpBilinear, rect(0, 0, 4, 3), (true, true)),
         ];
         for (filter, dest, (blend_x, blend_y)) in cases {
-            let f = frame(PixelFormat::Xrgb1555);
             let rects = (rect(0, 0, 8, 6), dest);
-            let q = quad(&f, rects, Rotation::R0, filter, None, RectKind::Dest, OUT)
-                .unwrap()
-                .unwrap();
+            let q = quad(
+                FRAME,
+                rects,
+                Rotation::R0,
+                filter,
+                None,
+                RectKind::Dest,
+                OUT,
+            )
+            .unwrap()
+            .unwrap();
             assert_eq!(
                 q.variant,
                 Variant { blend_x, blend_y },

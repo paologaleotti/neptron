@@ -14,6 +14,10 @@ use std::rc::Rc;
 use glow::HasContext as _;
 use khronos_egl as egl;
 
+mod core_gl;
+
+pub(super) use core_gl::{CoreGl, core_lookup, probe_offer};
+
 use super::GlesError;
 use super::cover::Area;
 use super::texels::{BYTES_PER_TEXEL, Texels};
@@ -381,10 +385,10 @@ fn has_extension(extensions: &CStr, name: &str) -> bool {
         .is_ok_and(|list| list.split_ascii_whitespace().any(|e| e == name))
 }
 
-/// The GL function table of the current context. glow panics when
+/// The `GL_VERSION` string of the current context. glow panics when
 /// glGetString is missing or GL_VERSION is null, not UTF-8 or not a version
-/// it parses, so this checks all of that first with its own call.
-fn gl_on(lib: &EglInstance) -> Result<glow::Context, GlesError> {
+/// it parses, so the string is read here with its own call first.
+fn version_text(lib: &EglInstance) -> Result<String, GlesError> {
     type GetString = unsafe extern "system" fn(u32) -> *const u8;
     let get_string = lib
         .get_proc_address("glGetString")
@@ -392,10 +396,10 @@ fn gl_on(lib: &EglInstance) -> Result<glow::Context, GlesError> {
             text: "no glGetString".to_owned(),
         })?;
     // SAFETY: eglGetProcAddress gave the address of glGetString, whose
-    // signature in the GL ES ABI is GetString: one GLenum in, a pointer to
-    // a static string out.
+    // signature in the GL and GL ES ABI is GetString: one GLenum in, a
+    // pointer to a static string out.
     let get_string: GetString = unsafe { std::mem::transmute(get_string) };
-    // SAFETY: a context is current (context_on), as glGetString needs.
+    // SAFETY: the caller made a context current, as glGetString needs.
     let text = unsafe { get_string(glow::VERSION) };
     if text.is_null() {
         return Err(GlesError::GlVersion {
@@ -405,10 +409,17 @@ fn gl_on(lib: &EglInstance) -> Result<glow::Context, GlesError> {
     // SAFETY: GL returns a null-terminated string that lives as long as the
     // context; it is copied before the next call.
     let text = unsafe { CStr::from_ptr(text.cast()) };
-    let text = text.to_str().map_err(|_| GlesError::GlVersion {
-        text: text.to_string_lossy().into_owned(),
-    })?;
-    version::check(text)?;
+    text.to_str()
+        .map(str::to_owned)
+        .map_err(|_| GlesError::GlVersion {
+            text: text.to_string_lossy().into_owned(),
+        })
+}
+
+/// The GL function table of the current context, after a check of its
+/// version string.
+fn gl_on(lib: &EglInstance) -> Result<glow::Context, GlesError> {
+    version::check(&version_text(lib)?)?;
     // SAFETY: the context is current and glow's GL_VERSION query succeeds,
     // as checked above. With EGL 1.5 eglGetProcAddress returns core GL ES
     // functions too. A missing function is a null pointer, which glow
