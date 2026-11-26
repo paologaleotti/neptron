@@ -403,6 +403,7 @@ fn error_checks(gles: &mut GlesRenderer) -> Vec<Outcome> {
             Err(GlesError::CoreSize { .. })
         ),
     ));
+    out.extend(open_frame_checks(gles));
     let case = &cases()[0];
     let picture_too_large = gpu_scene(case, surface.image, (64, 64), FrameOrigin::TopLeft);
     let mut data = vec![0_u8; case.width as usize * case.height as usize * 4];
@@ -426,6 +427,44 @@ fn error_checks(gles: &mut GlesRenderer) -> Vec<Outcome> {
             gles.render(&picture_too_large, &mut target),
             Err(GlesError::UnknownImage { .. })
         ),
+    ));
+    out
+}
+
+/// Between `core_begin` and `core_end` the renderer refuses a draw, a
+/// resize and a read back, which would make its own context current in
+/// the middle of a core frame, and the core frame still ends.
+fn open_frame_checks(gles: &mut GlesRenderer) -> Vec<Outcome> {
+    let mut out = Vec::new();
+    if let Err(e) = gles.core_begin() {
+        out.push((format!("begin before the open frame checks: {e}"), false));
+        return out;
+    }
+    let case = &cases()[0];
+    let mut data = vec![0_u8; case.width as usize * case.height as usize * 4];
+    let mut target = OutputBuffer {
+        data: &mut data,
+        width: case.width,
+        height: case.height,
+        pitch: case.width as usize * 4,
+    };
+    let refused = |e| matches!(e, Err(GlesError::CoreFrameOpen { .. }));
+    out.push((
+        "a draw inside a core frame".to_owned(),
+        refused(gles.render(&case.scene(), &mut target)),
+    ));
+    out.push((
+        "a resize inside a core frame".to_owned(),
+        refused(gles.core_resize(64, 64)),
+    ));
+    let mut pixels = vec![0_u8; 64 * 64 * 4];
+    out.push((
+        "a read back inside a core frame".to_owned(),
+        refused(gles.core_read_back(&mut pixels, 64, 64, FrameOrigin::TopLeft)),
+    ));
+    out.push((
+        "the core frame ends after the refusals".to_owned(),
+        gles.core_end().is_ok() && !gles.core_current(),
     ));
     out
 }

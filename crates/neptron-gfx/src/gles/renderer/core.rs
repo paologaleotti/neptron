@@ -72,6 +72,7 @@ impl GlesRenderer {
     /// # Errors
     ///
     /// [`GlesError::NoCoreContext`] before [`core_create`](Self::core_create),
+    /// [`GlesError::CoreFrameOpen`] between `core_begin` and `core_end`,
     /// [`GlesError::CoreSize`] as for `core_create`, and the EGL and GL
     /// errors of a failed resize. After an error the old attachments stay.
     pub fn core_resize(&mut self, max_width: u16, max_height: u16) -> Result<(), GlesError> {
@@ -80,6 +81,7 @@ impl GlesRenderer {
                 operation: "resize",
             });
         }
+        self.check_no_core_frame("resize")?;
         self.check_core_size("resize", max_width, max_height)?;
         let core = self.core.as_mut().ok_or(GlesError::NoCoreContext {
             operation: "resize",
@@ -143,6 +145,7 @@ impl GlesRenderer {
     /// # Errors
     ///
     /// [`GlesError::NoCoreContext`] before [`core_create`](Self::core_create),
+    /// [`GlesError::CoreFrameOpen`] between `core_begin` and `core_end`,
     /// [`GlesError::CoreSize`] for a side of 0 or above the image,
     /// [`GlesError::CoreBufferTooSmall`] for a short `out`, and the EGL
     /// and GL errors of the read. `out` is unchanged after an error.
@@ -160,6 +163,7 @@ impl GlesRenderer {
                 operation: "read_back",
             })?
             .size();
+        self.check_no_core_frame("read_back")?;
         if width == 0 || height == 0 || width > max_width || height > max_height {
             return Err(GlesError::CoreSize {
                 operation: "read_back",
@@ -191,6 +195,16 @@ impl GlesRenderer {
         if let Some(core) = self.core.take() {
             core.destroy(&self.context);
         }
+    }
+
+    /// Refuses `operation` between [`core_begin`](Self::core_begin) and
+    /// [`core_end`](Self::core_end): it would make the renderer's context
+    /// current in the middle of a core frame.
+    pub(super) fn check_no_core_frame(&self, operation: &'static str) -> Result<(), GlesError> {
+        if self.core.as_ref().is_some_and(CoreGl::begun) {
+            return Err(GlesError::CoreFrameOpen { operation });
+        }
+        Ok(())
     }
 
     fn check_core_size(

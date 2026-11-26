@@ -163,6 +163,13 @@ pub enum GlesError {
         /// The call.
         operation: &'static str,
     },
+    /// A call that needs the renderer's context came between
+    /// `core_begin` and `core_end`, while the core context is current.
+    #[error("{operation} cannot run inside a core frame: call core_end first")]
+    CoreFrameOpen {
+        /// The call.
+        operation: &'static str,
+    },
     /// The GPU lost the context of the core, and the end of its frame
     /// failed too: a lost context fails its fence or its release.
     #[error("the GPU lost the core context, and {cause}")]

@@ -64,6 +64,7 @@ The doc comment of `ReferenceRenderer` states every pixel rule. In short:
 
 - Order: `core_end` adds an EGL fence after the core's draws, and a draw of the GPU picture waits on it in the GPU (`eglWaitSync`); the draw adds a fence that `core_begin` waits on. With no `EGL_KHR_fence_sync` and `EGL_KHR_wait_sync`, the side that would wait calls `glFinish` instead.
 - The core context is current only between `core_begin` and `core_end`; `core_end` releases it. A failed `core_begin` leaves no context current, so a core call then draws nowhere.
+- Between `core_begin` and `core_end`, `render`, `draw_to_window`, `core_resize` and `core_read_back` refuse with `GlesError::CoreFrameOpen`: each makes the renderer's context current, which would end the core frame in the middle.
 - EGL applies a release, a fence and a server wait to the current context of the bound client API. Each such call on a desktop GL core context binds the desktop GL API first and binds OpenGL ES again after it.
 - `core_end` reads the GL errors of the core and the reset status once every `GL_ERROR_PERIOD_FRAMES` (60) calls, because `glGetError` can stall a threaded Mesa context.
 - `core_resize` makes a new texture and image, keeps the framebuffer name and the image id, and puts back the framebuffer, renderbuffer, texture and unpack buffer bindings of the core. `core_read_back` reads the image through a framebuffer of the renderer, so it changes no state of the core.

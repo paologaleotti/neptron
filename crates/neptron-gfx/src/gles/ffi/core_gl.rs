@@ -449,6 +449,11 @@ impl CoreGl {
         self.imported
     }
 
+    /// True between `begin` and `end`.
+    pub(in crate::gles) fn begun(&self) -> bool {
+        self.begun
+    }
+
     /// True when the core context is current on this thread for its own
     /// client API.
     pub(in crate::gles) fn is_current(&self, ctx: &EglContext) -> bool {

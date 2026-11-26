@@ -300,8 +300,10 @@ impl GlesRenderer {
     ///
     /// # Errors
     ///
-    /// [`GlesError::Scene`] for what the reference refuses, and the other
-    /// [`GlesError`] values for a scene or an output above a limit of this
+    /// [`GlesError::Scene`] for what the reference refuses,
+    /// [`GlesError::CoreFrameOpen`] between
+    /// [`core_begin`](Self::core_begin) and [`core_end`](Self::core_end),
+    /// and the other [`GlesError`] values for a scene or an output above a limit of this
     /// renderer, or a failed GL call. The renderer checks the scene before
     /// it draws, and `out` is unchanged after an error.
     pub fn render(
@@ -333,6 +335,7 @@ impl GlesRenderer {
         height: u32,
         surface: Surface,
     ) -> Result<bool, GlesError> {
+        self.check_no_core_frame("draw")?;
         let size = (width, height);
         let game = match &scene.game {
             Some(GamePicture::Gpu(gpu)) => {
