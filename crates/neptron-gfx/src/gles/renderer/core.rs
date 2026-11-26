@@ -122,6 +122,16 @@ impl GlesRenderer {
         core.end(&self.context)
     }
 
+    /// True when the core context is current on this thread for its own
+    /// client API (OpenGL ES or desktop GL): from
+    /// [`core_begin`](Self::core_begin) to [`core_end`](Self::core_end),
+    /// and at no other time.
+    pub fn core_current(&self) -> bool {
+        self.core
+            .as_ref()
+            .is_some_and(|core| core.is_current(&self.context))
+    }
+
     /// Copies the picture of `width` by `height` pixels at texel `(0, 0)`
     /// of the core image into `out`, upright by the rule of `origin`:
     /// XRGB8888 pixels, one native-endian `u32` each with an X byte of 0,

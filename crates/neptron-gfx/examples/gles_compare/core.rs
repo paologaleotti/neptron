@@ -252,6 +252,10 @@ fn picture_checks(
         format!("{at}: the stand-in draws the card"),
         drawn.map(|()| String::new()),
     );
+    push(
+        format!("{at}: current only between begin and end"),
+        current_checks(gles),
+    );
     let cases = cases();
     for case in &cases {
         let show = (label == "gles2").then(|| format!("{label}_{origin:?}_{}", case.name));
@@ -299,6 +303,23 @@ fn picture_checks(
         });
     push(format!("{at}: resize keeps the framebuffer name"), resized);
     out
+}
+
+/// The core context is current for its own client API after `core_begin`
+/// and released after `core_end`: for a desktop GL context, EGL releases
+/// it only with the desktop GL API bound.
+fn current_checks(gles: &mut GlesRenderer) -> Result<String, String> {
+    if gles.core_current() {
+        return Err("current before begin".to_owned());
+    }
+    gles.core_begin().map_err(|e| e.to_string())?;
+    let begun = gles.core_current();
+    gles.core_end().map_err(|e| e.to_string())?;
+    match (begun, gles.core_current()) {
+        (true, false) => Ok("released".to_owned()),
+        (false, _) => Err("not current after begin".to_owned()),
+        (true, true) => Err("still current after end".to_owned()),
+    }
 }
 
 /// The read back of the picture equals the card in memory.

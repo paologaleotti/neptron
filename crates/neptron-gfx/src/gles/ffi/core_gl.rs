@@ -79,6 +79,9 @@ pub(in crate::gles) struct CoreGl {
     gl: glow::Context,
     /// The context is OpenGL ES (2 or 3): unsized texture formats.
     es: bool,
+    /// The context is desktop GL: EGL calls that act on the current
+    /// context need the desktop GL API bound.
+    desktop: bool,
     /// The context is OpenGL ES 2: no read framebuffer and no buffer
     /// objects for pixels.
     es2: bool,
@@ -117,6 +120,7 @@ pub(in crate::gles) fn probe_offer(ctx: &EglContext, frontend: &Gl<'_>) -> CoreO
     }
     let probe = |api, major, minor| {
         let context = make_context(ctx, api, major, minor, false).ok()?;
+        let desktop = api != CoreApi::Gles;
         let found = ctx
             .lib
             .make_current(ctx.display, None, None, Some(context))
@@ -125,7 +129,7 @@ pub(in crate::gles) fn probe_offer(ctx: &EglContext, frontend: &Gl<'_>) -> CoreO
             .and_then(|text| version::api_version(&text));
         // The probe reads only the version; a failed release or destroy
         // leaves nothing that a later context uses.
-        let _ = ctx.lib.make_current(ctx.display, None, None, None);
+        let _ = release(ctx, desktop);
         let _ = ctx.lib.destroy_context(ctx.display, context);
         let (es, major, minor) = found?;
         if es != (api == CoreApi::Gles) {
@@ -294,7 +298,7 @@ impl CoreGl {
         if made.is_err() {
             // Destroying the context deletes every object made in it. The
             // error of the setup is the one to report.
-            let _ = ctx.lib.make_current(ctx.display, None, None, None);
+            let _ = release(ctx, spec.api != CoreApi::Gles);
             let _ = ctx.lib.destroy_context(ctx.display, context);
         }
         let restored = ctx.current().map(|_| ());
@@ -383,6 +387,12 @@ impl CoreGl {
             (texture, depth, framebuffer)
         };
         let image = image_of(ctx, context, texture)?;
+        let desktop = !es;
+        if let Err(e) = release(ctx, desktop) {
+            // The release error is the one to report.
+            let _ = ctx.lib.destroy_image(ctx.display, image);
+            return Err(e);
+        }
         let imported = match import(ctx, image, image_target) {
             Ok(texture) => texture,
             Err(e) => {
@@ -395,6 +405,7 @@ impl CoreGl {
             context,
             gl,
             es,
+            desktop,
             es2,
             texture,
             depth,
@@ -437,23 +448,32 @@ impl CoreGl {
         self.imported
     }
 
+    /// True when the core context is current on this thread for its own
+    /// client API.
+    pub(in crate::gles) fn is_current(&self, ctx: &EglContext) -> bool {
+        on_api(ctx, self.desktop, || {
+            Ok(ctx.lib.get_current_context() == Some(self.context))
+        })
+        .unwrap_or(false)
+    }
+
     /// Makes the core context current with no surface, and orders the
     /// draws of the core after the last present that read the image. On an
     /// error no context is current, so a core call draws nowhere.
     pub(in crate::gles) fn begin(&mut self, ctx: &EglContext) -> Result<(), GlesError> {
-        if let Err(e) = ctx
-            .lib
-            .make_current(ctx.display, None, None, Some(self.context))
-        {
-            // The make-current error is the one to report.
-            let _ = ctx.lib.make_current(ctx.display, None, None, None);
-            return Err(egl_error("eglMakeCurrent of the core", e));
-        }
-        if let Some(fence) = self.present_fence.take()
-            && let Err(e) = wait_and_destroy(ctx, fence)
-        {
-            // The wait error is the one to report.
-            let _ = ctx.lib.make_current(ctx.display, None, None, None);
+        let present_fence = self.present_fence.take();
+        let current = on_api(ctx, self.desktop, || {
+            ctx.lib
+                .make_current(ctx.display, None, None, Some(self.context))
+                .map_err(|e| egl_error("eglMakeCurrent of the core", e))?;
+            match present_fence {
+                Some(fence) => wait_and_destroy(ctx, fence),
+                None => Ok(()),
+            }
+        });
+        if let Err(e) = current {
+            // The make-current or wait error is the one to report.
+            let _ = release(ctx, self.desktop);
             return Err(e);
         }
         for texture in self.retired.drain(..) {
@@ -489,12 +509,11 @@ impl CoreGl {
                 status.context_lost = unsafe { reset_status() } != GL_NO_ERROR;
             }
         }
-        let fenced = fence(ctx, &self.gl, self.fences, "the core fence");
+        let fenced = on_api(ctx, self.desktop, || {
+            fence(ctx, &self.gl, self.fences, "the core fence")
+        });
         // The core context goes, so no later GL call reaches it by mistake.
-        let released = ctx
-            .lib
-            .make_current(ctx.display, None, None, None)
-            .map_err(|e| egl_error("eglMakeCurrent to release the core", e));
+        let released = release(ctx, self.desktop);
         let fence = fenced?;
         if let Some(old) = std::mem::replace(&mut self.core_fence, fence) {
             destroy_sync(ctx, old);
@@ -542,7 +561,7 @@ impl CoreGl {
         let made = self.attach_new(ctx, size);
         // The renderer makes its context current next; a failed release
         // shows there.
-        let _ = ctx.lib.make_current(ctx.display, None, None, None);
+        let _ = release(ctx, self.desktop);
         let made = made?;
         let imported = ctx.current().and_then(|gl| self.import_image(&gl, made.1));
         let (texture, image) = keep_or_undo(Ok(made), imported, |(texture, image)| {
@@ -666,7 +685,7 @@ impl CoreGl {
                 self.gl.delete_texture(texture);
             }
             self.restore(&saved);
-            let _ = ctx.lib.make_current(ctx.display, None, None, None);
+            let _ = release(ctx, self.desktop);
         }
         let _ = ctx.lib.destroy_image(ctx.display, image);
         if let Ok(gl) = ctx.current() {
@@ -778,6 +797,11 @@ impl CoreGl {
                     gl.gl.delete_framebuffer(fb);
                 }
             }
+        }
+        if self.begun {
+            // A frame of the core is open: its context is current, and EGL
+            // destroys a current context only once it is released.
+            let _ = release(ctx, self.desktop);
         }
         for fence in [self.core_fence, self.present_fence].into_iter().flatten() {
             destroy_sync(ctx, fence);
@@ -976,6 +1000,39 @@ fn wait_and_destroy(ctx: &EglContext, fence: egl::Sync) -> Result<(), GlesError>
         .map_err(|e| egl_error("eglWaitSync", e));
     destroy_sync(ctx, fence);
     waited
+}
+
+/// Runs `f` with desktop GL bound as the client API of the thread when
+/// `desktop`, then binds OpenGL ES again. EGL applies `eglMakeCurrent` with
+/// no context, `eglCreateSync` and `eglWaitSync` to the current context of
+/// the bound API, so such a call on a desktop GL context needs that API
+/// bound. Mesa takes the call with either API; EGL does not promise it.
+fn on_api<R>(
+    ctx: &EglContext,
+    desktop: bool,
+    f: impl FnOnce() -> Result<R, GlesError>,
+) -> Result<R, GlesError> {
+    if !desktop {
+        return f();
+    }
+    ctx.lib
+        .bind_api(egl::OPENGL_API)
+        .map_err(|e| egl_error("eglBindAPI of desktop GL for the core", e))?;
+    let out = f();
+    // The renderer makes its contexts with OpenGL ES bound; a failure here
+    // shows at its next eglCreateContext, not at a draw.
+    let _ = ctx.lib.bind_api(egl::OPENGL_ES_API);
+    out
+}
+
+/// Releases the core context of the thread, whose API is desktop GL when
+/// `desktop`.
+fn release(ctx: &EglContext, desktop: bool) -> Result<(), GlesError> {
+    on_api(ctx, desktop, || {
+        ctx.lib
+            .make_current(ctx.display, None, None, None)
+            .map_err(|e| egl_error("eglMakeCurrent to release the core", e))
+    })
 }
 
 fn destroy_sync(ctx: &EglContext, fence: egl::Sync) {
