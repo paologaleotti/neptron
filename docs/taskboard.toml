@@ -950,3 +950,39 @@ owns = ["docs"]
 needs = ["S06", "S08", "S10", "S11"]
 gate = "the owner's bench session"
 status = "pending"
+
+[[task]]
+id = "R01"
+wave = 17
+name = "Milestone 0.3, design and research for a MAME core (important to the owner; no product code): which MAME version and build (the full set or a subset of drivers, the size of the core and of the image), its licence, the machines (PC, Raspberry Pi 4 and 5), the speed of Sega Model 1 and 2, Cave CV1000 and Namco System 22 on the bench PC, the ROM set version and its check, BIOS and CHD files, how the library shows a game that FinalBurn Neo and MAME both run and which core starts it, the picture policy for the board resolutions (24 kHz boards on 15, 25 and 31 kHz monitors), the input model (analog wheels, guns, spinners), core options, save states; ends with the questions for the owner"
+owns = ["docs/spec", "docs/adr"]
+needs = []
+gate = "T0; the owner's answers"
+status = "pending"
+
+[[task]]
+id = "R02"
+wave = 17
+name = "The MAME core in the images and the library, by the design of R01"
+owns = ["os", "crates/neptron-library", "crates/neptron-session", "apps/neptron", "docs/spec"]
+needs = ["R01"]
+gate = "T2; core-trace; image builds"
+status = "pending"
+
+[[task]]
+id = "R03"
+wave = 17
+name = "Feasibility of Sega Model 3 (no product code): read the source of Supermodel (GPL v3) and say what a libretro core of it costs, which GL version it needs through the hardware-render path, which machines can run it, and how its 24 kHz picture fits each monitor class; ends with a recommendation for the owner"
+owns = ["docs/spec"]
+needs = ["S02"]
+gate = "T0; the owner's decision"
+status = "pending"
+
+[[task]]
+id = "R04"
+wave = 17
+name = "Vulkan cores: the Vulkan hardware-render interface of libretro, a second renderer path, GameCube and PlayStation 2 class cores (design first, with an ADR)"
+owns = ["docs/spec", "docs/adr", "crates/neptron-gfx", "crates/neptron-libretro", "crates/neptron-kms"]
+needs = ["S02"]
+gate = "T2; tier 3 checks"
+status = "pending"
