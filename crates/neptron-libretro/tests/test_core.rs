@@ -10,17 +10,24 @@
 
 use std::path::{Path, PathBuf};
 
-use neptron_backend::{AudioSink, InputSource};
+use neptron_backend::{
+    AudioSink, ContextOffer, ContextRequest, Display, GlApi, GlVersion, InputSource,
+};
 use neptron_libretro::{
-    AvInfo, Backup, ContentRequest, Event, GameGeometry, Host, HostConfig, LoadError, LogLevel,
-    LogSource, OpenError, OptionError, Pad, Refusal, Timing, Video, ZipError, read_save_file,
-    save_file_path, write_save_file,
+    AvInfo, Backup, ContentRequest, Event, GameGeometry, Host, HostConfig, HwApi, HwRefusal,
+    HwRefusalReason, LoadError, LogLevel, LogSource, OpenError, OptionError, Pad, Refusal, Timing,
+    Video, ZipError, read_save_file, save_file_path, write_save_file,
 };
 use neptron_testcore::{
-    PixelFormat as CoreFormat, SCRIPT_ENV, Size, expected_hash, frames_after, hash, sample,
+    PixelFormat as CoreFormat, SCRIPT_ENV, Size, expected_hash, frames_after, gl_card_pixel, hash,
+    sample,
 };
-use neptron_testkit::{FakeAudio, ScriptedInput, SimClock};
-use neptron_types::{Control, PixelFormat, Rotation};
+use neptron_testkit::preset::CAPS_LOW_CLOCK;
+use neptron_testkit::{
+    DisplayOptions, FakeAudio, FakeDisplay, ScriptedInput, SimClock, gl, gl_calls_without_context,
+    gl_left_state,
+};
+use neptron_types::{Control, FrameOrigin, PixelFormat, Rotation};
 
 /// The built test core, next to the test binary, as the test core's own
 /// load test finds it.
@@ -638,6 +645,181 @@ fn minimal_zip(name: &str, data: &[u8]) -> Vec<u8> {
     out.extend_from_slice(&directory.to_le_bytes());
     out.extend_from_slice(&[0, 0]);
     out
+}
+
+/// The fake display that hosts a GL core, with a GLES 2 offer, as on a
+/// Pi 3.
+fn gl_display() -> FakeDisplay {
+    FakeDisplay::with_options(
+        SimClock::new(),
+        CAPS_LOW_CLOCK,
+        DisplayOptions {
+            core_offer: Some(ContextOffer {
+                gles: Some(GlVersion::new(2, 0)),
+                gl_core: None,
+                gl_compatibility: None,
+            }),
+            ..DisplayOptions::default()
+        },
+    )
+}
+
+/// Loads `script` as a GL core on `display`: the launch order of
+/// `docs/spec/hw-render.md`, section 3.1.
+fn launch_gl(dir: &Path, script: &str, display: &mut FakeDisplay) -> (Host, ContextRequest) {
+    let content = use_script(dir, script);
+    let mut host = open(dir);
+    let core = display.core_render().expect("the display hosts a core");
+    host.set_hw_offer(core.offer());
+    load(&mut host, &content);
+    let request = host.hw_request().expect("the GL core has its context");
+    let target = core.create(&request, 320, 240).expect("create");
+    host.set_hw_target(target.framebuffer, target.lookup);
+    core.begin().unwrap();
+    host.context_reset().unwrap();
+    core.end().unwrap();
+    (host, request)
+}
+
+/// One frame of the core between `begin` and `end`.
+fn gl_frame(host: &mut Host, display: &mut FakeDisplay) -> Video<'static> {
+    let core = display.core_render().unwrap();
+    core.begin().unwrap();
+    let video = match host.run_frame().unwrap().video {
+        Video::Hardware { width, height } => Video::Hardware { width, height },
+        Video::Duplicate(None) => Video::Duplicate(None),
+        Video::Missing => Video::Missing,
+        other => panic!("not a frame of a GL core: {other:?}"),
+    };
+    let status = core.end().unwrap();
+    assert_eq!(status.gl_errors, 0);
+    video
+}
+
+/// The 320x240 picture of the core, upright by `origin`, as `0xRRGGBB`.
+fn gl_picture(display: &mut FakeDisplay, origin: FrameOrigin) -> Vec<u32> {
+    let mut out = vec![0_u8; 320 * 240 * 4];
+    let core = display.core_render().unwrap();
+    core.read_back(&mut out, 320, 240, origin).unwrap();
+    out.chunks_exact(4)
+        .map(|b| u32::from_ne_bytes([b[0], b[1], b[2], b[3]]))
+        .collect()
+}
+
+fn card(rotation: u32) -> Vec<u32> {
+    let size = Size {
+        width: 320,
+        height: 240,
+    };
+    (0..240)
+        .flat_map(|y| (0..320).map(move |x| gl_card_pixel(size, rotation, x, y)))
+        .collect()
+}
+
+const HARDWARE: Video<'static> = Video::Hardware {
+    width: 320,
+    height: 240,
+};
+
+#[test]
+fn a_gl_core_draws_its_card_into_the_display() {
+    let dir = temp_dir("gl-core");
+    let mut display = gl_display();
+    let (mut host, request) = launch_gl(
+        &dir,
+        "neptron-testcore 5\nhw_render gles2 2 0 depth stencil\n\
+         at 1 hw_null\nat 2 hw_none\nat 3 hw_fbo0\nat 4 hw_dirty\n",
+        &mut display,
+    );
+    assert_eq!(
+        request,
+        ContextRequest {
+            api: GlApi::Gles,
+            version: GlVersion::new(2, 0),
+            depth: true,
+            stencil: true,
+            origin: FrameOrigin::TopLeft,
+        }
+    );
+    assert_eq!(gl_frame(&mut host, &mut display), HARDWARE);
+    assert_eq!(gl_picture(&mut display, FrameOrigin::TopLeft), card(0));
+    assert_eq!(gl_frame(&mut host, &mut display), Video::Duplicate(None));
+    assert_eq!(gl_frame(&mut host, &mut display), Video::Missing);
+
+    // Black over the card, so that a draw into framebuffer 0 would show.
+    let core = display.core_render().unwrap();
+    core.begin().unwrap();
+    gl::bind_framebuffer(0x8D40, 1);
+    gl::clear_color(0.0, 0.0, 0.0, 1.0);
+    gl::clear(0x4000);
+    core.end().unwrap();
+    assert_eq!(gl_frame(&mut host, &mut display), HARDWARE);
+    assert_eq!(
+        gl_picture(&mut display, FrameOrigin::TopLeft),
+        vec![0; 320 * 240],
+        "framebuffer 0 is no surface"
+    );
+
+    assert_eq!(gl_frame(&mut host, &mut display), HARDWARE);
+    let left = gl_left_state();
+    assert_eq!(left.framebuffer, 0, "hw_dirty binds framebuffer 0");
+    assert!(left.blend && left.scissor_test);
+    assert_eq!(gl_picture(&mut display, FrameOrigin::TopLeft), card(0));
+    assert_eq!(gl_frame(&mut host, &mut display), HARDWARE);
+    assert_eq!(gl_picture(&mut display, FrameOrigin::TopLeft), card(0));
+
+    let core = display.core_render().unwrap();
+    core.begin().unwrap();
+    host.context_destroy().unwrap();
+    core.end().unwrap();
+    assert_eq!(
+        gl_calls_without_context(),
+        0,
+        "every GL call came inside a frame"
+    );
+}
+
+#[test]
+fn a_gl_core_with_a_bottom_left_origin_and_a_turn() {
+    let dir = temp_dir("gl-core-bottom-left");
+    let mut display = gl_display();
+    let (mut host, request) = launch_gl(
+        &dir,
+        "neptron-testcore 5\nhw_render gles 2 0 bottom_left\nrotation 1\n",
+        &mut display,
+    );
+    assert_eq!(request.origin, FrameOrigin::BottomLeft);
+    assert_eq!(gl_frame(&mut host, &mut display), HARDWARE);
+    assert_eq!(gl_picture(&mut display, FrameOrigin::BottomLeft), card(1));
+    assert_ne!(gl_picture(&mut display, FrameOrigin::TopLeft), card(1));
+}
+
+#[test]
+fn a_gl_core_that_the_display_cannot_host_does_not_load() {
+    let dir = temp_dir("gl-core-refused");
+    let content = use_script(&dir, "neptron-testcore 5\nhw_render gles3 0 0\n");
+    let mut host = open(&dir);
+    let mut display = gl_display();
+    host.set_hw_offer(display.core_render().unwrap().offer());
+    let exts = ["ntc".to_owned()];
+    let loaded = host.load_game(Some(ContentRequest {
+        path: &content,
+        extensions: &exts,
+    }));
+    assert!(matches!(loaded, Err(LoadError::Refused)));
+    assert_eq!(
+        host.hw_refusal(),
+        Some(HwRefusal {
+            context_type: 4,
+            api: HwApi::OpenGles,
+            major: 3,
+            minor: 0,
+            reason: HwRefusalReason::NotOffered,
+        })
+    );
+    assert!(host.logs().iter().any(|r| r.source == LogSource::Core
+        && r.level == LogLevel::Error
+        && r.text.contains("refused the hardware context")));
 }
 
 fn crc32(data: &[u8]) -> u32 {
