@@ -855,7 +855,7 @@ status = "merged"
 [[task]]
 id = "S02"
 wave = 16
-name = "Hardware-render for GL and GLES cores: the core draws into a frame buffer of the renderer, on the PC and on the Pi; a GL test core. Part 1 is merged (the contract of ADR 0022, the answers of the host, the GL test core and the reference GL of the fake display). Part 2: the review points of part 1 (hardware state after a refused load, one log line for a repeated request, the framebuffer name after a destroy, the contract of the GL function lookup), then the GPU code and the probe (W1, W5). Part 3: the session and the notices (W4), the hang watchdog, the measurements on hardware (W6)"
+name = "Hardware-render for GL and GLES cores: the core draws into a frame buffer of the renderer, on the PC and on the Pi; a GL test core. Part 1 is merged (the contract of ADR 0022, the answers of the host, the GL test core and the reference GL of the fake display). Part 2 is merged (the review points of part 1, the GPU code, the probe; gles-compare 322 checks and kms-check 137, 0 failed). Part 3: first the review points of part 2 (free the core context when the last make-current of create or resize fails; bind the desktop GL API around calls on a GL core context; report a lost context with a failed end; refuse render, resize and read-back between begin and end; a bottom-left scene with a crop in gles-compare), then the session and the notices (W4), the hang watchdog, the hardware checklist lines and the measurements on hardware (W6)"
 owns = ["crates/neptron-libretro", "crates/neptron-libretro-sys", "crates/neptron-gfx", "crates/neptron-video", "crates/neptron-session", "crates/neptron-testcore"]
 needs = ["S01"]
 gate = "T2; gles-compare; kms-check"
