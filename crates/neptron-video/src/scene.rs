@@ -26,6 +26,11 @@ pub struct SceneInputs<'p> {
     /// The form of the UI: its canvas is the size that the scene places
     /// when it has no canvas.
     pub form: Form,
+    /// The internal resolution of the game picture: a whole number of
+    /// picture pixels on each axis for one pixel of the source. 1 for a
+    /// core that draws at its native size. A GL core that draws above it
+    /// sends a picture `picture_scale` times the source.
+    pub picture_scale: u16,
 }
 
 /// The one place where the engine builds a `Scene`: the run and the preview
@@ -62,20 +67,42 @@ pub struct SceneInputs<'p> {
 /// settings, the whole vertical multiple from the lines of the turned
 /// crop to the destination of this scene, the screen class of the mode on the monitor, and its
 /// interlace flag.
+///
+/// A picture at an internal resolution `k` (`inputs.picture_scale`) is
+/// `k` times its source on each axis. Every rule above runs on the native
+/// size, the picture size over `k`, and the crop is then `k` times the
+/// native crop: the placement and the scanlines see the native lines. The
+/// filter is nearest only when the destination is a whole multiple of the
+/// scaled crop on both axes. A picture whose sides are not multiples of
+/// `k` counts as native.
 pub fn build_scene<'a>(
     inputs: &SceneInputs<'_>,
-    game: Option<Frame<'a>>,
+    game: Option<GamePicture<'a>>,
     ui: Option<Frame<'a>>,
 ) -> Scene<'a> {
     let placement = inputs.placement;
     let rotation = inputs.source.rotation;
-    let (crop, dest, filter) = match game {
-        Some(frame) if !crop_holds(&placement.crop, inputs.source, &frame) => {
-            other_frame(placement, rotation, &frame)
+    let k = game.map_or(1, |g| {
+        picture_scale(g.width(), g.height(), inputs.picture_scale)
+    });
+    let native = game.map(|g| (g.width() / k, g.height() / k));
+    let (native_crop, dest, filter) = match native {
+        Some(size) if !crop_holds(&placement.crop, inputs.source, size) => {
+            other_frame(placement, rotation, size)
         }
         _ => (placement.crop, placement.dest, placement.filter),
     };
-    let (_, turned_lines) = turned_size(&crop, rotation);
+    let (_, turned_lines) = turned_size(&native_crop, rotation);
+    let (crop, filter) = if k == 1 {
+        (native_crop, filter)
+    } else {
+        let crop = scale_rect(&native_crop, k);
+        let scaled = match filter_for(turned_size(&crop, rotation), &dest) {
+            Filter::Nearest => filter,
+            other => other,
+        };
+        (crop, scaled)
+    };
     let scanlines = scanlines_for(
         inputs.scanlines.mode,
         inputs.scanlines.strength_percent,
@@ -85,7 +112,7 @@ pub fn build_scene<'a>(
     );
     let (ui_dest, ui_filter) = ui_place(inputs, ui.as_ref());
     Scene {
-        game: game.map(GamePicture::Memory),
+        game,
         crop,
         dest,
         rotation,
@@ -111,11 +138,31 @@ fn ui_place(inputs: &SceneInputs<'_>, ui: Option<&Frame<'_>>) -> (Rect, Filter) 
     (placed.dest, placed.filter)
 }
 
-/// The frame has the size of the placement's source, and the crop lies
-/// inside it.
-fn crop_holds(crop: &Rect, source: &SourceGeometry, frame: &Frame<'_>) -> bool {
-    let (width, height) = (i64::from(frame.width), i64::from(frame.height));
-    let same_size = frame.width == source.width && frame.height == source.height;
+/// The scale `k` of a picture of `width` by `height` at the internal
+/// resolution `scale`: `scale` when both sides are multiples of it, else 1.
+fn picture_scale(width: u16, height: u16, scale: u16) -> u16 {
+    if scale > 1 && width.is_multiple_of(scale) && height.is_multiple_of(scale) {
+        scale
+    } else {
+        1
+    }
+}
+
+/// `rect` with every value `k` times larger.
+fn scale_rect(rect: &Rect, k: u16) -> Rect {
+    Rect {
+        x: rect.x * i32::from(k),
+        y: rect.y * i32::from(k),
+        w: rect.w * u32::from(k),
+        h: rect.h * u32::from(k),
+    }
+}
+
+/// The frame of `(width, height)` has the size of the placement's source,
+/// and the crop lies inside it.
+fn crop_holds(crop: &Rect, source: &SourceGeometry, (frame_w, frame_h): (u16, u16)) -> bool {
+    let (width, height) = (i64::from(frame_w), i64::from(frame_h));
+    let same_size = frame_w == source.width && frame_h == source.height;
     let (x, y) = (i64::from(crop.x), i64::from(crop.y));
     same_size
         && x >= 0
@@ -131,7 +178,7 @@ fn crop_holds(crop: &Rect, source: &SourceGeometry, frame: &Frame<'_>) -> bool {
 fn other_frame(
     placement: &Placement,
     rotation: Rotation,
-    frame: &Frame<'_>,
+    frame: (u16, u16),
 ) -> (Rect, Rect, Filter) {
     let all = whole(frame);
     let dest = placement.dest;
@@ -186,12 +233,12 @@ fn centre(outer: u32, inner: u32) -> i32 {
     i32::try_from(outer.saturating_sub(inner) / 2).unwrap_or(0)
 }
 
-fn whole(frame: &Frame<'_>) -> Rect {
+fn whole((width, height): (u16, u16)) -> Rect {
     Rect {
         x: 0,
         y: 0,
-        w: u32::from(frame.width),
-        h: u32::from(frame.height),
+        w: u32::from(width),
+        h: u32::from(height),
     }
 }
 
@@ -215,7 +262,9 @@ fn filter_for((columns, lines): (u32, u32), dest: &Rect) -> Filter {
 #[cfg(test)]
 mod tests {
     use neptron_modeline::policy::ScaleClaim;
-    use neptron_types::{PixelFormat, ScanlineKind, ScanlineMode, Scanlines};
+    use neptron_types::{
+        FrameOrigin, GpuFrame, GpuImageId, PixelFormat, ScanlineKind, ScanlineMode, Scanlines,
+    };
 
     use super::*;
 
@@ -303,8 +352,9 @@ mod tests {
             },
             ui_turn: Rotation::R0,
             form: Form::Landscape,
+            picture_scale: 1,
         };
-        build_scene(&inputs, game, ui)
+        build_scene(&inputs, game.map(GamePicture::Memory), ui)
     }
 
     /// The scene of `p` with the canvas turned by `ui_turn` in `mode` on
@@ -329,8 +379,9 @@ mod tests {
             } else {
                 Form::Landscape
             },
+            picture_scale: 1,
         };
-        build_scene(&inputs, Some(frame(256, 224)), ui)
+        build_scene(&inputs, Some(GamePicture::Memory(frame(256, 224))), ui)
     }
 
     fn mode(hactive: u16, vactive: u16, interlace: bool) -> Modeline {
@@ -504,6 +555,95 @@ mod tests {
         assert_eq!(scene.crop, p.crop);
         assert_eq!(scene.filter, Filter::Nearest);
         assert_eq!(scene.dest.h, 2 * scene.crop.h);
+    }
+
+    /// The scene of a GPU picture of `size` at the internal resolution
+    /// `k`, with scanlines on.
+    fn build_gpu(
+        p: &Placement,
+        source: &SourceGeometry,
+        size: (u16, u16),
+        k: u16,
+    ) -> Scene<'static> {
+        let monitor = crt();
+        let inputs = SceneInputs {
+            placement: p,
+            source,
+            monitor: &monitor,
+            mode: &MODE_448P,
+            scanlines: ScanlineSettings {
+                mode: ScanlineMode::On,
+                strength_percent: 75,
+            },
+            ui_turn: Rotation::R0,
+            form: Form::Landscape,
+            picture_scale: k,
+        };
+        let gpu = GpuFrame {
+            image: GpuImageId(1),
+            width: size.0,
+            height: size.1,
+            storage_width: 1_024,
+            storage_height: 1_024,
+            origin: FrameOrigin::BottomLeft,
+        };
+        build_scene(&inputs, Some(GamePicture::Gpu(gpu)), None)
+    }
+
+    #[test]
+    fn a_picture_at_an_internal_resolution_takes_the_native_placement_times_k() {
+        let (p, source) = cropped();
+        let native = build(&p, &source, Some(frame(256, 240)), None);
+        for k in [2_u16, 4] {
+            let scene = build_gpu(&p, &source, (256 * k, 240 * k), k);
+            let k32 = u32::from(k);
+            assert_eq!(
+                scene.crop,
+                rect(0, 8 * i32::from(k), 256 * k32, 224 * k32),
+                "{k}x"
+            );
+            assert_eq!(
+                scene.dest, native.dest,
+                "the destination of the native lines"
+            );
+            assert_eq!(
+                scene.scanlines, native.scanlines,
+                "the scanlines follow the native lines"
+            );
+            assert_eq!(
+                scene.filter,
+                Filter::SharpBilinear,
+                "{k}x columns do not divide the destination"
+            );
+            assert!(matches!(scene.game, Some(GamePicture::Gpu(g)) if g.width == 256 * k));
+        }
+    }
+
+    #[test]
+    fn a_picture_that_is_a_whole_step_of_the_scaled_crop_keeps_nearest() {
+        let p = Placement {
+            crop: rect(0, 0, 256, 224),
+            dest: rect(0, 0, 512, 448),
+            scale: ScaleClaim {
+                x: Some(2),
+                y: Some(2),
+            },
+            ..placement()
+        };
+        let scene = build_gpu(&p, &SOURCE, (512, 448), 2);
+        assert_eq!(scene.crop, rect(0, 0, 512, 448));
+        assert_eq!(scene.filter, Filter::Nearest);
+    }
+
+    #[test]
+    fn a_picture_whose_sides_are_not_multiples_of_k_counts_as_native() {
+        let (p, source) = cropped();
+        let scene = build_gpu(&p, &source, (255, 240), 2);
+        assert_eq!(
+            scene.crop,
+            rect(0, 0, 255, 240),
+            "another size: shown whole"
+        );
     }
 
     #[test]

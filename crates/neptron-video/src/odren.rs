@@ -2,7 +2,8 @@ use neptron_backend::DisplayError;
 use neptron_modeline::policy::{PolicySettings, Proposal, Switch, panel_scanlines, switch_for};
 use neptron_safety::{Rejection, ValidatedMode, validate};
 use neptron_types::{
-    FlipEvent, Form, Frame, GpuCaps, Modeline, Orientation, Scene, SourceGeometry, Turns,
+    FlipEvent, Form, Frame, GamePicture, GpuCaps, Modeline, Orientation, Scene, SourceGeometry,
+    Turns,
 };
 
 use crate::answers::{AnswerCache, AnswerRequest};
@@ -343,6 +344,18 @@ impl Odren {
 
     /// The scene of the mode on screen, or `None` before the first mode.
     pub fn scene<'a>(&self, game: Option<Frame<'a>>, ui: Option<Frame<'a>>) -> Option<Scene<'a>> {
+        self.picture_scene(game.map(GamePicture::Memory), 1, ui)
+    }
+
+    /// The scene of the mode on screen for a game picture in memory or on
+    /// the GPU, at the internal resolution `picture_scale` (see
+    /// [`SceneInputs::picture_scale`]), or `None` before the first mode.
+    pub fn picture_scene<'a>(
+        &self,
+        game: Option<GamePicture<'a>>,
+        picture_scale: u16,
+        ui: Option<Frame<'a>>,
+    ) -> Option<Scene<'a>> {
         let current = self.current.as_ref()?;
         let inputs = SceneInputs {
             placement: &current.chosen.proposal.placement,
@@ -352,6 +365,7 @@ impl Odren {
             scanlines: self.scanlines,
             ui_turn: self.orientation.ui_turn(),
             form: self.form(),
+            picture_scale,
         };
         Some(build_scene(&inputs, game, ui))
     }
@@ -376,8 +390,9 @@ impl Odren {
             scanlines: self.scanlines,
             ui_turn: self.orientation.ui_turn(),
             form: self.form(),
+            picture_scale: 1,
         };
-        build_scene(&inputs, game, ui)
+        build_scene(&inputs, game.map(GamePicture::Memory), ui)
     }
 
     /// Writes the video status of the mode on screen into `out`, from its

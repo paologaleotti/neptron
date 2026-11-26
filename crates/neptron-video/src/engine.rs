@@ -1,8 +1,10 @@
-use neptron_backend::{Display, DisplayError};
+use neptron_backend::{CoreRender, Display, DisplayError};
 use neptron_modeline::policy::{Offer, PictureChoices, PolicySettings, Proposal};
 
 use crate::answers::AnswerRequest;
-use neptron_types::{FlipEvent, Form, Frame, Modeline, Orientation, Scene, SourceGeometry, Turns};
+use neptron_types::{
+    FlipEvent, Form, Frame, GamePicture, Modeline, Orientation, Scene, SourceGeometry, Turns,
+};
 
 use crate::odren::{AfterModeSet, ModeOrder};
 use crate::{
@@ -190,6 +192,22 @@ impl<D: Display> VideoEngine<D> {
         game: Option<Frame<'_>>,
         ui: Option<Frame<'_>>,
     ) -> Result<Presented, VideoError> {
+        self.present_picture(game.map(GamePicture::Memory), 1, ui)
+    }
+
+    /// [`VideoEngine::present`] for a game picture in memory or on the
+    /// GPU, at the internal resolution `picture_scale` (see
+    /// [`SceneInputs::picture_scale`](crate::SceneInputs::picture_scale)).
+    ///
+    /// # Errors
+    ///
+    /// As [`VideoEngine::present`].
+    pub fn present_picture(
+        &mut self,
+        game: Option<GamePicture<'_>>,
+        picture_scale: u16,
+        ui: Option<Frame<'_>>,
+    ) -> Result<Presented, VideoError> {
         let mut presented = Presented {
             drained_flip: None,
             modeset: None,
@@ -198,7 +216,10 @@ impl<D: Display> VideoEngine<D> {
         let modeset = self.modeset();
         self.blank_if_due();
         presented.modeset = modeset?;
-        let scene = self.odren.scene(game, ui).ok_or(VideoError::NoMode)?;
+        let scene = self
+            .odren
+            .picture_scene(game, picture_scale, ui)
+            .ok_or(VideoError::NoMode)?;
         self.display.present(&scene).map_err(VideoError::Present)?;
         self.flip_pending = true;
         Ok(presented)
@@ -253,6 +274,12 @@ impl<D: Display> VideoEngine<D> {
     /// The state machine.
     pub fn odren(&self) -> &Odren {
         &self.odren
+    }
+
+    /// The host of the GL context of a core on the display, or `None`
+    /// when the display has none.
+    pub fn core_render(&mut self) -> Option<&mut dyn CoreRender> {
+        self.display.core_render()
     }
 
     /// The display.
