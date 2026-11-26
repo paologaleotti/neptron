@@ -289,6 +289,37 @@ fn scanlines_turned_on_in_a_game_set_the_option_to_1x() {
 }
 
 #[test]
+fn a_change_to_a_crt_in_a_game_sets_the_option_to_1x() {
+    with_script!(
+        "a_change_to_a_crt_in_a_game_sets_the_option_to_1x",
+        GL_SCRIPT,
+        |dir| {
+            let mut rig = Rig::launch(dir, panel_setup());
+            rig.run(4);
+            let scale = |rig: &Rig| {
+                rig.session
+                    .host()
+                    .options()
+                    .iter()
+                    .find(|o| o.key() == "neptron_testcore_scale")
+                    .map(|o| o.value().to_owned())
+            };
+            assert_eq!(scale(&rig).as_deref(), Some("4"));
+            let crt = neptron_testkit::preset::monitor_preset("generic_15").expect("a preset");
+            rig.session
+                .video_mut()
+                .set_monitor(neptron_video::Monitor::Profile(crt));
+            rig.run(1);
+            assert_eq!(
+                scale(&rig).as_deref(),
+                Some("1"),
+                "a CRT never keeps a scale above 1"
+            );
+        }
+    );
+}
+
+#[test]
 fn a_turned_screen_turns_the_gpu_picture() {
     with_script!("a_turned_screen_turns_the_gpu_picture", GL_SCRIPT, |dir| {
         let mut rig = Rig::launch(dir, gl_setup(PC_OFFER));

@@ -77,11 +77,11 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             .map_or(ContextOffer::NONE, |render| render.offer());
         let mut host = Host::open(game.core, config)?;
         host.set_hw_offer(offer);
-        let scale_rule = game
+        let mut scale_rule = game
             .internal_scale
             .map(|scale| ScaleRule::new(&scale, options.machine));
-        let (scale, scale_pair) = scale_rule.as_ref().map_or((1, None), |rule| {
-            rule.pick(&video.monitor.profile().kind, video.scanlines.mode)
+        let (scale, scale_pair) = scale_rule.as_mut().map_or((1, None), |rule| {
+            rule.pick(video.monitor.profile(), video.scanlines.mode)
         });
         // The value of the rule comes last, so it wins over a value of the
         // core data for the same key.

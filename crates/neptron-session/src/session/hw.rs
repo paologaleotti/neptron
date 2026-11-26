@@ -6,7 +6,9 @@ use neptron_backend::{
     AudioSink, Clock, ContextRequest, CoreRender, CoreRenderError, CoreTarget, Display, InputSource,
 };
 use neptron_libretro::{Host, RunError};
-use neptron_types::{Frame, GamePicture, GpuFrame, ScanlineMode};
+use std::mem::Discriminant;
+
+use neptron_types::{Frame, GamePicture, GpuFrame, MonitorKind, MonitorProfile, ScanlineMode};
 use neptron_video::VideoEngine;
 
 use super::{Session, State};
@@ -53,13 +55,17 @@ enum Fault {
 }
 
 /// The rule of the internal resolution for a game, kept for a live change
-/// of the scanlines.
+/// of the scanlines or of the monitor, and what it last picked for.
 #[derive(Debug, Clone)]
 pub(crate) struct ScaleRule {
     option: String,
     native_lines: u16,
     values: Vec<(u8, String)>,
     machine: Machine,
+    /// The id and the class of the monitor of the last pick.
+    monitor: (String, Discriminant<MonitorKind>),
+    /// The scanline mode of the last pick.
+    scanlines: ScanlineMode,
 }
 
 impl ScaleRule {
@@ -70,17 +76,40 @@ impl ScaleRule {
             native_lines: scale.native_lines,
             values: scale.values.to_vec(),
             machine,
+            monitor: (
+                String::new(),
+                std::mem::discriminant(&MonitorKind::Tv {
+                    standard: neptron_types::TvStandard::Ntsc,
+                }),
+            ),
+            scanlines: ScanlineMode::Off,
         }
     }
 
+    /// True when `monitor` is not the monitor of the last pick: another
+    /// id or another class.
+    fn new_monitor(&self, monitor: &MonitorProfile) -> bool {
+        self.monitor.0 != monitor.id || self.monitor.1 != std::mem::discriminant(&monitor.kind)
+    }
+
     /// The scale for `monitor` with the scanlines `mode`, and the option
-    /// pair that sets it.
+    /// pair that sets it. It keeps both for the next look.
     pub(crate) fn pick(
-        &self,
-        monitor: &neptron_types::MonitorKind,
+        &mut self,
+        monitor: &MonitorProfile,
         mode: ScanlineMode,
     ) -> (u8, Option<(String, String)>) {
-        let k = internal_scale(monitor, self.machine, mode, self.native_lines, &self.values);
+        if self.new_monitor(monitor) {
+            self.monitor = (monitor.id.clone(), std::mem::discriminant(&monitor.kind));
+        }
+        self.scanlines = mode;
+        let k = internal_scale(
+            &monitor.kind,
+            self.machine,
+            mode,
+            self.native_lines,
+            &self.values,
+        );
         let scale = InternalScale {
             option: &self.option,
             native_lines: self.native_lines,
@@ -405,11 +434,31 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     /// takes the new option value when it reads its options.
     pub fn set_scanlines(&mut self, scanlines: neptron_video::ScanlineSettings) {
         self.engine.set_scanlines(scanlines);
-        let (Some(rule), Some(hw)) = (self.scale_rule.as_ref(), self.hw.as_mut()) else {
+        self.pick_scale(scanlines.mode);
+    }
+
+    /// Picks the internal resolution of a GL core again when the monitor
+    /// of the engine changed since the last pick: a guard revert or the
+    /// blind recovery can turn a panel into a CRT in a game, and a CRT
+    /// takes 1x. A look is a compare of the monitor id, with no
+    /// allocation.
+    pub(super) fn follow_monitor(&mut self) {
+        let Some(rule) = self.scale_rule.as_ref() else {
             return;
         };
-        let monitor = &self.engine.odren().monitor().profile().kind;
-        let (k, pair) = rule.pick(monitor, scanlines.mode);
+        if self.hw.is_some() && rule.new_monitor(self.engine.odren().monitor().profile()) {
+            let mode = rule.scanlines;
+            self.pick_scale(mode);
+        }
+    }
+
+    /// Picks the internal resolution for the monitor of the engine and the
+    /// scanline `mode`, and sets the core option when the scale changes.
+    fn pick_scale(&mut self, mode: ScanlineMode) {
+        let (Some(rule), Some(hw)) = (self.scale_rule.as_mut(), self.hw.as_mut()) else {
+            return;
+        };
+        let (k, pair) = rule.pick(self.engine.odren().monitor().profile(), mode);
         if k == hw.scale {
             return;
         }

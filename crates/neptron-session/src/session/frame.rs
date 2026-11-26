@@ -67,6 +67,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             pacing: None,
         };
         self.read_input(now_ns, &mut report);
+        self.follow_monitor();
 
         // With the output off nothing paces the core, so it waits with the
         // game frozen until the engine sets a mode again.
