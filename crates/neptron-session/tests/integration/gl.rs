@@ -461,6 +461,83 @@ fn a_lost_context_is_made_again_once_and_a_second_loss_ends_the_game() {
 }
 
 #[test]
+fn a_loss_that_shows_at_begin_is_made_again_once_like_a_loss_at_end() {
+    with_script!(
+        "a_loss_that_shows_at_begin_is_made_again_once_like_a_loss_at_end",
+        GL_SCRIPT,
+        |dir| {
+            let setup = Setup {
+                core_begin_losses: vec![20, 40],
+                ..gl_setup(PC_OFFER)
+            };
+            let mut rig = Rig::launch(dir, setup);
+            let mut error = None;
+            for _ in 0..60 {
+                if let Err(e) = rig.session.run_frame(None) {
+                    error = Some(e);
+                    break;
+                }
+            }
+            let creates = rig
+                .display
+                .core_calls()
+                .iter()
+                .filter(|r| matches!(r.call, CoreCall::Create { result: Ok(_), .. }))
+                .count();
+            assert_eq!(creates, 2, "one new context after the first loss");
+            assert!(
+                matches!(error, Some(SessionError::ContextLost { losses: 2 })),
+                "{error:?}"
+            );
+            assert_eq!(rig.session.counters().context_losses, 2);
+        }
+    );
+}
+
+#[test]
+fn a_driver_failure_at_begin_ends_the_game_cleanly() {
+    with_script!(
+        "a_driver_failure_at_begin_ends_the_game_cleanly",
+        GL_SCRIPT,
+        |dir| {
+            let setup = Setup {
+                core_begin_faults: vec![20],
+                ..gl_setup(PC_OFFER)
+            };
+            let mut rig = Rig::launch(dir, setup);
+            let mut error = None;
+            for _ in 0..60 {
+                if let Err(e) = rig.session.run_frame(None) {
+                    error = Some(e);
+                    break;
+                }
+            }
+            let Some(SessionError::Graphics(e)) = error else {
+                panic!("{error:?}");
+            };
+            assert_eq!(
+                format!("The game stopped: {}.", SessionError::Graphics(e)),
+                "The game stopped: the graphics driver failed: the graphics driver failed in begin: the driver refused.",
+                "the notice of the app"
+            );
+            assert!(rig.session.ended());
+            assert_eq!(rig.session.counters().context_losses, 0);
+            // One core runs per process: the next game starts in a new
+            // run, after a clean end here.
+            let display = rig.display.clone();
+            drop(rig.session.quit());
+            assert!(
+                matches!(
+                    display.core_calls().last().map(|r| &r.call),
+                    Some(CoreCall::Begin(Ok(())))
+                ),
+                "context_destroy runs inside the context at the end"
+            );
+        }
+    );
+}
+
+#[test]
 fn the_end_of_a_gl_game_destroys_its_context_inside_it() {
     with_script!(
         "the_end_of_a_gl_game_destroys_its_context_inside_it",

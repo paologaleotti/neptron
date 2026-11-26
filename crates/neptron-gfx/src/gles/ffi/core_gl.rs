@@ -21,8 +21,8 @@ use super::{
     EglContext, EglInstance, Gl, Texture, egl_error, has_extension, load_egl, version_text,
 };
 use crate::gles::core_spec::{
-    DepthFormat, ErrorCadence, MAX_GL_ERRORS_PER_CHECK, depth_format, end_outcome, keep_or_undo,
-    picture_from_gl,
+    DepthFormat, ErrorCadence, MAX_GL_ERRORS_PER_CHECK, begin_error, depth_format, end_outcome,
+    keep_or_undo, picture_from_gl,
 };
 use crate::gles::{CoreApi, CoreOffer, CoreSpec, CoreStatus, GlesError, version};
 
@@ -480,7 +480,7 @@ impl CoreGl {
         if let Err(e) = current {
             // The make-current or wait error is the one to report.
             let _ = release(ctx, self.desktop);
-            return Err(e);
+            return Err(begin_error(e));
         }
         for texture in self.retired.drain(..) {
             // SAFETY: the core context is current, and the texture is its

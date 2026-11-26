@@ -222,6 +222,11 @@ pub struct Setup {
     /// The `end` calls of the core context (from 0) that report a lost
     /// context.
     pub core_losses: Vec<u64>,
+    /// The `begin` calls of the core context (from 0) that find the
+    /// context lost.
+    pub core_begin_losses: Vec<u64>,
+    /// The `begin` calls of the core context that fail with a driver error.
+    pub core_begin_faults: Vec<u64>,
 }
 
 /// The internal resolution option of the GL test core, with every scale it
@@ -273,6 +278,8 @@ impl Default for Setup {
             machine: Machine::Pc,
             core_create_fault: None,
             core_losses: Vec::new(),
+            core_begin_losses: Vec::new(),
+            core_begin_faults: Vec::new(),
         }
     }
 }
@@ -362,6 +369,12 @@ impl Rig {
         }
         for call in &setup.core_losses {
             display.fault_core_loss(*call);
+        }
+        for call in &setup.core_begin_losses {
+            display.fault_core_begin_loss(*call);
+        }
+        for call in &setup.core_begin_faults {
+            display.fault_core_begin(*call, "the driver refused".to_owned());
         }
         let audio = FakeAudio::with_options(
             clock.clone(),

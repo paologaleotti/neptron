@@ -203,6 +203,12 @@ fn begin<D: Display>(engine: &mut VideoEngine<D>, hw: &mut Hw) -> bool {
     }
     match render.begin() {
         Ok(()) => true,
+        // The context was made, so a begin that finds none means the GPU
+        // lost it: the same loss as one that `end` reports.
+        Err(CoreRenderError::NoContext { .. }) => {
+            hw.fault = Some(Fault::Lost);
+            false
+        }
         Err(e) => {
             hw.fault = Some(Fault::Driver(e));
             false

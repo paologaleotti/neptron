@@ -182,6 +182,24 @@ pub(super) fn end_outcome(
     }
 }
 
+/// `EGL_CONTEXT_LOST`: a power event or a GPU reset lost the context.
+pub(super) const EGL_CONTEXT_LOST: i32 = 0x300E;
+
+/// The error of a failed `core_begin`: a make-current that EGL refuses
+/// because the GPU lost the context is a lost context, which the caller
+/// makes again; any other error stays as it is.
+pub(super) fn begin_error(error: GlesError) -> GlesError {
+    match error {
+        GlesError::Egl {
+            code: EGL_CONTEXT_LOST,
+            ..
+        } => GlesError::CoreContextLost {
+            cause: Box::new(error),
+        },
+        other => other,
+    }
+}
+
 /// The end of a setup whose last step makes another context current:
 /// `made` when the step `restored` holds too. A failed setup gives its own
 /// error. A setup that held, with a failed last step, gives the error of
@@ -319,6 +337,22 @@ mod tests {
             code: 0x300E,
             message: "EGL_CONTEXT_LOST".to_owned(),
         }
+    }
+
+    #[test]
+    fn a_begin_that_egl_refuses_for_a_lost_context_is_a_lost_context() {
+        assert_eq!(
+            begin_error(egl("eglMakeCurrent of the core")),
+            GlesError::CoreContextLost {
+                cause: Box::new(egl("eglMakeCurrent of the core"))
+            }
+        );
+        let bad_access = GlesError::Egl {
+            call: "eglMakeCurrent of the core",
+            code: 0x3002,
+            message: "EGL_BAD_ACCESS".to_owned(),
+        };
+        assert_eq!(begin_error(bad_access.clone()), bad_access);
     }
 
     #[test]

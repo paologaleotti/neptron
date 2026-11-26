@@ -40,9 +40,15 @@ impl CoreRender for KmsDisplay {
     }
 
     fn begin(&mut self) -> Result<(), CoreRenderError> {
-        self.renderer
-            .core_begin()
-            .map_err(|e| core_error(e, "begin", None))
+        match self.renderer.core_begin() {
+            Ok(()) => Ok(()),
+            // The GPU lost the context, so nothing is made any more: the
+            // session makes the context again, as after a loss at the end.
+            Err(GlesError::CoreContextLost { .. }) => Err(CoreRenderError::NoContext {
+                operation: "begin after the GPU lost the context",
+            }),
+            Err(e) => Err(core_error(e, "begin", None)),
+        }
     }
 
     fn end(&mut self) -> Result<CoreFrameStatus, CoreRenderError> {

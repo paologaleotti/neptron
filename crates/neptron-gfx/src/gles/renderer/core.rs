@@ -95,8 +95,10 @@ impl GlesRenderer {
     /// # Errors
     ///
     /// [`GlesError::NoCoreContext`] before [`core_create`](Self::core_create),
-    /// and [`GlesError::Egl`] when EGL cannot make the context current or
-    /// wait. Then no context is current, and the core must not run.
+    /// [`GlesError::CoreContextLost`] when EGL refuses the context because
+    /// the GPU lost it, and [`GlesError::Egl`] when EGL cannot make the
+    /// context current or wait for another reason. Then no context is
+    /// current, and the core must not run.
     pub fn core_begin(&mut self) -> Result<(), GlesError> {
         let core = self
             .core

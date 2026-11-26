@@ -1,7 +1,7 @@
 //! The fake display as the host of the context of a GL core, on the
 //! reference core GL of this crate (`docs/spec/hw-render.md`, section 7.2).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use neptron_backend::{
     ContextOffer, ContextRequest, CoreFrameStatus, CoreRender, CoreRenderError, CoreTarget,
@@ -69,6 +69,11 @@ pub(crate) struct CoreHost {
     create_fault: Option<String>,
     losses: BTreeSet<u64>,
     end_calls: u64,
+    /// The `begin` calls that find the context lost.
+    begin_losses: BTreeSet<u64>,
+    /// The `begin` calls that fail with a driver error, and its reason.
+    begin_faults: BTreeMap<u64, String>,
+    begin_calls: u64,
     records: Vec<CoreRecord>,
 }
 
@@ -92,6 +97,20 @@ impl FakeDisplay {
     /// GPU reset.
     pub fn fault_core_loss(&self, end_call: u64) {
         self.lock().core.losses.insert(end_call);
+    }
+
+    /// Scripts the `begin` call number `begin_call` (from 0) to find the
+    /// context lost, as EGL refuses to make a lost context current: the
+    /// image and the framebuffer are gone, and the call returns
+    /// [`CoreRenderError::NoContext`], as the KMS display does.
+    pub fn fault_core_begin_loss(&self, begin_call: u64) {
+        self.lock().core.begin_losses.insert(begin_call);
+    }
+
+    /// Scripts the `begin` call number `begin_call` (from 0) to fail with
+    /// [`CoreRenderError::Driver`] and `reason`. The context stays.
+    pub fn fault_core_begin(&self, begin_call: u64, reason: String) {
+        self.lock().core.begin_faults.insert(begin_call, reason);
     }
 
     /// Every call of the core context, in order.
@@ -224,8 +243,22 @@ impl CoreHost {
     }
 
     fn begin(&mut self) -> Result<(), CoreRenderError> {
+        let call = self.begin_calls;
+        self.begin_calls = self.begin_calls.saturating_add(1);
         if self.made.is_none() {
             return Err(CoreRenderError::NoContext { operation: "begin" });
+        }
+        if self.begin_losses.remove(&call) {
+            self.drop_made();
+            return Err(CoreRenderError::NoContext {
+                operation: "begin after the GPU lost the context",
+            });
+        }
+        if let Some(reason) = self.begin_faults.remove(&call) {
+            return Err(CoreRenderError::Driver {
+                operation: "begin",
+                reason,
+            });
         }
         gl::set_current(true);
         self.begun = true;
