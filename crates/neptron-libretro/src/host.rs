@@ -308,6 +308,7 @@ impl Host {
             self.call(|_| callback.call())
                 .map_err(|Poisoned| RunError::HostPoisoned)?;
         }
+        ffi::clear_hw_framebuffer();
         self.context_live = false;
         Ok(())
     }

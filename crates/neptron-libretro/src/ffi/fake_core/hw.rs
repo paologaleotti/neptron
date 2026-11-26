@@ -422,3 +422,16 @@ fn the_frontend_callbacks_read_the_target_on_any_thread() {
     .unwrap();
     assert_eq!(other, (7, true));
 }
+
+#[test]
+fn context_destroy_takes_the_framebuffer_away() {
+    let mut host = loaded_with(PC, |cb| ask(cb, callback(RETRO_HW_CONTEXT_OPENGLES2, 0, 0)));
+    let framebuffer = answer().unwrap().1.get_current_framebuffer.unwrap();
+    host.set_hw_target(7, lookup);
+    host.context_reset().unwrap();
+    // SAFETY: the callback the host wrote, with no arguments.
+    assert_eq!(unsafe { framebuffer() }, 7);
+    host.context_destroy().unwrap();
+    // SAFETY: as above.
+    assert_eq!(unsafe { framebuffer() }, 0);
+}

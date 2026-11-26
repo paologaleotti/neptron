@@ -75,6 +75,12 @@ pub(crate) fn set_hw_target(framebuffer: u32, lookup: fn(&CStr) -> usize) {
     let _ = HW_LOOKUP.set(lookup);
 }
 
+/// Makes `get_current_framebuffer` give 0 again: the context of the core
+/// is gone, and its framebuffer name with it.
+pub(crate) fn clear_hw_framebuffer() {
+    HW_FRAMEBUFFER.store(0, Ordering::Release);
+}
+
 /// A `context_reset` or `context_destroy` callback of a core.
 #[derive(Clone, Copy)]
 pub(crate) struct HwCallback(unsafe extern "C" fn());
