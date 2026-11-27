@@ -1148,7 +1148,7 @@ name = "The screen simulator is the first gate before a test on real screens: a 
 owns = ["crates/neptron-testkit", "xtask", "docs/spec"]
 needs = ["S07"]
 gate = "T2; screen golden; the owner looks at the pictures"
-status = "pending"
+status = "in_progress"
 priority = 1
 
 [[task]]
