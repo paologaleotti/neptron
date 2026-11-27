@@ -272,6 +272,27 @@ Each check is `needs-hardware`. `docs/spec/display-guard.md` describes the rules
 
 - [ ] The bench (DP-to-VGA bridge, SyncMaster 750s). Do: start with `display.monitor = "auto"` and read the display panel. Expect: the CRT path, never the panel path; the limits are 165 MHz and 1920x1200. Record: the `subconnector` value and the profile id.
 
+### The picture of 480i and 480p systems (S07)
+
+`docs/spec/interlaced-systems.md` describes the rules. The screen simulator shows each case; only a tube shows the lock and the black moment.
+
+- [ ] `needs-hardware` **One mode for every width of a SNES game.** PC i3-6100T on a 15 kHz CRT, and on the SyncMaster 750s.
+  - Do: play a SNES game that changes between 256 and 512 pixels (for example the menus of Seiken Densetsu 3, or the hires test of the 240p Test Suite).
+  - Expect: 1536x224 at 15 kHz and 1024x448 at 31 kHz for both widths; no black moment and no lost sync at the change; the picture keeps its size. Snes9x sends the 512 frame at 512 pixels.
+  - Record: the mode of the log at each width, and a photo of each width.
+- [ ] `needs-hardware` **One mode for H32 and H40 of a Mega Drive game.** PC i3-6100T on a 15 kHz CRT.
+  - Do: play a game that changes between 256 and 320 pixels (for example the 240p Test Suite).
+  - Expect: 1280x224 for both widths, at a pixel clock above the floor of 25 MHz; the tube locks at once and shows no black moment at the change.
+  - Record: the mode and the pixel clock of the log.
+- [ ] `needs-hardware` **A 480i game on the PC at 15 kHz.** PC i3-6100T on a 15 kHz CRT.
+  - Do: start a game that sends 640x480 interlaced frames (the 240p Test Suite of a system with 480i, or the test core at 640x480).
+  - Expect: 1280x240p, every line pressed into 240, soft, and the notice "This game is interlaced. This PC cannot send an interlaced picture to a 15 kHz monitor, so the picture is soft."
+  - Record: a photo and the notice.
+- [ ] `needs-hardware` **One modeset in a second.** PC i3-6100T on a 15 kHz CRT.
+  - Do: play a game that changes its line count often (a SNES game that switches 224 and 239 lines, or the test core in a mode that changes every half second).
+  - Expect: at most one mode change in a second; the picture of the held frame stays centred.
+  - Record: the times of the modesets in the switch trace.
+
 ## 2. PC i3-6100T on a flat panel
 
 The first hardware session (2026-11-13) used the development image on a Dell U2724D (2560x1440, DisplayPort). OP-078 to OP-084 record its findings.
