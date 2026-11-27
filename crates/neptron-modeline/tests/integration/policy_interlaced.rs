@@ -1,11 +1,11 @@
 //! The policy for 480i and 480p systems (docs/spec/interlaced-systems.md):
 //! the wide mode of a system that changes its width, the reason of an
-//! interlaced game on a GPU that sends no interlace, the 31 kHz CRT and
-//! the flat panel.
+//! interlaced game on a GPU that sends no interlace, the 31 kHz CRT, the
+//! flat panel and the cable signal of a console with a VGA cable.
 
 use neptron_modeline::policy::{
-    GameWidths, HorizontalScale, HorizontalStrategy, PolicySettings, Proposal, REFRESH_MATCH_MHZ,
-    Rung, SoftReason, choose, decide, notice,
+    CableSignal, GameWidths, HorizontalScale, HorizontalStrategy, PolicySettings, Proposal,
+    REFRESH_MATCH_MHZ, Rung, SoftReason, cable_signal, choose, decide, notice,
 };
 use neptron_safety::validate;
 use neptron_types::{Filter, GpuCaps, Modeline, MonitorProfile, SourceGeometry, TvStandard};
@@ -351,6 +351,47 @@ fn a_flat_panel_shows_the_frames_of_an_interlaced_game() {
     assert!(!w.proposal.mode.interlace);
     assert_eq!(w.proposal.placement.dest.h, 960);
     assert_eq!(w.proposal.placement.filter, Filter::Nearest);
+}
+
+#[test]
+fn the_cable_signal_follows_the_monitor() {
+    let expected = [
+        ("generic_15", CableSignal::Interlaced),
+        ("arcade_15", CableSignal::Interlaced),
+        ("arcade_25", CableSignal::Interlaced),
+        ("arcade_31", CableSignal::Vga),
+        ("pc_31_120", CableSignal::Vga),
+        ("arcade_15_25_31", CableSignal::Vga),
+    ];
+    for (id, signal) in expected {
+        assert_eq!(cable_signal(&preset(id)), signal, "{id}");
+    }
+    assert_eq!(
+        cable_signal(&TvStandard::Ntsc.profile()),
+        CableSignal::Interlaced
+    );
+    assert_eq!(
+        cable_signal(&TvStandard::Pal.profile()),
+        CableSignal::Interlaced
+    );
+    assert_eq!(cable_signal(&panel_1080()), CableSignal::Vga);
+}
+
+/// The VGA signal goes only to a monitor where the policy shows it 1:1 and
+/// progressive: the cable rule and the policy agree on every preset.
+#[test]
+fn a_monitor_that_gets_vga_shows_it_progressive_and_whole() {
+    let caps = open_caps();
+    let vga = source(640, 480, 60_000);
+    for profile in all_presets() {
+        if cable_signal(&profile) != CableSignal::Vga {
+            continue;
+        }
+        let w = won(&vga, &PolicySettings::default(), &profile, &caps);
+        assert!(!w.proposal.mode.interlace, "{}", profile.id);
+        assert_eq!(w.proposal.placement.crop.h, 480, "{}", profile.id);
+        assert_eq!(w.proposal.placement.scale.y, Some(1), "{}", profile.id);
+    }
 }
 
 /// The systems of `data/systems` that change their width in play, with

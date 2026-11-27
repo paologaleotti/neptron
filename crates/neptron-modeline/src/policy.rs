@@ -25,6 +25,7 @@
 //! [`decide`] runs steps 1 to 5. The validator is not a dependency of this
 //! crate: the engine runs step 6 with `neptron_safety::validate`.
 
+mod cable;
 mod choose;
 mod clock;
 mod crt;
@@ -46,6 +47,7 @@ mod units;
 
 use std::fmt;
 
+pub use cable::{CableSignal, VGA_LINE_RATE_MHZ, cable_signal};
 pub use choose::{
     Choice, Notice, NoticeReason, PANEL_SPEED_NOTICE_MIN_PPM, Refused, SPEED_ALERT_MIN_PPM,
     SoftReason, Switch, Winner, choose, notice, speed_alert, switch_for,
