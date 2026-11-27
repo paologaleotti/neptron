@@ -1,6 +1,10 @@
 //! Disc games: the disc formats, the disc tag of a file name, the region of
-//! a name, and the text of m3u and cue files. Everything here is pure; the
-//! scan and the launch check read the files.
+//! a name, and the text of m3u and cue files. Everything here is pure, but
+//! for [`plan_discs`], the check of the disc files before launch.
+
+mod files;
+
+pub use files::{DiscPlan, DiscProblem, plan_discs};
 
 /// The most bytes of an m3u or cue file that NEPTRON reads.
 pub const LIST_MAX_BYTES: usize = 64 * 1024;
