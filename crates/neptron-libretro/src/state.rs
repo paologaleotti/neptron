@@ -11,7 +11,7 @@ use neptron_types::{PixelFormat, Rotation};
 use crate::audio::AudioBuffer;
 use crate::content::{ContentOverride, overrides_of};
 use crate::descriptor::{InputDescriptor, MAX_INPUT_DESCRIPTORS, RawDescriptor};
-use crate::ffi::HwCallback;
+use crate::ffi::{DiscCallbacks, HwCallback};
 use crate::geometry::{AvInfo, GameGeometry, Timing};
 use crate::hw::{self, HwRefusal, HwRefusalReason, RawHwRender};
 use crate::log::{LogLevel, LogQueue, LogRecord, LogSource};
@@ -95,6 +95,8 @@ pub(crate) struct State {
     /// The content of the loaded game for `GET_GAME_INFO_EXT`, or null. The
     /// host owns the pointee and clears this before it drops it.
     game_info_ext: *const retro_game_info_ext,
+    /// The disc control interface of the core, if it gave one.
+    disc: Option<DiscCallbacks>,
 }
 
 impl State {
@@ -124,6 +126,7 @@ impl State {
             descriptors: Vec::new(),
             overrides: Vec::new(),
             game_info_ext: std::ptr::null(),
+            disc: None,
         }
     }
 
@@ -425,6 +428,16 @@ impl State {
             .iter()
             .flat_map(|&(extensions, need_fullpath)| overrides_of(extensions, need_fullpath))
             .collect();
+    }
+
+    /// `SET_DISK_CONTROL_INTERFACE` or its extended form: the callbacks
+    /// replace any earlier ones.
+    pub(crate) fn set_disc(&mut self, callbacks: DiscCallbacks) {
+        self.disc = Some(callbacks);
+    }
+
+    pub(crate) fn disc(&self) -> Option<DiscCallbacks> {
+        self.disc
     }
 
     pub(crate) fn system_dir(&self) -> &CStr {

@@ -149,3 +149,43 @@ pub enum RunError {
     #[error("the host state was lost in a call into the core")]
     HostPoisoned,
 }
+
+/// Why a disc control call failed.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum DiscError {
+    /// No game is loaded.
+    #[error("no game is loaded")]
+    NoGame,
+    /// The core gave no disc control interface.
+    #[error("the core has no disc control interface")]
+    NoInterface,
+    /// The core gave the interface with this callback null.
+    #[error("the disc control interface of the core has no {call}")]
+    MissingCall {
+        /// The libretro name of the callback.
+        call: &'static str,
+    },
+    /// The callback returned false.
+    #[error("the core refused {call}")]
+    Refused {
+        /// The libretro name of the callback.
+        call: &'static str,
+    },
+    /// The disc index is not below the number of discs.
+    #[error("disc {index} is not one of the {count} discs of the core")]
+    NoSuchDisc {
+        /// The index asked for.
+        index: u32,
+        /// The number of discs that the core has.
+        count: u32,
+    },
+    /// The disc path is not UTF-8 or holds a NUL.
+    #[error("{path} is not a UTF-8 path without NUL bytes")]
+    InvalidPath {
+        /// The path.
+        path: PathBuf,
+    },
+    /// The callback state did not come back from a call into the core.
+    #[error("the host state was lost in a call into the core")]
+    HostPoisoned,
+}

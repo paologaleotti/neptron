@@ -329,6 +329,8 @@ An unknown call returns `false` and gets one log record (level warn) per command
 | `SET_HW_SHARED_CONTEXT` | `false`, logged once: the core never shares the context of the frontend |
 | `SET_CONTENT_INFO_OVERRIDE` | `true`, records `need_fullpath` per extension (see Content) |
 | `GET_GAME_INFO_EXT` | `true` during and after `retro_load_game`, writes a pointer to the extended content information; `false` with no content |
+| `GET_DISK_CONTROL_INTERFACE_VERSION` | `true`, writes 1 (see `docs/spec/disc-games.md`, section 7) |
+| `SET_DISK_CONTROL_INTERFACE`, `SET_DISK_CONTROL_EXT_INTERFACE` | `true`, keeps the callbacks; a later call replaces them |
 | any other | `false`, logged once |
 
 A call whose data pointer is null where the header needs one returns `false`.

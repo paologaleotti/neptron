@@ -112,6 +112,111 @@ impl fmt::Debug for HwCallback {
     }
 }
 
+/// The disc control callbacks of a core, from `SET_DISK_CONTROL_INTERFACE`
+/// or `SET_DISK_CONTROL_EXT_INTERFACE`. A null callback is `None`, and a
+/// call of it gives `None`.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct DiscCallbacks {
+    set_eject_state: retro_set_eject_state_t,
+    get_eject_state: retro_get_eject_state_t,
+    get_image_index: retro_get_image_index_t,
+    set_image_index: retro_set_image_index_t,
+    get_num_images: retro_get_num_images_t,
+    replace_image_index: retro_replace_image_index_t,
+    add_image_index: retro_add_image_index_t,
+    /// The core gave the extended interface.
+    pub(crate) extended: bool,
+}
+
+impl DiscCallbacks {
+    /// The callbacks of the basic interface.
+    pub(crate) fn basic(raw: &retro_disk_control_callback) -> Self {
+        Self {
+            set_eject_state: raw.set_eject_state,
+            get_eject_state: raw.get_eject_state,
+            get_image_index: raw.get_image_index,
+            set_image_index: raw.set_image_index,
+            get_num_images: raw.get_num_images,
+            replace_image_index: raw.replace_image_index,
+            add_image_index: raw.add_image_index,
+            extended: false,
+        }
+    }
+
+    /// The callbacks of the extended interface. The three extended ones
+    /// are not used yet.
+    pub(crate) fn extended(raw: &retro_disk_control_ext_callback) -> Self {
+        Self {
+            set_eject_state: raw.set_eject_state,
+            get_eject_state: raw.get_eject_state,
+            get_image_index: raw.get_image_index,
+            set_image_index: raw.set_image_index,
+            get_num_images: raw.get_num_images,
+            replace_image_index: raw.replace_image_index,
+            add_image_index: raw.add_image_index,
+            extended: true,
+        }
+    }
+
+    // SAFETY (every call below): a callback that the core gave with the
+    // disc control interface, with the arguments of its libretro.h type.
+    // The library is never closed, so it stays valid; the host calls it
+    // only with a game loaded, from the thread of the core.
+
+    pub(crate) fn count(&self) -> Option<u32> {
+        // SAFETY: see above.
+        self.get_num_images.map(|f| unsafe { f() })
+    }
+
+    pub(crate) fn index(&self) -> Option<u32> {
+        // SAFETY: see above.
+        self.get_image_index.map(|f| unsafe { f() })
+    }
+
+    pub(crate) fn tray_open(&self) -> Option<bool> {
+        // SAFETY: see above.
+        self.get_eject_state.map(|f| unsafe { f() })
+    }
+
+    pub(crate) fn set_tray(&self, open: bool) -> Option<bool> {
+        // SAFETY: see above.
+        self.set_eject_state.map(|f| unsafe { f(open) })
+    }
+
+    pub(crate) fn set_index(&self, index: u32) -> Option<bool> {
+        // SAFETY: see above.
+        self.set_image_index.map(|f| unsafe { f(index) })
+    }
+
+    pub(crate) fn add(&self) -> Option<bool> {
+        // SAFETY: see above.
+        self.add_image_index.map(|f| unsafe { f() })
+    }
+
+    /// `replace_image_index` with a `retro_game_info` that holds only
+    /// `path`. The caller keeps `path` alive while the core runs.
+    pub(crate) fn replace(&self, index: u32, path: &CStr) -> Option<bool> {
+        let info = retro_game_info {
+            path: path.as_ptr(),
+            data: std::ptr::null(),
+            size: 0,
+            meta: std::ptr::null(),
+        };
+        // SAFETY: see above; `info` lives for the call, and its path for
+        // the life of the host.
+        self.replace_image_index
+            .map(|f| unsafe { f(index, &raw const info) })
+    }
+}
+
+impl fmt::Debug for DiscCallbacks {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DiscCallbacks")
+            .field("extended", &self.extended)
+            .finish_non_exhaustive()
+    }
+}
+
 /// The longest string that the host reads from a core, NUL included.
 pub const MAX_CORE_STRING_BYTES: usize = 16_384;
 

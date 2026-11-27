@@ -22,6 +22,10 @@ use crate::pad::{InputError, MAX_PORTS, Pad};
 use crate::save::{SaveRamError, SaveRamLoad};
 use crate::state::State;
 
+mod disc;
+
+pub use disc::DiscState;
+
 /// Set by the first [`Host::open`] of the process and never cleared.
 static PROCESS_USED: AtomicBool = AtomicBool::new(false);
 
@@ -75,6 +79,9 @@ pub struct Host {
     /// The content of the loaded game. The core can keep pointers into it
     /// until `retro_unload_game`.
     content: Option<LoadedContent>,
+    /// The paths of the discs added with [`Host::add_disc`]. A core can
+    /// keep the pointer, so each one lives as long as the host.
+    disc_paths: Vec<CString>,
     _one_thread: PhantomData<*const ()>,
 }
 
@@ -120,6 +127,7 @@ impl Host {
             game_loaded: false,
             context_live: false,
             content: None,
+            disc_paths: Vec::new(),
             _one_thread: PhantomData,
         };
         host.begin_call();

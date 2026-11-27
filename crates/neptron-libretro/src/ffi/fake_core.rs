@@ -16,6 +16,7 @@ use neptron_types::{PixelFormat, Rotation};
 
 use super::{Core, EntryPoints};
 
+mod disc;
 mod hw;
 use crate::host::Host;
 use crate::state::State;

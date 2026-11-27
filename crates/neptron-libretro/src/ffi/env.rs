@@ -12,8 +12,8 @@ use std::ffi::{c_char, c_void};
 use neptron_libretro_sys::*;
 
 use super::{
-    HwCallback, c_str_bytes, core_av_info, hw_get_current_framebuffer, hw_get_proc_address,
-    neptron_libretro_log_printf,
+    DiscCallbacks, HwCallback, c_str_bytes, core_av_info, hw_get_current_framebuffer,
+    hw_get_proc_address, neptron_libretro_log_printf,
 };
 use crate::descriptor::{MAX_INPUT_DESCRIPTORS, RawDescriptor};
 use crate::hw::RawHwRender;
@@ -183,6 +183,25 @@ pub(super) unsafe fn dispatch(state: &mut State, cmd: u32, data: *mut c_void) ->
             // SAFETY: SET_ROTATION takes a `const unsigned *`.
             let value = unsafe { read::<u32>(data) };
             value.is_some_and(|v| state.set_rotation(v))
+        }
+        RETRO_ENVIRONMENT_GET_DISK_CONTROL_INTERFACE_VERSION => {
+            // SAFETY: GET_DISK_CONTROL_INTERFACE_VERSION takes an `unsigned *`.
+            unsafe { write::<u32>(data, 1) }
+        }
+        RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE => {
+            // SAFETY: SET_DISK_CONTROL_INTERFACE takes a
+            // `const struct retro_disk_control_callback *`; each field is
+            // an optional function pointer, valid for any non-null value.
+            let raw = unsafe { read::<retro_disk_control_callback>(data) };
+            raw.map(|raw| state.set_disc(DiscCallbacks::basic(&raw)))
+                .is_some()
+        }
+        RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE => {
+            // SAFETY: SET_DISK_CONTROL_EXT_INTERFACE takes a
+            // `const struct retro_disk_control_ext_callback *`; as above.
+            let raw = unsafe { read::<retro_disk_control_ext_callback>(data) };
+            raw.map(|raw| state.set_disc(DiscCallbacks::extended(&raw)))
+                .is_some()
         }
         RETRO_ENVIRONMENT_SET_MEMORY_MAPS => state.refuse(cmd, "memory maps are not used"),
         RETRO_ENVIRONMENT_SET_HW_RENDER => {

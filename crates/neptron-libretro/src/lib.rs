@@ -29,12 +29,13 @@ mod zip;
 
 pub use content::{ContentRequest, MAX_CONTENT_BYTES};
 pub use descriptor::{InputDescriptor, MAX_INPUT_DESCRIPTORS};
-pub use error::{LoadError, OpenError, RunError};
+pub use error::{DiscError, LoadError, OpenError, RunError};
 pub use ffi::MAX_CORE_STRING_BYTES;
 pub use geometry::{
     AvInfo, GameGeometry, GeometryError, MAX_ASPECT_MILLI, MAX_DIMENSION_PX, MAX_FPS_MHZ,
     MAX_SAMPLE_RATE_MHZ, MIN_FPS_MHZ, MIN_SAMPLE_RATE_MHZ, Timing,
 };
+pub use host::DiscState;
 pub use host::{Host, HostConfig, SystemInfo};
 pub use hw::{HwApi, HwRefusal, HwRefusalReason};
 pub use log::{
