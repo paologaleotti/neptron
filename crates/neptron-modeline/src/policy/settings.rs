@@ -66,6 +66,44 @@ pub enum HorizontalStrategy {
         /// Width of the mode, in pixels.
         width: u16,
     },
+    /// One mode for every width of a game whose system changes its width
+    /// in play at one line timing, as the console does with no new sync: a
+    /// whole multiple of the widths that the GPU can send
+    /// ([`HorizontalStrategy::wide_base`]), so a width change needs no
+    /// modeset. Each candidate keeps the mode of the GPU's default strategy
+    /// right after it, for the validator.
+    Wide {
+        /// The widths of the system, from its data.
+        widths: GameWidths,
+    },
+}
+
+/// The most widths that a system names.
+pub const GAME_WIDTHS_MAX: usize = 8;
+
+/// The widths in pixels that the games of a system draw in play, at one
+/// line timing, the most used first: the key `widths` of the system data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct GameWidths {
+    widths: [u16; GAME_WIDTHS_MAX],
+    len: u8,
+}
+
+/// Why a list of widths is not a [`GameWidths`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WidthsError {
+    /// The list has more widths than [`GAME_WIDTHS_MAX`].
+    TooMany {
+        /// Widths in the list.
+        count: usize,
+        /// The most widths.
+        max: usize,
+    },
+    /// A width is 0.
+    Zero {
+        /// The place of the width in the list, from 0.
+        index: usize,
+    },
 }
 
 /// The effective settings that the policy reads, after the game, system
@@ -142,6 +180,47 @@ pub enum VerticalMode {
 
 /// The widths that a fixed super width uses, widest first.
 pub const FIXED_SUPER_WIDTHS: [u16; 3] = [3_840, 2_560, 1_920];
+
+impl GameWidths {
+    /// The widths of `list`, in its order.
+    ///
+    /// # Errors
+    ///
+    /// [`WidthsError`] for more than [`GAME_WIDTHS_MAX`] widths or a width
+    /// of 0.
+    pub fn from_slice(list: &[u16]) -> Result<Self, WidthsError> {
+        if list.len() > GAME_WIDTHS_MAX {
+            return Err(WidthsError::TooMany {
+                count: list.len(),
+                max: GAME_WIDTHS_MAX,
+            });
+        }
+        if let Some(index) = list.iter().position(|&w| w == 0) {
+            return Err(WidthsError::Zero { index });
+        }
+        let mut widths = [0; GAME_WIDTHS_MAX];
+        widths[..list.len()].copy_from_slice(list);
+        // The length is at most GAME_WIDTHS_MAX, checked above.
+        let len = u8::try_from(list.len()).unwrap_or(u8::MAX);
+        Ok(Self { widths, len })
+    }
+
+    /// The widths, in the order of the data.
+    pub fn as_slice(&self) -> &[u16] {
+        &self.widths[..usize::from(self.len)]
+    }
+}
+
+impl fmt::Display for WidthsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TooMany { count, max } => write!(f, "{count} widths, at most {max}"),
+            Self::Zero { index } => write!(f, "width {index} is 0"),
+        }
+    }
+}
+
+impl std::error::Error for WidthsError {}
 
 impl PictureStyle {
     /// Every style, in the order of the settings schema and of the menus.
@@ -270,6 +349,36 @@ impl HorizontalStrategy {
             .unwrap_or(caps.max_width);
         Self::FixedSuperWidth { width }
     }
+
+    /// The base of the wide mode for `widths` on a GPU of `max_width`
+    /// pixels: the least common multiple of the longest run of `widths`,
+    /// from the first, that is at most `max_width`. `None` when the first
+    /// width is 0 or wider than the GPU.
+    pub fn wide_base(widths: &[u16], max_width: u16) -> Option<u16> {
+        let mut base: Option<u64> = None;
+        for &width in widths {
+            let width = u64::from(width);
+            if width == 0 {
+                break;
+            }
+            let next = match base {
+                None => width,
+                Some(b) => b / gcd(b, width) * width,
+            };
+            if next > u64::from(max_width) {
+                break;
+            }
+            base = Some(next);
+        }
+        base.and_then(|b| u16::try_from(b).ok())
+    }
+}
+
+fn gcd(mut a: u64, mut b: u64) -> u64 {
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
 }
 
 impl PolicySettings {
@@ -349,6 +458,7 @@ impl fmt::Display for HorizontalStrategy {
             Self::Native => f.write_str("native width"),
             Self::DynamicSuperWidth => f.write_str("dynamic super width"),
             Self::FixedSuperWidth { width } => write!(f, "fixed super width {width}"),
+            Self::Wide { .. } => f.write_str("wide width"),
         }
     }
 }
@@ -392,6 +502,10 @@ pub(crate) fn read_settings(settings: &PolicySettings, caps: &GpuCaps) -> Effect
             if width == 0 || width > caps.max_width =>
         {
             HorizontalStrategy::fixed_for(caps)
+        }
+        // One width has nothing to share a mode with.
+        Some(HorizontalStrategy::Wide { widths }) if widths.as_slice().len() < 2 => {
+            HorizontalStrategy::default_for(caps)
         }
         Some(strategy) => strategy,
     };
@@ -454,6 +568,59 @@ mod tests {
         assert_eq!(
             read_settings(&with(Some(HorizontalStrategy::Native)), &intel).horizontal,
             HorizontalStrategy::Native
+        );
+    }
+
+    #[test]
+    fn the_wide_base_is_the_common_multiple_of_the_widths_the_gpu_can_send() {
+        // 320 and 256 give 1280; 640 keeps it; 512 needs 2560.
+        let playstation = [320, 256, 640, 512, 368];
+        assert_eq!(
+            HorizontalStrategy::wide_base(&playstation, 1_920),
+            Some(1_280)
+        );
+        assert_eq!(
+            HorizontalStrategy::wide_base(&playstation, 2_560),
+            Some(2_560)
+        );
+        assert_eq!(
+            HorizontalStrategy::wide_base(&[320, 256], 1_920),
+            Some(1_280)
+        );
+        assert_eq!(HorizontalStrategy::wide_base(&[256, 512], 1_920), Some(512));
+        assert_eq!(HorizontalStrategy::wide_base(&[2_048], 1_920), None);
+        assert_eq!(HorizontalStrategy::wide_base(&[0, 320], 1_920), None);
+        assert_eq!(HorizontalStrategy::wide_base(&[], 1_920), None);
+    }
+
+    #[test]
+    fn a_wide_strategy_with_fewer_than_two_widths_is_the_gpu_default() {
+        let intel = caps(25_000_000, 1_920);
+        for list in [&[][..], &[256]] {
+            let widths = GameWidths::from_slice(list).unwrap();
+            let one = Some(HorizontalStrategy::Wide { widths });
+            assert_eq!(
+                read_settings(&with(one), &intel).horizontal,
+                HorizontalStrategy::DynamicSuperWidth
+            );
+        }
+        let snes = HorizontalStrategy::Wide {
+            widths: GameWidths::from_slice(&[256, 512]).unwrap(),
+        };
+        assert_eq!(read_settings(&with(Some(snes)), &intel).horizontal, snes);
+    }
+
+    #[test]
+    fn game_widths_keep_their_order_and_refuse_a_bad_list() {
+        let widths = GameWidths::from_slice(&[320, 256]).unwrap();
+        assert_eq!(widths.as_slice(), [320, 256]);
+        assert_eq!(
+            GameWidths::from_slice(&[1; 9]),
+            Err(WidthsError::TooMany { count: 9, max: 8 })
+        );
+        assert_eq!(
+            GameWidths::from_slice(&[256, 0]),
+            Err(WidthsError::Zero { index: 1 })
         );
     }
 

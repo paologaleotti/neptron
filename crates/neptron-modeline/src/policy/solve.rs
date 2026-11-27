@@ -60,6 +60,7 @@ pub(crate) fn solve(
         HorizontalStrategy::Native => ask.onto_one_field_rate(ask.at_floor(ask.multiple(1)?))?,
         HorizontalStrategy::DynamicSuperWidth => ask.onto_one_field_rate(ask.dynamic()?)?,
         HorizontalStrategy::FixedSuperWidth { width } => ask.at_floor(ask.fixed(width)?),
+        HorizontalStrategy::Wide { widths } => ask.wide(widths.as_slice())?,
     };
     Ok(picked.map(|(candidate, horizontal)| {
         proposal(
@@ -96,6 +97,41 @@ impl Ask<'_> {
         Ok(self
             .call(width)?
             .map(|c| (c, HorizontalScale::Fixed(width))))
+    }
+
+    /// The wide mode: the smallest whole multiple of the wide base whose
+    /// pixel clock reaches the GPU floor, within the widest mode of the
+    /// GPU. The game is scaled into it, so every width of the system shares
+    /// the mode, each width of the base at a whole factor.
+    fn wide(&self, widths: &[u16]) -> Result<Picked, ModelineError> {
+        let max_width = self.caps.max_width;
+        let floor_hz = self.caps.pclock_min_hz;
+        let Some(base) = HorizontalStrategy::wide_base(widths, max_width) else {
+            return Ok(Err(Dropped::PixelClockFloor {
+                width: u32::from(max_width),
+                pclock_hz: 0,
+                floor_hz,
+                max_width,
+            }));
+        };
+        let mut last = (u32::from(base), 0);
+        for k in 1..=DYNAMIC_STEPS_MAX {
+            let width = u32::from(base).saturating_mul(u32::try_from(k).unwrap_or(u32::MAX));
+            let Some(width) = u16::try_from(width).ok().filter(|w| *w <= max_width) else {
+                break;
+            };
+            match self.fixed(width)? {
+                Ok(found) if found.0.modeline.pclock_hz >= floor_hz => return Ok(Ok(found)),
+                Ok(found) => last = (u32::from(width), found.0.modeline.pclock_hz),
+                Err(dropped) => return Ok(Err(dropped)),
+            }
+        }
+        Ok(Err(Dropped::PixelClockFloor {
+            width: last.0,
+            pclock_hz: last.1,
+            floor_hz,
+            max_width,
+        }))
     }
 
     /// Drops a mode whose pixel clock is below the GPU floor, with the

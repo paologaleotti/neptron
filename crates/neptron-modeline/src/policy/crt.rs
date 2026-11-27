@@ -487,6 +487,7 @@ fn fit_progressive(shape: Shape, target: RefreshTarget, crt: &Crt<'_>) -> Shape 
 
 /// Step 5 with the strategy of the settings, and the dynamic super width
 /// in its place when that strategy is below the GPU's pixel clock floor.
+/// The wide mode is followed by the mode of the GPU's default strategy.
 fn solve_replacing(
     shape: &Shape,
     target: RefreshTarget,
@@ -494,6 +495,45 @@ fn solve_replacing(
     crt: &Crt<'_>,
 ) -> Result<Vec<Outcome>, ModelineError> {
     let strategy = crt.settings.horizontal;
+    // A bordered shape is wider than the game in proportion to its width,
+    // so no one mode keeps every width at a whole factor. A width that the
+    // system does not name (a core option that adds a border, 348 pixels
+    // of Genesis Plus GX) is no width of the console. Both keep the mode
+    // of today, so no frame is scaled by a fraction it does not need.
+    let wide = match strategy {
+        HorizontalStrategy::Wide { widths } => {
+            shape.base_width == crt.source.width
+                && !crt.source.turned
+                && widths.as_slice().contains(&crt.source.width)
+        }
+        HorizontalStrategy::Native
+        | HorizontalStrategy::DynamicSuperWidth
+        | HorizontalStrategy::FixedSuperWidth { .. } => false,
+    };
+    if wide {
+        // The default mode follows the wide one, so the validator still
+        // finds the mode of today where it refuses the wide mode.
+        let wide = solve(shape, target, enforce_refresh, strategy, crt)?;
+        let default = HorizontalStrategy::default_for(crt.caps);
+        let mut outcomes = vec![wide];
+        outcomes.extend(solve_with(shape, target, enforce_refresh, default, crt)?);
+        return Ok(outcomes);
+    }
+    let strategy = match strategy {
+        HorizontalStrategy::Wide { .. } => HorizontalStrategy::default_for(crt.caps),
+        other => other,
+    };
+    solve_with(shape, target, enforce_refresh, strategy, crt)
+}
+
+/// [`solve_replacing`] for one strategy that is not the wide mode.
+fn solve_with(
+    shape: &Shape,
+    target: RefreshTarget,
+    enforce_refresh: bool,
+    strategy: HorizontalStrategy,
+    crt: &Crt<'_>,
+) -> Result<Vec<Outcome>, ModelineError> {
     let first = solve(shape, target, enforce_refresh, strategy, crt)?;
     // No whole multiple of a width above the GPU's widest mode fits it, so
     // the dynamic super width cannot replace that case.

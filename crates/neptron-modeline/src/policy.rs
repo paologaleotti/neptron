@@ -71,8 +71,8 @@ pub use refresh::{
     RefreshTarget, SkippedTarget,
 };
 pub use settings::{
-    FIXED_SUPER_WIDTHS, HorizontalStrategy, PanelScale, PictureStyle, PolicySettings,
-    RefreshPolicy, TvWidth, VerticalMode,
+    FIXED_SUPER_WIDTHS, GAME_WIDTHS_MAX, GameWidths, HorizontalStrategy, PanelScale, PictureStyle,
+    PolicySettings, RefreshPolicy, TvWidth, VerticalMode, WidthsError,
 };
 pub use shape::{
     BORDER_LINES, OVERSCAN_CROP_MAX_LINES_PER_EDGE, OVERSCAN_CROP_SCREEN_LINES, OverscanCrop,
