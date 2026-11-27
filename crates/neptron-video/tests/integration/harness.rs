@@ -12,8 +12,8 @@ use neptron_video::{
     VideoError,
 };
 
-/// The largest frame of the tests: 512x448 in RGB565.
-static PIXELS: [u8; 512 * 448 * 2] = [0; 512 * 448 * 2];
+/// The largest frame of the tests: 640x480 in RGB565.
+static PIXELS: [u8; 640 * 480 * 2] = [0; 640 * 480 * 2];
 
 /// Mega Drive H32: 256x224 at 59.922 Hz.
 pub const MD_H32: SourceGeometry = source(256, 224, 59_922);

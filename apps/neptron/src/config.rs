@@ -11,7 +11,7 @@ use neptron_settings::{
 use neptron_types::{Orientation, Rotation};
 use neptron_video::{
     PolicySettings, ScanlineSettings, SettingsError, policy_settings, scanline_settings,
-    with_display_choices,
+    wide_strategy, with_display_choices,
 };
 
 use crate::outbox::FileTarget;
@@ -32,6 +32,10 @@ pub struct GameContext {
     /// ([`runs_arcade_boards`](crate::library::runs_arcade_boards)): the
     /// policy of the game takes the arcade rules.
     pub arcade: bool,
+    /// The widths that the games of the system draw in play (the system
+    /// data key `widths`): the policy of the game takes one wide mode for
+    /// them on a CRT. Empty for a system with no key.
+    pub widths: Vec<u16>,
 }
 
 /// One key that a write changed, with its value before and after, for the
@@ -322,7 +326,7 @@ impl Config {
         let settings = policy_settings(
             &self.text(DISPLAY_STYLE),
             &self.text(DISPLAY_REFRESH_POLICY),
-            None,
+            self.system_horizontal(Level::Game),
             &self.text(DISPLAY_TV_WIDTH),
         )?;
         let settings = with_display_choices(
@@ -334,6 +338,14 @@ impl Config {
             arcade: self.context.as_ref().is_some_and(|c| c.arcade),
             ..settings
         })
+    }
+
+    /// The horizontal strategy that the system of the game names with its
+    /// widths, at the system and game levels; the global level has no
+    /// system.
+    fn system_horizontal(&self, level: Level) -> Option<neptron_video::HorizontalStrategy> {
+        let context = self.context.as_ref().filter(|_| level != Level::Global)?;
+        wide_strategy(&context.widths)
     }
 
     /// The picture mode, the refresh choice and the TV width of the global
@@ -364,7 +376,7 @@ impl Config {
         let settings = policy_settings(
             &text(DISPLAY_STYLE),
             &text(DISPLAY_REFRESH_POLICY),
-            None,
+            self.system_horizontal(level),
             &text(DISPLAY_TV_WIDTH),
         )?;
         let settings = with_display_choices(
@@ -563,6 +575,7 @@ mod tests {
             system: "snes".into(),
             game: "astro".into(),
             arcade: false,
+            widths: Vec::new(),
         };
         let mut c = Config::load(&Storage::new("/nonexistent/config"), Some(context)).0;
         assert_eq!(c.orientation(), Orientation::NORMAL);
@@ -723,6 +736,7 @@ mod tests {
             system: "nes".to_owned(),
             game: "Game".to_owned(),
             arcade: false,
+            widths: Vec::new(),
         };
         let (config, issues) = Config::load(&Storage::new(&dir), Some(context));
         assert!(issues.is_empty(), "{issues:?}");
@@ -742,6 +756,23 @@ mod tests {
         assert!(!c.global_policy().expect("policy").arcade);
         let (list, _) = Config::load(&Storage::new(std::env::temp_dir().join("none")), None);
         assert!(!list.policy().expect("policy").arcade, "the game list");
+    }
+
+    #[test]
+    fn a_system_with_widths_takes_the_wide_mode_and_the_global_level_does_not() {
+        let mut c = config("", "", "");
+        assert_eq!(c.policy().expect("policy").horizontal, None, "no widths");
+        if let Some(context) = c.context.as_mut() {
+            context.widths = vec![256, 512];
+        }
+        let wide = wide_strategy(&[256, 512]);
+        assert!(wide.is_some());
+        assert_eq!(c.policy().expect("policy").horizontal, wide);
+        assert_eq!(
+            c.policy_up_to(Level::System).expect("policy").horizontal,
+            wide
+        );
+        assert_eq!(c.global_policy().expect("policy").horizontal, None);
     }
 
     #[test]

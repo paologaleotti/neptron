@@ -39,7 +39,8 @@ pub use odren::{
 };
 pub use scene::{SceneInputs, build_scene};
 pub use settings::{
-    ScanlineSettings, SettingsError, policy_settings, scanline_settings, with_display_choices,
+    ScanlineSettings, SettingsError, policy_settings, scanline_settings, wide_strategy,
+    with_display_choices,
 };
 pub use status::{
     PANEL_SPEED_SILENT_PPM, STATUS_COLUMN_CHARS, StatusInputs, VideoStatusText, tv_standard_name,
@@ -55,11 +56,11 @@ pub use neptron_modeline::Aspect;
 /// The policy types that the engine's callers name. Only this crate may
 /// depend on `neptron-modeline`.
 pub use neptron_modeline::policy::{
-    DeclineReason, Declined, Dropped, HorizontalStrategy, Notice, NoticeReason, Offer, Offered,
-    PanelScale, PictureChoices, PictureStyle, Placement, PolicyError, PolicySettings, Proposal,
-    REFERENCE_SOURCES, RefreshKind, RefreshPolicy, RefreshTarget, Refused, RowAnswer, RowChoice,
-    Rung, ScanlineOutcome, SoftReason, SomeGames, TV_525_CONSOLE_WIDTH_SAMPLES,
-    TV_525_PICTURE_LINES, TV_625_CONSOLE_WIDTH_SAMPLES, TV_625_PICTURE_LINES, TV_CONSOLE_LINES_MIN,
-    TV_SAFE_WIDTH_SAMPLES, TV_SPEED_SILENT_PPM, Timing, TvWidth, VerticalMode, WholeReason,
-    for_every_game,
+    CableSignal, DeclineReason, Declined, Dropped, GameWidths, HorizontalStrategy, Notice,
+    NoticeReason, Offer, Offered, PanelScale, PictureChoices, PictureStyle, Placement, PolicyError,
+    PolicySettings, Proposal, REFERENCE_SOURCES, RefreshKind, RefreshPolicy, RefreshTarget,
+    Refused, RowAnswer, RowChoice, Rung, ScanlineOutcome, SoftReason, SomeGames,
+    TV_525_CONSOLE_WIDTH_SAMPLES, TV_525_PICTURE_LINES, TV_625_CONSOLE_WIDTH_SAMPLES,
+    TV_625_PICTURE_LINES, TV_CONSOLE_LINES_MIN, TV_SAFE_WIDTH_SAMPLES, TV_SPEED_SILENT_PPM, Timing,
+    TvWidth, VerticalMode, WholeReason, cable_signal, for_every_game,
 };

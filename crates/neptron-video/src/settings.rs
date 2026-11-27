@@ -1,6 +1,6 @@
 use neptron_modeline::policy::{
-    HorizontalStrategy, PanelScale, PictureStyle, PolicySettings, RefreshPolicy, TvWidth,
-    VerticalMode,
+    GameWidths, HorizontalStrategy, PanelScale, PictureStyle, PolicySettings, RefreshPolicy,
+    TvWidth, VerticalMode,
 };
 
 /// The scanline settings the engine applies to each scene: the resolved
@@ -90,6 +90,16 @@ pub fn scanline_settings(
     })
 }
 
+/// The horizontal strategy of a system whose games draw `widths` in play
+/// (the key `widths` of its data): the wide mode for two widths or more,
+/// so a width change needs no modeset on a CRT; `None`, the default of the
+/// GPU, for fewer, and for a list that the policy refuses (the library
+/// refuses it first).
+pub fn wide_strategy(widths: &[u16]) -> Option<HorizontalStrategy> {
+    let widths = GameWidths::from_slice(widths).ok()?;
+    (widths.as_slice().len() >= 2).then_some(HorizontalStrategy::Wide { widths })
+}
+
 /// The policy settings for the resolved values of `display.style`,
 /// `display.refresh_policy` and `display.tv_width`, and the horizontal
 /// strategy that the system names (`None` for the GPU default). The
@@ -168,6 +178,21 @@ pub fn with_display_choices(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn two_widths_or_more_name_the_wide_mode() {
+        let snes = wide_strategy(&[256, 512]);
+        assert_eq!(
+            snes,
+            Some(HorizontalStrategy::Wide {
+                widths: GameWidths::from_slice(&[256, 512]).unwrap()
+            })
+        );
+        assert_eq!(wide_strategy(&[]), None, "a system with no key");
+        assert_eq!(wide_strategy(&[256]), None, "one width");
+        assert_eq!(wide_strategy(&[256, 0]), None, "a refused list");
+        assert_eq!(wide_strategy(&[256; 9]), None, "a refused list");
+    }
 
     #[test]
     fn every_choice_of_the_schema_maps_to_the_policy() {

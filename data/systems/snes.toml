@@ -4,3 +4,6 @@ folder = "snes"
 aliases = []
 name = "Super Nintendo"
 extensions = ["bs", "fig", "sfc", "smc", "swc", "zip"]
+# The widths of the frames in play, with the same lines: the low and
+# the high resolution modes.
+widths = [256, 512]

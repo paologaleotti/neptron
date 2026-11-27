@@ -122,6 +122,10 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             system: g.system.clone(),
             game: f.key(),
             arcade: runs_arcade_boards(&catalog, &g.system),
+            widths: catalog
+                .system(&g.system)
+                .map(|s| s.widths.clone())
+                .unwrap_or_default(),
         });
         let (config, issues) = Config::load(&storage, context);
         found.warn_all(issues);

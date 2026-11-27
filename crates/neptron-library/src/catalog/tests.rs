@@ -143,6 +143,44 @@ fn always_progressive_defaults_to_false() {
 }
 
 #[test]
+fn widths_default_to_none_and_keep_their_order() {
+    let c = catalog(&ok_systems(), &ok_cores()).unwrap();
+    assert!(c.system("nes").unwrap().widths.is_empty());
+    let text = format!("{MD}widths = [320, 256]\n");
+    let c = catalog(&[src("megadrive", &text)], &[src("mdcore", CORE_MD)]).unwrap();
+    assert_eq!(c.system("megadrive").unwrap().widths, [320, 256]);
+}
+
+#[test]
+fn a_bad_widths_list_is_refused() {
+    for list in [
+        "[256]",
+        "[256, 0]",
+        "[256, 5000]",
+        "[256, 256]",
+        "[1, 2, 3, 4, 5, 6, 7, 8, 9]",
+    ] {
+        let text = format!("{MD}widths = {list}\n");
+        let err = catalog(&[src("megadrive", &text)], &[src("mdcore", CORE_MD)]).unwrap_err();
+        assert!(
+            matches!(err, CatalogError::Widths { .. }),
+            "{list}: {err:?}"
+        );
+    }
+}
+
+#[test]
+fn the_systems_that_change_their_width_in_play_name_their_widths() {
+    let catalog = Catalog::builtin().unwrap();
+    let widths = |id: &str| catalog.system(id).unwrap().widths.clone();
+    assert_eq!(widths("snes"), [256, 512]);
+    assert_eq!(widths("megadrive"), [320, 256]);
+    for fixed in ["nes", "arcade", "neogeo"] {
+        assert!(widths(fixed).is_empty(), "{fixed}");
+    }
+}
+
+#[test]
 fn always_progressive_must_be_a_boolean() {
     let text = format!("{NES}always_progressive = \"yes\"\n");
     let err = catalog(&[src("nes", &text)], &[src("nescore", CORE_NES)]).unwrap_err();

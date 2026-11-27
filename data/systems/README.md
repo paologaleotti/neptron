@@ -14,8 +14,9 @@ One TOML file per system. `neptron-library` embeds these files at build time and
 | `always_progressive` | boolean, optional, default `false` | Every frame of the system is progressive. The line count of a frame does not make it interlaced. An arcade board draws progressive frames, also tall ones. |
 | `discs` | list of strings, optional, default empty | The disc formats of the system: `chd`, `cue` and `m3u`. Each one is also in `extensions`. `docs/spec/disc-games.md` gives the rules. |
 | `bios` | list of tables, optional, default empty | The BIOS files that the core needs. Each table has `file` (the name that the core opens), `region` (optional: `ntsc-j`, `ntsc-u` or `pal`), `size` (bytes, 1 to 16 MiB) and `crc32` (a list of 8 lower-case hex digits). NEPTRON finds a file by its size and CRC-32, not by its name (`docs/spec/disc-games.md`, section 6). |
+| `widths` | list of integers, optional, default empty | The widths in pixels that the games of the system draw in play with no new sync (the same lines and line timing), the most used first. Two to 8 different widths from 1 to 4096. A system with this key gets one wide mode on a CRT, so a change of the width needs no mode change (`docs/spec/interlaced-systems.md`, section 3). A system with no key keeps one mode per width. |
 
-The format is append-only. A new key gets a default, or a new `format` value. `discs` and `bios` came after the first version with a default, so `format` stays `1`. A key is never renamed or removed. The parser rejects an unknown key, so a typing error cannot pass.
+The format is append-only. A new key gets a default, or a new `format` value. `discs`, `bios` and `widths` came after the first version with a default, so `format` stays `1`. A key is never renamed or removed. The parser rejects an unknown key, so a typing error cannot pass.
 
 ## Sources
 
@@ -55,3 +56,14 @@ The display names are the RetroPie `_fullname` values, except for `megadrive`, w
 - `mame`, `mame-libretro`, `mame2003` and `mame2003-plus` are not system folders. MAME sets need a MAME core, and NEPTRON has none yet.
 - Both systems set `always_progressive`: an arcade board draws progressive frames, also tall ones.
 - The scan hides a BIOS set of the core (for example `neogeo.zip`). The list is in `crates/neptron-library/src/catalog.rs`.
+
+## Widths in play
+
+The real console changes its width with no new sync: the dot clock changes, the line timing stays. NEPTRON follows it with one mode for every width (`docs/spec/interlaced-systems.md`, section 3).
+
+| System | `widths` | The console | The core |
+| --- | --- | --- | --- |
+| `snes` | `256, 512` | The low resolution modes and the high resolution modes 5 and 6 (pseudo hires too) share the line timing of 341 dots. | Snes9x sends each frame at 256 or 512 pixels with no geometry event; the size of the frame tells the change. |
+| `megadrive` | `320, 256` | H40 and H32 share the line timing of 3420 master clocks. | Genesis Plus GX sends each frame at 320 or 256 pixels (with the overscan option `disabled`) and reports a new geometry (`tests/traces/genesis_plus_gx.trace`: a frame of 256x192 at load, then 320x224 with a geometry event). |
+
+`nes`, `neogeo` and `arcade` draw one width per game and have no key.

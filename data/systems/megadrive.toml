@@ -4,3 +4,5 @@ folder = "megadrive"
 aliases = ["genesis"]
 name = "Mega Drive"
 extensions = ["bin", "gen", "md", "sg", "smd", "zip"]
+# The widths of the frames in play, with the same lines: H40 and H32.
+widths = [320, 256]

@@ -17,6 +17,7 @@ mod hold;
 mod inputs;
 mod menu_turned;
 mod panel;
+mod playstation;
 mod scanlines;
 mod stall;
 mod tate;

@@ -10,6 +10,13 @@ use crate::disc::{DiscFormat, Region};
 /// The format version of a system or core file that this crate reads.
 pub const DEFINITION_FORMAT: u32 = 1;
 
+/// The most widths that the `widths` key of a system holds: the bound of
+/// the video policy (`GAME_WIDTHS_MAX` of `neptron-modeline`).
+pub const SYSTEM_WIDTHS_MAX: usize = 8;
+
+/// The widest value of the `widths` key, in pixels.
+pub const SYSTEM_WIDTH_MAX_PX: u16 = 4_096;
+
 /// One system: its folder under `share/roms/`, its aliases and its game files.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SystemDef {
@@ -29,6 +36,11 @@ pub struct SystemDef {
     pub discs: Vec<DiscFormat>,
     /// The BIOS files that the core of the system needs, in file order.
     pub bios: Vec<BiosFile>,
+    /// The widths in pixels that the games of the system draw in play at
+    /// one line timing, the most used first. Empty when the file has no
+    /// `widths` key: the system draws one width, or its widths are not
+    /// known.
+    pub widths: Vec<u16>,
 }
 
 /// One libretro core and the systems that it runs.
@@ -157,6 +169,17 @@ pub enum CatalogError {
         core: String,
         /// The unknown system id.
         system: String,
+    },
+    /// The `widths` key is not a list of two to [`SYSTEM_WIDTHS_MAX`]
+    /// different widths from 1 to [`SYSTEM_WIDTH_MAX_PX`] pixels.
+    #[error("{source_name}: widths {widths:?}: {reason}")]
+    Widths {
+        /// File name of the definition.
+        source_name: String,
+        /// The list in the file.
+        widths: Vec<u16>,
+        /// What is wrong with it.
+        reason: &'static str,
     },
     /// A system has no core, or more than one.
     #[error("the system `{system}` has {cores} cores, expected exactly 1")]
@@ -334,6 +357,8 @@ struct SystemFile {
     discs: Vec<String>,
     #[serde(default)]
     bios: Vec<BiosTable>,
+    #[serde(default)]
+    widths: Vec<u16>,
 }
 
 #[derive(Deserialize)]
@@ -390,6 +415,7 @@ fn parse_system(source: &Source<'_>) -> Result<SystemDef, CatalogError> {
     }
     let discs = parse_discs(source, &file.discs, &file.extensions)?;
     let bios = parse_bios(source, &file.bios)?;
+    check_widths(source, &file.widths)?;
     Ok(SystemDef {
         folder: file.folder,
         aliases: file.aliases,
@@ -398,6 +424,34 @@ fn parse_system(source: &Source<'_>) -> Result<SystemDef, CatalogError> {
         always_progressive: file.always_progressive,
         discs,
         bios,
+        widths: file.widths,
+    })
+}
+
+/// The `widths` key: absent, or two to [`SYSTEM_WIDTHS_MAX`] different
+/// widths from 1 to [`SYSTEM_WIDTH_MAX_PX`].
+fn check_widths(source: &Source<'_>, widths: &[u16]) -> Result<(), CatalogError> {
+    let reason = if widths.len() == 1 {
+        Some("one width shares no mode; leave the key out")
+    } else if widths.len() > SYSTEM_WIDTHS_MAX {
+        Some("more widths than the policy takes")
+    } else if widths.iter().any(|&w| w == 0 || w > SYSTEM_WIDTH_MAX_PX) {
+        Some("a width is outside 1 to 4096")
+    } else if widths
+        .iter()
+        .enumerate()
+        .any(|(i, w)| widths[..i].contains(w))
+    {
+        Some("a width is in the list twice")
+    } else {
+        None
+    };
+    reason.map_or(Ok(()), |reason| {
+        Err(CatalogError::Widths {
+            source_name: source.name.to_owned(),
+            widths: widths.to_vec(),
+            reason,
+        })
     })
 }
 
