@@ -566,7 +566,7 @@ owns = ["os", "docs/spec/network-share.md", "xtask/src/os"]
 needs = ["C13", "P06"]
 gate = "T1; the boot checks and the share check"
 status = "pending"
-priority = 7
+priority = 8
 
 
 [[task]]
@@ -826,7 +826,7 @@ owns = ["docs/hardware-checklist.md"]
 needs = ["M01", "M04", "M07c", "M08a"]
 gate = "Every check of the checklist has a recorded result"
 status = "pending"
-priority = 5
+priority = 6
 
 [[task]]
 id = "M14"
@@ -899,7 +899,7 @@ owns = ["crates/neptron-video", "crates/neptron-safety", "crates/neptron-launch"
 needs = []
 gate = "T2; a second review of the safety paths"
 status = "pending"
-priority = 9
+priority = 10
 
 [[task]]
 id = "N05"
@@ -960,7 +960,7 @@ owns = ["xtask", "os", "apps/neptron", ".github"]
 needs = []
 gate = "T1; image builds"
 status = "pending"
-priority = 12
+priority = 13
 
 [[task]]
 id = "S01"
@@ -991,7 +991,7 @@ owns = ["crates/neptron-input", "crates/neptron-types", "crates/neptron-libretro
 needs = []
 gate = "T2"
 status = "pending"
-priority = 2
+priority = 3
 
 [[task]]
 id = "S04"
@@ -1012,7 +1012,7 @@ owns = ["crates/neptron-libretro", "crates/neptron-settings", "crates/neptron-ui
 needs = []
 gate = "T2"
 status = "pending"
-priority = 3
+priority = 4
 
 [[task]]
 id = "S06"
@@ -1023,7 +1023,7 @@ owns = ["crates/neptron-session", "crates/neptron-libretro", "crates/neptron-ui"
 needs = []
 gate = "T2"
 status = "pending"
-priority = 6
+priority = 7
 
 [[task]]
 id = "S07"
@@ -1045,7 +1045,7 @@ owns = ["crates/neptron-modeline", "crates/neptron-video", "crates/neptron-setti
 needs = []
 gate = "T2; a review of monitor safety"
 status = "pending"
-priority = 8
+priority = 9
 
 [[task]]
 id = "S09"
@@ -1056,7 +1056,7 @@ owns = ["os"]
 needs = []
 gate = "image builds; boot checks"
 status = "pending"
-priority = 10
+priority = 11
 
 [[task]]
 id = "S10"
@@ -1067,7 +1067,7 @@ owns = ["os", "crates/neptron-library", "apps/neptron", "docs/spec"]
 needs = ["S02", "S03", "S04", "S05", "S07"]
 gate = "T2; core-trace; image builds"
 status = "pending"
-priority = 4
+priority = 5
 
 [[task]]
 id = "S11"
@@ -1078,7 +1078,7 @@ owns = ["os", "crates/neptron-library", "apps/neptron", "docs/spec"]
 needs = ["S02", "S03", "S04", "S05", "S07", "S09"]
 gate = "T2; core-trace; image builds"
 status = "pending"
-priority = 11
+priority = 12
 
 [[task]]
 id = "S12"
@@ -1089,7 +1089,7 @@ owns = ["docs"]
 needs = ["S06", "S08", "S10", "S11"]
 gate = "the owner's bench session"
 status = "pending"
-priority = 13
+priority = 14
 
 [[task]]
 id = "R01"
@@ -1140,3 +1140,14 @@ owns = ["docs/spec"]
 needs = []
 gate = "T0; the owner's decision"
 status = "pending"
+
+[[task]]
+id = "T101"
+wave = 16
+release = "0.2"
+name = "The screen simulator is the first gate before a test on real screens: a deep check of the simulator itself (does each measure and each picture say what a real CRT, TV and panel show), interlaced modes drawn and measured (the two fields, line pairing, flicker of thin lines, the flicker filter), mode changes in play as a sequence, and one command that runs every stored case and fails on a fault"
+owns = ["crates/neptron-testkit", "xtask", "docs/spec"]
+needs = ["S07"]
+gate = "T2; screen golden; the owner looks at the pictures"
+status = "pending"
+priority = 2
