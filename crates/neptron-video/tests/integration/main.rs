@@ -13,6 +13,7 @@ mod guard_recovery;
 mod guard_rig;
 mod guard_tv;
 mod harness;
+mod hold;
 mod inputs;
 mod menu_turned;
 mod panel;

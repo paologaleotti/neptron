@@ -6,7 +6,8 @@ use neptron_video::{
 };
 
 use crate::harness::{
-    MD_H32, MD_H40, Rig, SNES, SNES_239, fixed_width, frame, generic_15, mode_for, native_width,
+    MD_H32, MD_H40, Rig, SNES, SNES_239, fixed_width, frame, generic_15, hold_frames, mode_for,
+    native_width,
 };
 
 #[test]
@@ -222,6 +223,10 @@ fn present_drains_a_queued_flip_before_a_modeset() {
     rig.frame(MD_H40);
     rig.frame(MD_H32);
     rig.frame(MD_H32);
+    // The next change of the game comes one second after its last one.
+    for _ in 0..hold_frames(&MD_H32) {
+        rig.frame(MD_H32);
+    }
     // The caller presents and does not wait: the next modeset must wait
     // for that flip, or the display refuses it as busy.
     rig.engine.begin_frame(MD_H32);
@@ -529,7 +534,8 @@ fn the_modeset_count_holds_every_modeset_since_the_start() {
     let sources = [crate::harness::MD_H40, crate::harness::MD_H32];
     for switch in 0..80 {
         let source = sources[switch % 2];
-        for _ in 0..neptron_video::DEBOUNCE_FRAMES {
+        // The debounce and the hold of one second after the last modeset.
+        for _ in 0..crate::harness::hold_frames(&source) {
             rig.frame(source);
         }
     }

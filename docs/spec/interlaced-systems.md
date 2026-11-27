@@ -79,11 +79,11 @@ A TV has one mode width (720 samples) for every width already, and a flat panel 
 
 ## 4. Decision 3: at most one mode change in a second
 
-A modeset that the game's own frames ask for (`Trigger::Geometry`) waits until one second has passed since the last modeset (`MODESET_MIN_INTERVAL_NS`, 1,000,000,000 ns). The time is the core frames since the frame of the last modeset, at the rate of the source on screen: `frames x 10^12 / refresh_mhz` ns. No setting changes it. The debounce of 3 frames still holds; the hold adds to it.
+A modeset that the game's own frames ask for (`Trigger::Geometry`) waits until one second has passed since the last such modeset (`MODESET_MIN_INTERVAL_NS`, 1,000,000,000 ns). The time is the core frames since the frame of that modeset, at the rate of the source on screen: `frames x 10^12 / refresh_mhz` ns. No setting changes it. The debounce of 3 frames still holds; the hold adds to it.
 
 - While a change is held back, `begin_frame` returns `Directive::Waiting`. The mode on screen stays. The new frame shows in it by the rule of a frame of another size (`docs/spec/video-policy-cases.md`, 8.12, rule 5): whole steps, centred, where the plan is whole steps; the middle lines when even one step is too tall. A 480i frame held in a 240p mode shows its middle 240 lines for at most one second (question W2).
 - A game that changes faster than once a second keeps its mode until it settles: when it goes back to the source on screen, nothing changes. When it settles on a new source, the modeset comes at the first frame that is both debounced and one second after the last modeset.
-- The launch, a change of the settings, the monitor, the orientation, a retry and a refused mode on screen are not held: the player asked for them, or safety needs them. They count as the last modeset for the next hold.
+- The launch, a change of the settings, the monitor, the orientation, a retry and a refused mode on screen are not held: the player asked for them, or safety needs them. They start no hold: the first change of the game after the launch comes after the debounce alone. A change of the orientation also ends a hold, as the player asked for the new turn.
 - A scale-only change (decision 2, or a winner equal to the mode on screen) is no modeset and is never held.
 
 What changes in the tests: the switch trace golden of the video engine (`crates/neptron-video/tests/golden/switch_trace.txt`) shows the modesets one second apart where the script changed sooner.

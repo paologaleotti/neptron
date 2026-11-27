@@ -34,7 +34,9 @@ pub use guard::{
 };
 pub use menu::{Content, form_of, menu_source, turned_canvas};
 pub use monitor::Monitor;
-pub use odren::{Current, DEBOUNCE_FRAMES, Directive, MODESET_ATTEMPTS, Odren};
+pub use odren::{
+    Current, DEBOUNCE_FRAMES, Directive, MODESET_ATTEMPTS, MODESET_MIN_INTERVAL_NS, Odren,
+};
 pub use scene::{SceneInputs, build_scene};
 pub use settings::{
     ScanlineSettings, SettingsError, policy_settings, scanline_settings, with_display_choices,

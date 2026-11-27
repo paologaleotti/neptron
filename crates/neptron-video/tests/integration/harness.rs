@@ -8,7 +8,8 @@ use neptron_testkit::preset::{CAPS_LOW_CLOCK, monitor_preset};
 use neptron_testkit::{FakeDisplay, SimClock};
 use neptron_types::{Frame, Modeline, PixelFormat, Rotation, SourceGeometry};
 use neptron_video::{
-    Directive, HorizontalStrategy, Monitor, PolicySettings, VideoEngine, VideoError,
+    Directive, HorizontalStrategy, MODESET_MIN_INTERVAL_NS, Monitor, PolicySettings, VideoEngine,
+    VideoError,
 };
 
 /// The largest frame of the tests: 512x448 in RGB565.
@@ -43,6 +44,13 @@ pub const fn source(width: u16, height: u16, refresh_mhz: u32) -> SourceGeometry
         interlaced: false,
         rotation: Rotation::R0,
     }
+}
+
+/// The core frames of `source` that make one second, the shortest time
+/// between two modesets of the game's own changes.
+pub fn hold_frames(source: &SourceGeometry) -> u32 {
+    let frames = u64::from(source.refresh_mhz) * MODESET_MIN_INTERVAL_NS / 1_000_000_000_000;
+    u32::try_from(frames).unwrap() + 1
 }
 
 /// A frame of `source`'s size.

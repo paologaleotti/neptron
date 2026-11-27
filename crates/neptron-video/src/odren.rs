@@ -20,6 +20,14 @@ use crate::{
 /// two sizes then causes no modeset.
 pub const DEBOUNCE_FRAMES: u32 = 3;
 
+/// The shortest time between two modesets that the game's own frames ask
+/// for, in nanoseconds: a game that changes its mode faster keeps the mode
+/// on screen until it settles, so the monitor gets at most one such mode
+/// change in a second. The time is the core frames since the last of them
+/// at the rate of the source on screen. The launch, a change of the
+/// inputs, a retry and a restore start no hold.
+pub const MODESET_MIN_INTERVAL_NS: u64 = 1_000_000_000;
+
 /// How many times the engine asks for a modeset that a monitor, settings
 /// or retry change needs, when `set_mode` fails on the device. A busy or
 /// transient device error clears within three frames; a lasting one must
@@ -50,7 +58,8 @@ pub enum Directive {
     /// The winner equals the mode on screen: only crop, destination and
     /// filter change, at once.
     Rescale,
-    /// The source asks for a new mode, and the debounce waits.
+    /// The source asks for a new mode, and the debounce or the hold of
+    /// [`MODESET_MIN_INTERVAL_NS`] waits.
     Waiting {
         /// Core frames the source has been the same, this one included.
         stable_frames: u32,
@@ -133,6 +142,9 @@ pub struct Odren {
     restoring: Option<Modeline>,
     /// The trace number of the modeset that waits for its first flip.
     awaiting_flip: Option<u64>,
+    /// The core frame of the last modeset that the game's own frames asked
+    /// for and that reached the display.
+    last_modeset_frame: Option<u64>,
     last_flip_ns: Option<u64>,
     trace: SwitchTrace,
 }
@@ -190,6 +202,7 @@ impl Odren {
             muted: false,
             restoring: None,
             awaiting_flip: None,
+            last_modeset_frame: None,
             last_flip_ns: None,
             trace: SwitchTrace::new(),
         }
@@ -279,6 +292,8 @@ impl Odren {
         if orientation != self.orientation {
             self.orientation = orientation;
             self.answers_generation += 1;
+            // The player asked for the new turn: its modeset is not held.
+            self.last_modeset_frame = None;
         }
     }
 
@@ -296,6 +311,7 @@ impl Odren {
         if content != self.content {
             self.content = content;
             self.answers_generation += 1;
+            self.last_modeset_frame = None;
         }
     }
 
@@ -597,7 +613,7 @@ impl Odren {
             // engine would neither set a valid mode nor blank.
             Switch::Modeset
                 if trigger == Trigger::Geometry
-                    && request.stable < DEBOUNCE_FRAMES
+                    && (request.stable < DEBOUNCE_FRAMES || self.within_modeset_interval())
                     && !self.refused_on_screen =>
             {
                 Directive::Waiting {
@@ -615,6 +631,17 @@ impl Odren {
                 Directive::Modeset
             }
         }
+    }
+
+    /// The last modeset is less than [`MODESET_MIN_INTERVAL_NS`] ago, at
+    /// the rate of the source on screen.
+    fn within_modeset_interval(&self) -> bool {
+        let (Some(last), Some(current)) = (self.last_modeset_frame, &self.current) else {
+            return false;
+        };
+        let frames = u128::from(self.frame.saturating_sub(last));
+        let elapsed_ns = frames * 1_000_000_000_000 / u128::from(current.source.refresh_mhz.max(1));
+        elapsed_ns < u128::from(MODESET_MIN_INTERVAL_NS)
     }
 
     /// Step 7, judged on the mode on the display. `switch_for` compares
@@ -664,6 +691,9 @@ impl Odren {
                     ..commit.record
                 });
                 self.awaiting_flip = Some(self.trace.total());
+                if commit.record.trigger == Trigger::Geometry {
+                    self.last_modeset_frame = Some(self.frame);
+                }
                 self.current = Some(Current {
                     chosen: commit.chosen,
                     read_back: *read_back,
