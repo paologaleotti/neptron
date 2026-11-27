@@ -670,6 +670,7 @@ mod tests {
             border_on_glass: None,
             glass_shape: None,
             glass_centre_permille: None,
+            fields: None,
         }
     }
 

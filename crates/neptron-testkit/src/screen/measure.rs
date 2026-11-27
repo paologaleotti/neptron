@@ -9,6 +9,7 @@ use neptron_video::{
 };
 
 use super::card::GlassShape;
+use super::fields::{self, Fields};
 use super::glass::{Glass, Tube, TubeClass};
 use super::image::Rgb;
 use super::json::{Json, object};
@@ -195,6 +196,9 @@ pub struct Picture {
     /// mille of the glass, read from the light; `None` until it is
     /// measured or when nothing is lit.
     pub glass_centre_permille: Option<(u32, u32)>,
+    /// The two fields of an interlaced mode; `None` for a progressive
+    /// mode.
+    pub fields: Option<Fields>,
 }
 
 /// The measures of one case.
@@ -438,6 +442,7 @@ fn picture(
         border_on_glass: None,
         glass_shape: None,
         glass_centre_permille: None,
+        fields: fields::fields(glass, mode, &shown.frame_buffer, dest),
     }
 }
 
@@ -904,6 +909,7 @@ impl Picture {
                     .map(|(x, y)| object([("x", x.into()), ("y", y.into())]))
                     .into(),
             ),
+            ("fields", self.fields.as_ref().map(fields_json).into()),
         ])
     }
 }
@@ -920,6 +926,24 @@ impl Player {
             ("upright", self.upright.into()),
         ])
     }
+}
+
+fn fields_json(f: &Fields) -> Json {
+    object([
+        ("field_offset_milli", f.field_offset_milli.into()),
+        ("own_lines", f.own_lines.into()),
+        ("flicker_permille", f.flicker_permille.into()),
+        (
+            "filtered_flicker_permille",
+            f.filtered_flicker_permille.into(),
+        ),
+        (
+            "source_lines",
+            f.source_lines
+                .map(|l| object([("own", l.own.into()), ("shared", l.shared.into())]))
+                .into(),
+        ),
+    ])
 }
 
 fn rect_json(r: &Rect) -> Json {

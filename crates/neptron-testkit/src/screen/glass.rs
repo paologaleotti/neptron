@@ -242,8 +242,21 @@ impl Glass {
     /// The glass picture of `frame_buffer` in `mode`, `size` pixels: each
     /// glass pixel is the mean of the light that falls on it.
     pub fn render(&self, mode: &Modeline, frame_buffer: &Rgb, size: (u32, u32)) -> Rgb {
+        self.render_bands(mode, frame_buffer, size, |_| true)
+    }
+
+    /// [`Self::render`] with only the bands that `keep` takes: the other
+    /// lines stay dark, as in one field of an interlaced mode.
+    pub fn render_bands(
+        &self,
+        mode: &Modeline,
+        frame_buffer: &Rgb,
+        size: (u32, u32),
+        keep: impl Fn(&Band) -> bool,
+    ) -> Rgb {
         let (w, h) = size;
-        let rows = row_weights(&self.bands(mode), h);
+        let bands: Vec<Band> = self.bands(mode).into_iter().filter(|b| keep(b)).collect();
+        let rows = row_weights(&bands, h);
         let columns = column_weights(self, mode, u32::from(mode.hactive), w);
         let mut out = Rgb::new(w, h, [0; 3]);
         for (y, row_list) in rows.iter().enumerate() {

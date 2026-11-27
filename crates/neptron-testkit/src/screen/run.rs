@@ -12,10 +12,12 @@ use neptron_video::{PolicySettings, wide_strategy};
 use super::card;
 use super::case::{self, Board, CaseError, DisplaySpec, Screen, Settings, Source};
 use super::consoles;
+use super::fields;
 use super::glass::Glass;
 use super::image::{Rgb, Turn};
 use super::measure::{self, Measures, Names, View};
 use super::pattern::{test_pattern, test_pattern_for};
+use super::redraw;
 use super::survey::{self, Row};
 use super::wire::{self, Wire, WireError};
 use crate::preset::{PresetError, monitor_preset};
@@ -248,6 +250,14 @@ pub fn finish(
     let mut measures = measure::measure(names, view, &wire, glass.as_ref().zip(bare.as_ref()));
     if let (Some(p), Some(shown), true) = (&mut measures.picture, &wire.shown, pattern) {
         p.border_on_wire = Some(card::border_seen(&shown.frame_buffer));
+        if let Some(f) = &mut p.fields {
+            let lines = fields::line_card(geometry.width, geometry.height, shown.scene.rotation);
+            // The scene drew a frame of this size, so the renderer takes the
+            // line card too; a refusal leaves the lines unread.
+            f.source_lines = redraw::draw(&shown.mode, &lines, &shown.scene)
+                .ok()
+                .map(|fb| fields::source_lines(&fb, shown.scene.dest));
+        }
     }
     Outcome {
         wire,

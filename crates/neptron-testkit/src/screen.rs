@@ -15,11 +15,13 @@ mod card;
 mod case;
 pub mod cli;
 mod consoles;
+mod fields;
 mod glass;
 mod image;
 mod json;
 mod measure;
 mod pattern;
+mod redraw;
 mod run;
 mod survey;
 mod wire;
@@ -35,6 +37,9 @@ pub use consoles::{
     Console, LINE_525_MHZ, LINE_625_MHZ, MEGA_DRIVE, NEO_GEO, NES, NES_PAL, PLAYSTATION, Region,
     SNES, console_of,
 };
+pub use fields::{
+    Fields, SourceLines, field_picture, flicker, flicker_filter, line_card, pairing, source_lines,
+};
 pub use glass::{
     Band, GLASS_SIZE, Glass, TUBE_15KHZ_FIELD_MHZ, TUBE_ASPECT, TV_OVERSCAN_PERMILLE, Tube,
     TubeClass,
@@ -46,6 +51,7 @@ pub use measure::{
     scan_letter, turned,
 };
 pub use pattern::{test_pattern, test_pattern_for};
+pub use redraw::draw;
 pub use run::{
     ARCADE_TABLE, CARD_MEASURE_SIZE, Case, GlassOptions, Outcome, RunError, SurveyRun, Tables,
     card_of, class_of, console_pixel_shape, finish, measure_card, pattern_of, player_turn,
