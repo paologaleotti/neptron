@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use crate::catalog::Catalog;
 use crate::index::Index;
 
-mod crc32;
+pub(crate) mod crc32;
 mod format;
 
 pub use format::{CACHE_VERSION, HEADER_BYTES, MAGIC};

@@ -5,9 +5,11 @@
 #![forbid(unsafe_code)]
 
 pub mod arcade;
+pub mod bios;
 pub mod cache;
 mod catalog;
 mod changes;
+pub mod disc;
 mod folders;
 mod index;
 mod scan;

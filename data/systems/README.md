@@ -12,8 +12,10 @@ One TOML file per system. `neptron-library` embeds these files at build time and
 | `name` | string | Display name. |
 | `extensions` | list of strings | File extensions of games, lower case, with no dot. The scan compares them with no regard to ASCII case. |
 | `always_progressive` | boolean, optional, default `false` | Every frame of the system is progressive. The line count of a frame does not make it interlaced. An arcade board draws progressive frames, also tall ones. |
+| `discs` | list of strings, optional, default empty | The disc formats of the system: `chd`, `cue` and `m3u`. Each one is also in `extensions`. `docs/spec/disc-games.md` gives the rules. |
+| `bios` | list of tables, optional, default empty | The BIOS files that the core needs. Each table has `file` (the name that the core opens), `region` (optional: `ntsc-j`, `ntsc-u` or `pal`), `size` (bytes, 1 to 16 MiB) and `crc32` (a list of 8 lower-case hex digits). NEPTRON finds a file by its size and CRC-32, not by its name (`docs/spec/disc-games.md`, section 6). |
 
-The format is append-only. A new key gets a default, or a new `format` value. A key is never renamed or removed. The parser rejects an unknown key, so a typing error cannot pass.
+The format is append-only. A new key gets a default, or a new `format` value. `discs` and `bios` came after the first version with a default, so `format` stays `1`. A key is never renamed or removed. The parser rejects an unknown key, so a typing error cannot pass.
 
 ## Sources
 

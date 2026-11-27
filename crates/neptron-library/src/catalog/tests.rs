@@ -157,7 +157,7 @@ fn bad_toml_is_a_parse_error() {
 
 #[test]
 fn unknown_key_is_rejected() {
-    let text = format!("{NES}\nbios = []\n");
+    let text = format!("{NES}\nbios_folder = []\n");
     let err = catalog(&[src("nes", &text)], &[]).unwrap_err();
     assert!(matches!(err, CatalogError::Parse { .. }), "{err:?}");
 }
@@ -532,4 +532,109 @@ fn bios_sets_belong_to_the_core_of_the_system() {
     assert!(!c.is_bios_set("arcade", "neogeo2"));
     assert!(!c.is_bios_set("nes", "neogeo"), "another core");
     assert!(!c.is_bios_set("psx", "neogeo"), "an unknown system");
+}
+
+const DISC_SYSTEM: &str = r#"
+format = 1
+folder = "nes"
+aliases = []
+name = "Disc"
+extensions = ["chd", "cue", "m3u", "nes"]
+discs = ["cue", "chd", "m3u"]
+
+[[bios]]
+file = "fw-1.bin"
+size = 4
+crc32 = ["0a0b0c0d"]
+
+[[bios]]
+file = "eu_2.BIN"
+region = "pal"
+size = 16777216
+crc32 = ["ffffffff", "00000001"]
+"#;
+
+fn disc_catalog(text: &str) -> Result<Catalog, CatalogError> {
+    catalog(&[src("nes", text)], &[src("nescore", CORE_NES)])
+}
+
+#[test]
+fn a_system_declares_disc_formats_and_bios_files() {
+    let catalog = disc_catalog(DISC_SYSTEM).expect("valid");
+    let system = &catalog.systems()[0];
+    assert_eq!(
+        system.discs,
+        [DiscFormat::Cue, DiscFormat::Chd, DiscFormat::M3u]
+    );
+    assert!(system.has_discs());
+    assert_eq!(system.disc_format("CUE"), Some(DiscFormat::Cue));
+    assert_eq!(system.disc_format("nes"), None);
+    assert_eq!(
+        system.bios,
+        [
+            BiosFile {
+                file: "fw-1.bin".to_owned(),
+                region: None,
+                size: 4,
+                crc32: vec![0x0a0b_0c0d],
+            },
+            BiosFile {
+                file: "eu_2.BIN".to_owned(),
+                region: Some(Region::Pal),
+                size: 16 * 1024 * 1024,
+                crc32: vec![0xffff_ffff, 1],
+            },
+        ]
+    );
+    let plain = catalog_of_nes();
+    assert!(!plain.systems()[0].has_discs());
+    assert!(plain.systems()[0].bios.is_empty());
+}
+
+fn catalog_of_nes() -> Catalog {
+    catalog(&[src("nes", NES)], &[src("nescore", CORE_NES)]).expect("valid")
+}
+
+#[test]
+fn the_builtin_systems_have_no_discs_and_no_bios() {
+    let catalog = Catalog::builtin().expect("valid");
+    assert!(
+        catalog
+            .systems()
+            .iter()
+            .all(|s| s.discs.is_empty() && s.bios.is_empty())
+    );
+}
+
+#[test]
+fn bad_disc_and_bios_keys_are_refused() {
+    let cases = [
+        ("discs = [\"cue\", \"chd\", \"m3u\"]", "discs = [\"iso\"]"),
+        ("discs = [\"cue\", \"chd\", \"m3u\"]", "discs = [\"CUE\"]"),
+        (
+            "discs = [\"cue\", \"chd\", \"m3u\"]",
+            "discs = [\"cue\", \"cue\"]",
+        ),
+        (
+            "extensions = [\"chd\", \"cue\", \"m3u\", \"nes\"]",
+            "extensions = [\"chd\", \"m3u\", \"nes\"]",
+        ),
+        ("file = \"fw-1.bin\"", "file = \"../fw.bin\""),
+        ("file = \"fw-1.bin\"", "file = \".fw\""),
+        ("file = \"fw-1.bin\"", "file = \"\""),
+        ("file = \"fw-1.bin\"", "file = \"EU_2.bin\""),
+        ("region = \"pal\"", "region = \"europe\""),
+        ("size = 4", "size = 0"),
+        ("size = 16777216", "size = 16777217"),
+        ("crc32 = [\"0a0b0c0d\"]", "crc32 = []"),
+        ("crc32 = [\"0a0b0c0d\"]", "crc32 = [\"0A0B0C0D\"]"),
+        ("crc32 = [\"0a0b0c0d\"]", "crc32 = [\"a0b0c0d\"]"),
+        ("crc32 = [\"0a0b0c0d\"]", "crc32 = [\"0a0b0c0g\"]"),
+        ("size = 4", "size = 4\nname = \"x\""),
+    ];
+    for (from, to) in cases {
+        assert!(DISC_SYSTEM.contains(from), "{from}");
+        let text = DISC_SYSTEM.replacen(from, to, 1);
+        assert!(disc_catalog(&text).is_err(), "{to} must be refused");
+    }
 }

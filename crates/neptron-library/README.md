@@ -23,6 +23,9 @@ ROM scan, index cache, core and system metadata. The crate reads the Batocera an
 - `Index`, `SystemGames`, `Game`, `Marks`: the query side. `Index::folders()` and `folder(path)` give the folder stamps. `Game::size()` is the size when the scan read the folder. An arcade game has `parent()`, `details()` and `marks()` (vertical, not working, unknown set). `SystemGames::games()` leaves out folded clones, `versions(stem)` gives the clones of a set, `all()` every game. `systems()`, `system(id)`, `count(id)`, `page(id, start, len)`.
 - `arcade`: `ArcadeIndex` (`find(stem)` ignores ASCII case and allocates nothing, `bios_of(set)` follows `romof`), `encode`, `decode`, `read`, `split_description`, `check_set`, `wanted`, `wanted_version`, `disk_paths`.
 - `cache`: `load`, `read`, `write`, `encode`, `decode`.
+- `SystemDef::discs` (`DiscFormat`: `chd`, `cue`, `m3u`) and `SystemDef::bios` (`BiosFile`): the disc formats and the BIOS files of a system, from the keys `discs` and `bios` of `data/systems`. `has_discs`, `disc_format(extension)`.
+- `disc`: the pure rules of `docs/spec/disc-games.md` for names and list files. `disc_tag(stem)` (`DiscTag`: the number and the group name of `(Disc N)` or `(Disc N of M)`), `save_name(stem)`, `region_of(name)` (`Region`), `m3u_lines`, `m3u_disc_path`, `cue_files`.
+- `bios`: `survey(bios_root, catalog, cancel)` reads `share/bios` and its subfolders down to `BIOS_MAX_DEPTH` (3), at most `BIOS_MAX_ENTRIES` (4096) entries, links and hidden names skipped, and reads only the files whose size is a BIOS size. `survey_systems(bios_root, systems, cancel)` does the same for some systems only, for the launch of one game. `BiosSurvey::entries(system)` gives each `BiosEntry` with its `BiosStatus` (found, wrong, missing). `check(entries, region)` decides whether a game can start, and names the file of the notice (`BiosProblem`). `crc32`.
 
 ## Owning a ScanWorker
 

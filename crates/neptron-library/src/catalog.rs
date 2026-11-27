@@ -4,6 +4,9 @@ use std::collections::BTreeMap;
 
 use serde::Deserialize;
 
+use crate::bios::{BIOS_MAX_BYTES, BiosFile};
+use crate::disc::{DiscFormat, Region};
+
 /// The format version of a system or core file that this crate reads.
 pub const DEFINITION_FORMAT: u32 = 1;
 
@@ -22,6 +25,10 @@ pub struct SystemDef {
     /// frame does not make it interlaced. False when the file has no
     /// `always_progressive` key.
     pub always_progressive: bool,
+    /// The disc formats of the system. Empty for a system with no discs.
+    pub discs: Vec<DiscFormat>,
+    /// The BIOS files that the core of the system needs, in file order.
+    pub bios: Vec<BiosFile>,
 }
 
 /// One libretro core and the systems that it runs.
@@ -296,6 +303,17 @@ impl SystemDef {
             .any(|e| e.eq_ignore_ascii_case(extension))
     }
 
+    /// True when the system has disc formats.
+    pub fn has_discs(&self) -> bool {
+        !self.discs.is_empty()
+    }
+
+    /// The disc format of a file with this extension (no dot), when it is
+    /// one of the system. The match ignores ASCII case.
+    pub fn disc_format(&self, extension: &str) -> Option<DiscFormat> {
+        DiscFormat::of_extension(extension).filter(|f| self.discs.contains(f))
+    }
+
     /// The folder name and every alias.
     pub fn folder_names(&self) -> impl Iterator<Item = &str> {
         std::iter::once(self.folder.as_str()).chain(self.aliases.iter().map(String::as_str))
@@ -312,6 +330,19 @@ struct SystemFile {
     extensions: Vec<String>,
     #[serde(default)]
     always_progressive: bool,
+    #[serde(default)]
+    discs: Vec<String>,
+    #[serde(default)]
+    bios: Vec<BiosTable>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BiosTable {
+    file: String,
+    region: Option<String>,
+    size: u64,
+    crc32: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -357,13 +388,119 @@ fn parse_system(source: &Source<'_>) -> Result<SystemDef, CatalogError> {
             return Err(bad_name(source, ext, "extension"));
         }
     }
+    let discs = parse_discs(source, &file.discs, &file.extensions)?;
+    let bios = parse_bios(source, &file.bios)?;
     Ok(SystemDef {
         folder: file.folder,
         aliases: file.aliases,
         name: file.name,
         extensions: file.extensions,
         always_progressive: file.always_progressive,
+        discs,
+        bios,
     })
+}
+
+/// The disc formats: known names, each one also an extension of the
+/// system, each once.
+fn parse_discs(
+    source: &Source<'_>,
+    names: &[String],
+    extensions: &[String],
+) -> Result<Vec<DiscFormat>, CatalogError> {
+    let mut discs = Vec::with_capacity(names.len());
+    for name in names {
+        let format = DiscFormat::of_extension(name)
+            .filter(|_| {
+                name.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+            })
+            .filter(|_| extensions.contains(name))
+            .ok_or_else(|| {
+                bad_name(
+                    source,
+                    name,
+                    "disc format (chd, cue or m3u, also in extensions)",
+                )
+            })?;
+        if discs.contains(&format) {
+            return Err(bad_name(source, name, "disc format (listed twice)"));
+        }
+        discs.push(format);
+    }
+    Ok(discs)
+}
+
+fn parse_bios(source: &Source<'_>, tables: &[BiosTable]) -> Result<Vec<BiosFile>, CatalogError> {
+    let mut files: Vec<BiosFile> = Vec::with_capacity(tables.len());
+    for table in tables {
+        if !bios_name_ok(&table.file) {
+            return Err(bad_name(source, &table.file, "BIOS file name"));
+        }
+        if files
+            .iter()
+            .any(|f| f.file.eq_ignore_ascii_case(&table.file))
+        {
+            return Err(bad_name(
+                source,
+                &table.file,
+                "BIOS file name (listed twice)",
+            ));
+        }
+        let region = table
+            .region
+            .as_deref()
+            .map(|r| {
+                Region::of_token(r)
+                    .ok_or_else(|| bad_name(source, r, "region (ntsc-j, ntsc-u or pal)"))
+            })
+            .transpose()?;
+        if table.size == 0 || table.size > BIOS_MAX_BYTES {
+            return Err(bad_name(
+                source,
+                &table.size.to_string(),
+                "BIOS size (1 byte to 16 MiB)",
+            ));
+        }
+        if table.crc32.is_empty() {
+            return Err(empty(source, "bios.crc32"));
+        }
+        let crc32 = table
+            .crc32
+            .iter()
+            .map(|text| {
+                parse_crc(text)
+                    .ok_or_else(|| bad_name(source, text, "CRC-32 (8 lower-case hex digits)"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        files.push(BiosFile {
+            file: table.file.clone(),
+            region,
+            size: table.size,
+            crc32,
+        });
+    }
+    Ok(files)
+}
+
+/// A BIOS file name: ASCII letters, digits, `.`, `-` and `_`, not
+/// starting with `.`, so it is safe as a file name in the system folder
+/// of the core.
+fn bios_name_ok(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 255
+        && !name.starts_with('.')
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
+}
+
+fn parse_crc(text: &str) -> Option<u32> {
+    let ok = text.len() == 8
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+    ok.then(|| u32::from_str_radix(text, 16).ok()).flatten()
 }
 
 fn parse_core(source: &Source<'_>) -> Result<CoreDef, CatalogError> {

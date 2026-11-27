@@ -24,7 +24,7 @@ const fn make_table() -> [u32; 256] {
     table
 }
 
-pub(super) fn crc32(bytes: &[u8]) -> u32 {
+pub(crate) fn crc32(bytes: &[u8]) -> u32 {
     let mut c = !0u32;
     for &b in bytes {
         c = TABLE[((c ^ u32::from(b)) & 0xFF) as usize] ^ (c >> 8);
