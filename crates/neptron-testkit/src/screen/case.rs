@@ -36,6 +36,91 @@ pub const REFERENCE_NAMES: [&str; 10] = [
     "dos_vga",
 ];
 
+/// The widths of the SNES in play: the key `widths` of
+/// `data/systems/snes.toml`.
+pub const SNES_WIDTHS: [u16; 2] = [256, 512];
+/// The widths of the Mega Drive in play: the key `widths` of
+/// `data/systems/megadrive.toml`.
+pub const MEGA_DRIVE_WIDTHS: [u16; 2] = [320, 256];
+/// The widths of a PlayStation game, the most used first. Its system file
+/// comes with its core (task S10); until then the list is a fixture here.
+pub const PLAYSTATION_WIDTHS: [u16; 5] = [320, 256, 640, 512, 368];
+
+/// The sources of a system with the widths that its system data names, as
+/// the app runs a game of that system: the SNES and the Mega Drive at each
+/// width they draw in play, the PlayStation at its five widths in 240p at
+/// 59.826 Hz and in 480i at 59.940 Hz, and a 640x480 progressive VGA frame
+/// at 60 Hz with no widths (DOS, the Dreamcast VGA cable).
+pub const SYSTEM_SOURCES: [(&str, &[u16], SourceGeometry); 11] = [
+    (
+        "snes_256",
+        &SNES_WIDTHS,
+        system_source(256, 224, 60_099, false),
+    ),
+    (
+        "snes_512",
+        &SNES_WIDTHS,
+        system_source(512, 224, 60_099, false),
+    ),
+    (
+        "md_320",
+        &MEGA_DRIVE_WIDTHS,
+        system_source(320, 224, 59_922, false),
+    ),
+    (
+        "md_256",
+        &MEGA_DRIVE_WIDTHS,
+        system_source(256, 224, 59_922, false),
+    ),
+    (
+        "ps1_320",
+        &PLAYSTATION_WIDTHS,
+        system_source(320, 240, 59_826, false),
+    ),
+    (
+        "ps1_256",
+        &PLAYSTATION_WIDTHS,
+        system_source(256, 240, 59_826, false),
+    ),
+    (
+        "ps1_368",
+        &PLAYSTATION_WIDTHS,
+        system_source(368, 240, 59_826, false),
+    ),
+    (
+        "ps1_512",
+        &PLAYSTATION_WIDTHS,
+        system_source(512, 240, 59_826, false),
+    ),
+    (
+        "ps1_640",
+        &PLAYSTATION_WIDTHS,
+        system_source(640, 240, 59_826, false),
+    ),
+    (
+        "ps1_480i",
+        &PLAYSTATION_WIDTHS,
+        system_source(640, 480, 59_940, true),
+    ),
+    ("vga_480p", &[], system_source(640, 480, 60_000, false)),
+];
+
+const fn system_source(
+    width: u16,
+    height: u16,
+    refresh_mhz: u32,
+    interlaced: bool,
+) -> SourceGeometry {
+    SourceGeometry {
+        width,
+        height,
+        refresh_mhz,
+        aspect_milli: 1_333,
+        interlaced,
+        rotation: Rotation::R0,
+    }
+}
+
 /// The reference sources that are arcade boards: the policy gives them
 /// the arcade rules, as the app does for the systems `arcade` and
 /// `neogeo`.
@@ -105,6 +190,10 @@ pub struct Source {
     pub geometry: SourceGeometry,
     /// An arcade board: the policy takes the arcade rules.
     pub arcade: bool,
+    /// The widths that the system of the source draws in play, from which
+    /// the policy takes its horizontal strategy
+    /// (`neptron_video::wide_strategy`). Empty for no system.
+    pub widths: &'static [u16],
 }
 
 /// An arcade board of the arcade table of the repository.
@@ -342,6 +431,15 @@ impl Source {
                 name: REFERENCE_NAMES[i].to_owned(),
                 geometry: REFERENCE_SOURCES[i],
                 arcade: REFERENCE_BOARDS.contains(&name),
+                widths: &[],
+            });
+        }
+        if let Some((name, widths, geometry)) = SYSTEM_SOURCES.iter().find(|s| s.0 == name) {
+            return Ok(Self {
+                name: (*name).to_owned(),
+                geometry: *geometry,
+                arcade: false,
+                widths,
             });
         }
         if let Some(board) = boards.iter().find(|b| b.name == name) {
@@ -349,11 +447,17 @@ impl Source {
                 name: board.name.clone(),
                 geometry: board.geometry,
                 arcade: true,
+                widths: &[],
             });
         }
         Err(CaseError::UnknownSource {
             name: name.to_owned(),
-            references: REFERENCE_NAMES.join(", "),
+            references: REFERENCE_NAMES
+                .iter()
+                .chain(SYSTEM_SOURCES.iter().map(|s| &s.0))
+                .copied()
+                .collect::<Vec<_>>()
+                .join(", "),
             boards: boards
                 .iter()
                 .map(|b| b.name.as_str())
@@ -396,6 +500,7 @@ impl Source {
                 rotation,
             },
             arcade,
+            widths: &[],
         })
     }
 }
@@ -640,6 +745,27 @@ pub fn rate_text(mhz: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The widths of the simulator are the widths of the system data.
+    #[test]
+    fn the_system_widths_are_those_of_the_system_files() {
+        let root = crate::golden::workspace_root();
+        for (system, widths) in [
+            ("snes", &SNES_WIDTHS[..]),
+            ("megadrive", &MEGA_DRIVE_WIDTHS),
+        ] {
+            let path = root.join("data/systems").join(format!("{system}.toml"));
+            let text = std::fs::read_to_string(&path).unwrap();
+            let file: toml::Table = toml::from_str(&text).unwrap();
+            let listed: Vec<u16> = file["widths"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|w| u16::try_from(w.as_integer().unwrap()).unwrap())
+                .collect();
+            assert_eq!(listed, widths, "{system}");
+        }
+    }
 
     #[test]
     fn the_names_follow_the_reference_sources() {

@@ -135,25 +135,89 @@ pub const TATE_CASES: [(&str, &str, &str, &[&str]); 16] = [
     ),
 ];
 
-/// The case of golden `index`: [`GOLDEN_CASES`], then [`TATE_CASES`].
-fn golden_case(
-    index: usize,
-) -> (
+/// The reference cases of 480i and 480p systems with a golden glass
+/// (`docs/spec/interlaced-systems.md`): the PlayStation at 240p and 480i
+/// and a VGA frame on a 15 kHz CRT with the bench PC (no interlace) and
+/// with the Raspberry Pi 5 (interlace), on a 15 kHz arcade tube, a PC
+/// monitor, an NTSC and a PAL TV and a 1080p panel. Name, display, GPU
+/// entry (`None` for the default of the display), source and settings.
+pub const INTERLACED_CASES: [GoldenCase; 14] = [
+    ("ps1_320-generic_15", "generic_15", None, "ps1_320", &[]),
+    ("ps1_512-generic_15", "generic_15", None, "ps1_512", &[]),
+    ("ps1_480i-generic_15", "generic_15", None, "ps1_480i", &[]),
+    (
+        "ps1_480i-generic_15-pi5",
+        "generic_15",
+        Some("pi5_rp1_dpi"),
+        "ps1_480i",
+        &[],
+    ),
+    ("ps1_320-arcade_15", "arcade_15", None, "ps1_320", &[]),
+    ("ps1_480i-arcade_15", "arcade_15", None, "ps1_480i", &[]),
+    ("ps1_320-pc_31_120", "pc_31_120", None, "ps1_320", &[]),
+    ("ps1_480i-pc_31_120", "pc_31_120", None, "ps1_480i", &[]),
+    ("vga_480p-pc_31_120", "pc_31_120", None, "vga_480p", &[]),
+    ("ps1_320-ntsc", "ntsc", None, "ps1_320", &[]),
+    ("ps1_480i-ntsc", "ntsc", None, "ps1_480i", &[]),
+    ("ps1_320-pal", "pal", None, "ps1_320", &[]),
+    ("ps1_480i-pal", "pal", None, "ps1_480i", &[]),
+    ("ps1_480i-panel_1080", "1920x1080@60", None, "ps1_480i", &[]),
+];
+
+/// The reference cases of a width change in play with a golden glass
+/// (`docs/spec/interlaced-systems.md`, section 3): the SNES at 256 and 512
+/// and the Mega Drive at 320 and 256 pixels, with the widths of their
+/// system data, on two 15 kHz tubes with the bench PC and on an NTSC and a
+/// PAL TV. Name, display, GPU entry, source and settings.
+pub const WIDTH_CASES: [GoldenCase; 16] = [
+    ("snes_256-generic_15", "generic_15", None, "snes_256", &[]),
+    ("snes_512-generic_15", "generic_15", None, "snes_512", &[]),
+    ("md_320-generic_15", "generic_15", None, "md_320", &[]),
+    ("md_256-generic_15", "generic_15", None, "md_256", &[]),
+    ("snes_256-arcade_15", "arcade_15", None, "snes_256", &[]),
+    ("snes_512-arcade_15", "arcade_15", None, "snes_512", &[]),
+    ("md_320-arcade_15", "arcade_15", None, "md_320", &[]),
+    ("md_256-arcade_15", "arcade_15", None, "md_256", &[]),
+    ("snes_256-ntsc", "ntsc", None, "snes_256", &[]),
+    ("snes_512-ntsc", "ntsc", None, "snes_512", &[]),
+    ("md_320-ntsc", "ntsc", None, "md_320", &[]),
+    ("md_256-ntsc", "ntsc", None, "md_256", &[]),
+    ("snes_256-pal", "pal", None, "snes_256", &[]),
+    ("snes_512-pal", "pal", None, "snes_512", &[]),
+    ("md_320-pal", "pal", None, "md_320", &[]),
+    ("md_256-pal", "pal", None, "md_256", &[]),
+];
+
+/// One golden case: name, display, GPU entry (`None` for the default of
+/// the display), source and settings.
+pub type GoldenCase = (
     &'static str,
     &'static str,
+    Option<&'static str>,
     &'static str,
     &'static [&'static str],
-) {
-    let all = GOLDEN_CASES.len() + TATE_CASES.len();
-    let i = index % all;
-    match GOLDEN_CASES.get(i) {
+);
+
+/// The case of golden `index`: [`GOLDEN_CASES`], then [`TATE_CASES`],
+/// then [`INTERLACED_CASES`], then [`WIDTH_CASES`].
+fn golden_case(index: usize) -> GoldenCase {
+    let mut i = index % GOLDEN_COUNT;
+    for list in [&GOLDEN_CASES[..], &TATE_CASES[..]] {
+        if let Some(&(name, display, source, sets)) = list.get(i) {
+            return (name, display, None, source, sets);
+        }
+        i -= list.len();
+    }
+    match INTERLACED_CASES.get(i) {
         Some(case) => *case,
-        None => TATE_CASES[i - GOLDEN_CASES.len()],
+        None => WIDTH_CASES[i - INTERLACED_CASES.len()],
     }
 }
 
-/// The number of goldens: [`GOLDEN_CASES`] and [`TATE_CASES`].
-pub const GOLDEN_COUNT: usize = GOLDEN_CASES.len() + TATE_CASES.len();
+/// The number of goldens: [`GOLDEN_CASES`], [`TATE_CASES`],
+/// [`INTERLACED_CASES`] and [`WIDTH_CASES`].
+pub const GOLDEN_COUNT: usize =
+    GOLDEN_CASES.len() + TATE_CASES.len() + INTERLACED_CASES.len() + WIDTH_CASES.len();
 
 const USAGE: &str = "\
 usage: screen --display D --source S [--gpu ID] [--set KEY=VALUE]... [--aspect A]
@@ -369,16 +433,15 @@ fn run_golden(root: &Path, tables: &Tables, args: &[&str]) -> Result<ExitCode, C
     })
 }
 
-/// The glass of golden case `index` ([`GOLDEN_CASES`], then
-/// [`TATE_CASES`]), at [`GOLDEN_SIZE`] turned as the player sees it, and
-/// its measures.
+/// The glass of golden case `index` (see [`golden_case`]), at
+/// [`GOLDEN_SIZE`] turned as the player sees it, and its measures.
 ///
 /// # Errors
 ///
 /// [`RunError`] when the case does not run.
 pub fn golden_glass(tables: &Tables, index: usize) -> Result<(Rgb, Measures), RunError> {
-    let (_, display, source, sets) = golden_case(index);
-    let case = tables.named_case(display, source, sets)?;
+    let (_, display, gpu, source, sets) = golden_case(index);
+    let case = tables.named_case_on(display, gpu, source, sets)?;
     let options = GlassOptions {
         overscan_permille: None,
         size: GOLDEN_SIZE,
@@ -1032,6 +1095,392 @@ mod tests {
                 turned,
                 "{name}: the glass stands as the player sees it"
             );
+        }
+    }
+
+    // These values record the picture of a TV as it is on `main`: a console
+    // picture keeps its width in the field, so its shape on the glass is
+    // not the shape of the game. They are not a claim that the shape is
+    // right; the question is with the owner. The policy measures the shape
+    // on a TV against its own width rule (`aspect_error_permille`), so only
+    // the glass gives a number that a change of that rule moves.
+    const TV_GLASS_ASPECT_PERMILLE: [(&str, i64); 12] = [
+        ("ps1_320-ntsc", -91),
+        ("ps1_480i-ntsc", -91),
+        ("ps1_320-pal", 91),
+        ("ps1_480i-pal", 91),
+        ("snes_256-ntsc", -26),
+        ("snes_512-ntsc", -20),
+        ("md_320-ntsc", -26),
+        ("md_256-ntsc", -26),
+        ("snes_256-pal", 169),
+        ("snes_512-pal", 187),
+        ("md_320-pal", 169),
+        ("md_256-pal", 169),
+    ];
+
+    /// The glass shape error of the TV case `name`, from
+    /// [`TV_GLASS_ASPECT_PERMILLE`], for a case on `ntsc` or `pal`.
+    fn assert_tv_glass(name: &str, display: &str, m: &Measures) {
+        if !matches!(display, "ntsc" | "pal") {
+            return;
+        }
+        let expected = TV_GLASS_ASPECT_PERMILLE
+            .iter()
+            .find(|(case, _)| *case == name)
+            .unwrap_or_else(|| panic!("{name}: a TV case needs its glass value"));
+        let p = m.picture.as_ref().unwrap();
+        assert_eq!(p.glass_aspect_error_permille, expected.1, "{name}");
+    }
+
+    /// The measures of a case of [`INTERLACED_CASES`].
+    struct Interlaced {
+        mode: (u16, u16, bool),
+        field_rate_mhz: u64,
+        dest: (i32, i32, u32, u32),
+        scale_milli: (u32, u32),
+        fill: (u32, u32),
+        aspect_error_permille: i64,
+        scanlines: &'static str,
+        notices: &'static [&'static str],
+    }
+
+    /// The measures of [`INTERLACED_CASES`], in its order.
+    const INTERLACED_EXPECTED: [Interlaced; 14] = [
+        // The wide mode: 320 at 4 in 1280, 240 lines 1:1.
+        Interlaced {
+            mode: (1_280, 240, false),
+            field_rate_mhz: 59_826,
+            dest: (0, 0, 1_280, 240),
+            scale_milli: (4_000, 1_000),
+            fill: (1_000, 995),
+            aspect_error_permille: 0,
+            scanlines: "none",
+            notices: &[],
+        },
+        // The same mode for 512: 2.5, sharp bilinear.
+        Interlaced {
+            mode: (1_280, 240, false),
+            field_rate_mhz: 59_826,
+            dest: (0, 0, 1_280, 240),
+            scale_milli: (2_500, 1_000),
+            fill: (1_000, 995),
+            aspect_error_permille: 0,
+            scanlines: "none",
+            notices: &[],
+        },
+        // No interlace on the PC: 480 lines pressed into 240, with the
+        // reason of the owner's notice.
+        Interlaced {
+            mode: (1_280, 240, false),
+            field_rate_mhz: 59_940,
+            dest: (0, 0, 1_280, 240),
+            scale_milli: (2_000, 500),
+            fill: (1_000, 997),
+            aspect_error_permille: 0,
+            scanlines: "none",
+            notices: &["fitted", "soft=InterlaceNotSent { lines: 480 }"],
+        },
+        // The Pi 5 sends interlace: 480i, 1:1.
+        Interlaced {
+            mode: (1_280, 480, true),
+            field_rate_mhz: 59_940,
+            dest: (0, 0, 1_280, 480),
+            scale_milli: (2_000, 1_000),
+            fill: (1_000, 995),
+            aspect_error_permille: 0,
+            scanlines: "none",
+            notices: &[],
+        },
+        Interlaced {
+            mode: (1_280, 240, false),
+            field_rate_mhz: 59_826,
+            dest: (0, 0, 1_280, 240),
+            scale_milli: (4_000, 1_000),
+            fill: (1_000, 995),
+            aspect_error_permille: 0,
+            scanlines: "none",
+            notices: &[],
+        },
+        // 480 lines in the 248 progressive lines of an arcade tube.
+        Interlaced {
+            mode: (1_280, 248, false),
+            field_rate_mhz: 59_940,
+            dest: (0, 0, 1_280, 248),
+            scale_milli: (2_000, 517),
+            fill: (1_000, 998),
+            aspect_error_permille: 0,
+            scanlines: "none",
+            notices: &["fitted", "soft=InterlaceNotSent { lines: 480 }"],
+        },
+        // 31 kHz: 240p as 480p, each line twice, with scanlines.
+        Interlaced {
+            mode: (1_280, 480, false),
+            field_rate_mhz: 59_826,
+            dest: (0, 0, 1_280, 480),
+            scale_milli: (4_000, 2_000),
+            fill: (1_000, 947),
+            aspect_error_permille: 0,
+            scanlines: "black 75%",
+            notices: &[],
+        },
+        // 31 kHz: 480i as 480p full frames, 1:1.
+        Interlaced {
+            mode: (1_280, 480, false),
+            field_rate_mhz: 59_940,
+            dest: (0, 0, 1_280, 480),
+            scale_milli: (2_000, 1_000),
+            fill: (1_000, 948),
+            aspect_error_permille: 0,
+            scanlines: "none",
+            notices: &[],
+        },
+        // A VGA frame names no system: its own width, 1:1.
+        Interlaced {
+            mode: (640, 480, false),
+            field_rate_mhz: 60_000,
+            dest: (0, 0, 640, 480),
+            scale_milli: (1_000, 1_000),
+            fill: (999, 949),
+            aspect_error_permille: 0,
+            scanlines: "none",
+            notices: &[],
+        },
+        // A TV: 640 samples against the console width of 644 (650 on
+        // PAL), as for every console picture on a TV.
+        Interlaced {
+            mode: (720, 240, false),
+            field_rate_mhz: 60_054,
+            dest: (40, 0, 640, 240),
+            scale_milli: (2_000, 1_000),
+            fill: (1_000, 1_000),
+            aspect_error_permille: -6,
+            scanlines: "none",
+            notices: &[],
+        },
+        Interlaced {
+            mode: (720, 480, true),
+            field_rate_mhz: 59_940,
+            dest: (40, 0, 640, 480),
+            scale_milli: (1_000, 1_000),
+            fill: (1_000, 1_000),
+            aspect_error_permille: -6,
+            scanlines: "none",
+            notices: &[],
+        },
+        // A PAL TV runs the 60 Hz game at 50 Hz.
+        Interlaced {
+            mode: (720, 288, false),
+            field_rate_mhz: 50_080,
+            dest: (40, 24, 640, 240),
+            scale_milli: (2_000, 1_000),
+            fill: (1_000, 926),
+            aspect_error_permille: -15,
+            scanlines: "none",
+            notices: &["speed_change"],
+        },
+        Interlaced {
+            mode: (720, 576, true),
+            field_rate_mhz: 50_000,
+            dest: (40, 48, 640, 480),
+            scale_milli: (1_000, 1_000),
+            fill: (992, 926),
+            aspect_error_permille: -15,
+            scanlines: "none",
+            notices: &["speed_change"],
+        },
+        // A panel shows the frames of the core, 2x, nearest.
+        Interlaced {
+            mode: (1_920, 1_080, false),
+            field_rate_mhz: 60_000,
+            dest: (320, 60, 1_280, 960),
+            scale_milli: (2_000, 2_000),
+            fill: (667, 889),
+            aspect_error_permille: 0,
+            scanlines: "none",
+            notices: &[],
+        },
+    ];
+
+    #[test]
+    fn the_interlaced_cases_match_their_goldens_and_measures() {
+        let root = workspace_root();
+        let tables = Tables::load(&root).unwrap();
+        let golden = Golden::new(
+            root.join(GOLDEN_DIR),
+            root.join(OUT_DIR).join("golden-actual"),
+        );
+        let first = GOLDEN_CASES.len() + TATE_CASES.len();
+        for (i, expected) in INTERLACED_EXPECTED.iter().enumerate() {
+            let (name, display, ..) = INTERLACED_CASES[i];
+            let (image, m) = golden_glass(&tables, first + i).unwrap();
+            assert_tv_glass(name, display, &m);
+            golden
+                .check(name, &to_rgb_image(&image).unwrap())
+                .unwrap_or_else(|e| panic!("{e}"));
+            let p = m
+                .picture
+                .as_ref()
+                .unwrap_or_else(|| panic!("{name}: no picture"));
+            let mode = (p.mode.hactive, p.mode.vactive, p.mode.interlace);
+            assert_eq!(mode, expected.mode, "{name}");
+            assert_eq!(p.mode.field_rate_mhz, expected.field_rate_mhz, "{name}");
+            let (x, y, w, h) = expected.dest;
+            assert_eq!(p.dest, Rect { x, y, w, h }, "{name}");
+            assert_eq!(
+                (p.scale_x_milli, p.scale_y_milli),
+                expected.scale_milli,
+                "{name}"
+            );
+            assert_eq!(
+                (p.fill_w_permille, p.fill_h_permille),
+                expected.fill,
+                "{name}"
+            );
+            assert_eq!(p.scanlines, expected.scanlines, "{name}");
+            assert_eq!(p.notices, expected.notices, "{name}");
+            assert_eq!(p.cropped, Edges::default(), "{name}: every line");
+            assert_eq!(p.dropped_lines, 0, "{name}");
+            assert_eq!(
+                p.aspect_error_permille, expected.aspect_error_permille,
+                "{name}"
+            );
+            assert_eq!(p.player.upright, Some(true), "{name}");
+        }
+    }
+
+    /// The measures of [`WIDTH_CASES`], in its order: the mode, `dest`,
+    /// the scale in thousandths, the fill and the shape error. On a CRT
+    /// both widths of a system share the mode at whole factors; the fill
+    /// and the shape are those of the mode of each width before the wide
+    /// mode. A TV has one mode width for every game already.
+    #[allow(clippy::type_complexity)]
+    const WIDTH_EXPECTED: [(
+        (u16, u16),
+        (i32, i32, u32, u32),
+        (u32, u32),
+        (u32, u32),
+        i64,
+    ); 16] = [
+        ((1536, 224), (0, 0, 1536, 224), (6000, 1000), (1000, 932), 0),
+        ((1536, 224), (0, 0, 1536, 224), (3000, 1000), (1000, 932), 0),
+        ((1280, 224), (0, 0, 1280, 224), (4000, 1000), (1000, 931), 0),
+        ((1280, 224), (0, 0, 1280, 224), (5000, 1000), (1000, 931), 0),
+        ((1536, 224), (0, 0, 1536, 224), (6000, 1000), (1000, 932), 0),
+        ((1536, 224), (0, 0, 1536, 224), (3000, 1000), (1000, 932), 0),
+        ((1280, 224), (0, 0, 1280, 224), (4000, 1000), (1000, 931), 0),
+        ((1280, 224), (0, 0, 1280, 224), (5000, 1000), (1000, 931), 0),
+        (
+            (720, 240),
+            (40, 8, 640, 224),
+            (2500, 1000),
+            (1000, 1000),
+            -6,
+        ),
+        ((720, 240), (38, 8, 644, 224), (1258, 1000), (1000, 1000), 0),
+        (
+            (720, 240),
+            (40, 8, 640, 224),
+            (2000, 1000),
+            (1000, 1000),
+            -6,
+        ),
+        (
+            (720, 240),
+            (40, 8, 640, 224),
+            (2500, 1000),
+            (1000, 1000),
+            -6,
+        ),
+        (
+            (720, 288),
+            (40, 32, 640, 224),
+            (2500, 1000),
+            (1000, 864),
+            -15,
+        ),
+        ((720, 288), (35, 32, 650, 224), (1270, 1000), (1000, 864), 0),
+        (
+            (720, 288),
+            (40, 32, 640, 224),
+            (2000, 1000),
+            (1000, 864),
+            -15,
+        ),
+        (
+            (720, 288),
+            (40, 32, 640, 224),
+            (2500, 1000),
+            (1000, 864),
+            -15,
+        ),
+    ];
+
+    #[test]
+    fn the_width_cases_match_their_goldens_and_measures() {
+        let root = workspace_root();
+        let tables = Tables::load(&root).unwrap();
+        let golden = Golden::new(
+            root.join(GOLDEN_DIR),
+            root.join(OUT_DIR).join("golden-actual"),
+        );
+        let first = GOLDEN_CASES.len() + TATE_CASES.len() + INTERLACED_CASES.len();
+        for (i, (mode, dest, scale, fill, aspect)) in WIDTH_EXPECTED.iter().enumerate() {
+            let (name, display, ..) = WIDTH_CASES[i];
+            let (image, m) = golden_glass(&tables, first + i).unwrap();
+            assert_tv_glass(name, display, &m);
+            golden
+                .check(name, &to_rgb_image(&image).unwrap())
+                .unwrap_or_else(|e| panic!("{e}"));
+            let p = m.picture.as_ref().unwrap();
+            assert_eq!((p.mode.hactive, p.mode.vactive), *mode, "{name}");
+            assert!(!p.mode.interlace, "{name}");
+            let (x, y, w, h) = *dest;
+            assert_eq!(p.dest, Rect { x, y, w, h }, "{name}");
+            assert_eq!((p.scale_x_milli, p.scale_y_milli), *scale, "{name}");
+            assert_eq!((p.fill_w_permille, p.fill_h_permille), *fill, "{name}");
+            assert_eq!(p.aspect_error_permille, *aspect, "{name}");
+            assert_eq!(p.cropped, Edges::default(), "{name}");
+            assert_eq!(p.dropped_lines, 0, "{name}");
+            assert_eq!(p.player.upright, Some(true), "{name}");
+            if p.mode.hactive != 720 {
+                assert!(p.scale_x_whole, "{name}: a whole factor on a CRT");
+            }
+        }
+    }
+
+    /// The widths of a PlayStation, a SNES and a Mega Drive game share one
+    /// mode on a CRT, and each fills the same picture.
+    #[test]
+    fn the_widths_of_a_system_share_one_mode_on_a_crt() {
+        let tables = Tables::load(&workspace_root()).unwrap();
+        let systems: [&[&str]; 3] = [
+            &["ps1_320", "ps1_256", "ps1_368", "ps1_512", "ps1_640"],
+            &["snes_256", "snes_512"],
+            &["md_320", "md_256"],
+        ];
+        for (display, sources) in ["generic_15", "arcade_15", "pc_31_120"]
+            .iter()
+            .flat_map(|d| systems.iter().map(move |s| (*d, *s)))
+        {
+            let pictures: Vec<_> = sources
+                .iter()
+                .map(|source| {
+                    let case = tables.named_case(display, source, &[]).unwrap();
+                    let options = GlassOptions {
+                        overscan_permille: None,
+                        size: GOLDEN_SIZE,
+                        turn: Turn::R0,
+                    };
+                    let outcome = simulate(&case, &pattern_of(&case.source), &options).unwrap();
+                    outcome.measures.picture.unwrap()
+                })
+                .collect();
+            for p in &pictures {
+                assert_eq!(p.mode, pictures[0].mode, "{display}");
+                assert_eq!(p.dest, pictures[0].dest, "{display}");
+                assert_eq!(p.dropped_lines, 0, "{display}");
+            }
         }
     }
 

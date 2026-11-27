@@ -7,6 +7,7 @@ use std::{fs, io};
 use neptron_platform::Matrix;
 use neptron_settings::Schema;
 use neptron_types::{MonitorKind, MonitorProfile, Rotation};
+use neptron_video::{PolicySettings, wide_strategy};
 
 use super::case::{self, Board, CaseError, DisplaySpec, Screen, Settings, Source};
 use super::glass::Glass;
@@ -134,7 +135,23 @@ impl Tables {
     ///
     /// [`RunError`] for a name or a setting that does not parse.
     pub fn named_case(&self, display: &str, source: &str, sets: &[&str]) -> Result<Case, RunError> {
-        let screen = self.screen(&DisplaySpec::parse(display)?, None)?;
+        self.named_case_on(display, None, source, sets)
+    }
+
+    /// [`Self::named_case`] with the GPU entry `gpu`, or the default of the
+    /// display for `None`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::named_case`].
+    pub fn named_case_on(
+        &self,
+        display: &str,
+        gpu: Option<&str>,
+        source: &str,
+        sets: &[&str],
+    ) -> Result<Case, RunError> {
+        let screen = self.screen(&DisplaySpec::parse(display)?, gpu)?;
         let source = Source::named(source, &self.boards)?;
         let defaults = Settings::defaults(&self.schema);
         let mut settings = defaults.clone();
@@ -167,7 +184,10 @@ pub fn class_of(profile: &MonitorProfile) -> &'static str {
 /// engine that fails after it set a mode.
 pub fn simulate(case: &Case, frame: &Rgb, options: &GlassOptions) -> Result<Outcome, RunError> {
     let geometry = case.source.geometry;
-    let settings = case.settings.policy(case.source.arcade)?;
+    let settings = PolicySettings {
+        horizontal: wide_strategy(case.source.widths),
+        ..case.settings.policy(case.source.arcade)?
+    };
     let scanlines = case.settings.scanlines()?;
     let orientation = case.settings.orientation()?;
     let wire = wire::run(
