@@ -390,6 +390,9 @@ fn run_survey(root: &Path, tables: &Tables, args: &[&str]) -> Result<ExitCode, C
 /// enough to read the line numbers of the card.
 pub const GATE_TILE: (u32, u32) = (360, 270);
 
+/// The size of each picture of a sequence strip, in pixels.
+pub const SEQUENCE_TILE: (u32, u32) = (288, 216);
+
 /// The gate: runs every stored case, prints one table, writes one contact
 /// sheet per screen type, the field pictures of the interlaced cases and
 /// `gate.md` under `target/screen/gate/`, and fails when a case fails.
@@ -441,6 +444,15 @@ fn run_gate_command(root: &Path, tables: &Tables, args: &[&str]) -> Result<ExitC
                 super::options::option_lines(cell).join(" | ")
             );
         }
+    }
+    for spec in &super::sequence::SEQUENCES {
+        let seq = super::sequence::run_sequence(tables, spec, SEQUENCE_TILE)?;
+        let (image, labels) = super::sequence::strip(&seq, SEQUENCE_TILE);
+        let stem = format!("sequence_{}", spec.name);
+        write_ppm(&dir.join(format!("{stem}.ppm")), &image)?;
+        let json = survey::labels_json(&labels).compact();
+        write(&dir.join(format!("{stem}.labels.json")), json.as_bytes())?;
+        print!("{}", super::sequence::sequence_text(&seq));
     }
     let table = super::gate::table(&run.rows);
     write(&dir.join("gate.md"), table.as_bytes())?;

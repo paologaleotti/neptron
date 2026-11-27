@@ -25,6 +25,7 @@ mod options;
 mod pattern;
 mod redraw;
 mod run;
+mod sequence;
 mod sheet;
 mod survey;
 mod wire;
@@ -70,6 +71,7 @@ pub use run::{
     card_of, class_of, console_pixel_shape, finish, measure_card, pattern_of, player_turn,
     simulate, simulate_with_reference_card, survey_rows,
 };
+pub use sequence::{SEQUENCES, Sequence, SequenceSpec, Shot, run_sequence, sequence_text, strip};
 pub use sheet::{Cell, card_legend, sheet};
 pub use survey::{
     ASPECT_ERROR_MAX_PERMILLE, Counts, DISPLAYS, EXTRA_SOURCES, Flag, LABEL_ADVANCE_PX,
