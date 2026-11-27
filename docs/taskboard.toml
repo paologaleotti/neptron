@@ -884,7 +884,7 @@ status = "merged"
 id = "N03"
 wave = 15
 release = "later"
-name = "The menu on a TV fills the width: a backdrop colour in the Scene contract, with an ADR (OP-097, OP-102 point 1); Fit follow-ups from the review of N08: Fit must not take a mode at another refresh rate where an exact picture at the rate of the game exists, and a game of more than twice the lines of a TV mode must not lose lines"
+name = "The menu on a TV fills the width: a backdrop colour in the Scene contract, with an ADR (OP-097, OP-102 point 1); Fit follow-ups from the review of N08: Fit must not take a mode at another refresh rate where an exact picture at the rate of the game exists, and a game of more than twice the lines of a TV mode must not lose lines; also the 480i frame that waits in a 240p mode: pressed below half height it drops 64 of 480 lines for at most two frames, and a fix needs a change to the Scene contract (found by T101)"
 owns = ["crates/neptron-types", "crates/neptron-gfx", "crates/neptron-video", "apps/neptron", "docs/adr"]
 needs = ["N01"]
 gate = "T2; goldens on NTSC and PAL; tier 3 GLES compare"
@@ -1148,8 +1148,7 @@ name = "The screen simulator is the first gate before a test on real screens: a 
 owns = ["crates/neptron-testkit", "xtask", "docs/spec"]
 needs = ["S07"]
 gate = "T2; screen golden; the owner looks at the pictures"
-status = "in_progress"
-priority = 1
+status = "merged"
 
 [[task]]
 id = "T102"
@@ -1160,4 +1159,15 @@ owns = ["crates/neptron-types", "crates/neptron-gfx", "crates/neptron-video", "c
 needs = ["S07"]
 gate = "T2; gles-compare; screen golden"
 status = "pending"
+priority = 1
+[[task]]
+id = "T103"
+wave = 16
+release = "0.2"
+name = "A 60 Hz game fills a PAL TV: the 60 Hz mode with PAL colour is the default for a game of 60 Hz, with the Keep this picture prompt and the 50 Hz mode as the fall-back (decision of OP-122); the simulator cases of PAL change with it"
+owns = ["crates/neptron-modeline", "crates/neptron-video", "crates/neptron-settings", "crates/neptron-testkit", "apps/neptron", "docs/spec"]
+needs = ["T101"]
+gate = "T2; screen gate; screen golden; the owner looks at the pictures"
+status = "pending"
 priority = 2
+
