@@ -1,4 +1,4 @@
-use neptron_types::Modeline;
+use neptron_types::{CRT_15KHZ_CLASS_MAX_LINE_RATE_MHZ, Modeline};
 
 use super::panel::PANEL_FILL_MIN_SCALE_MILLI;
 use super::placement::{fitted_height, scale_milli};
@@ -115,6 +115,12 @@ pub enum SoftReason {
     /// No exact mode at any rate the display covers: the fit runs at the
     /// rate the display reaches.
     NoRate,
+    /// An interlaced game on a 15 kHz CRT whose GPU sends no interlaced
+    /// mode: its lines are pressed into the progressive lines.
+    InterlaceNotSent {
+        /// Lines of the game on the screen.
+        lines: u16,
+    },
     /// `display.vertical = fit` asks a turned game to fill the screen.
     Chosen,
     /// The picture mode `fit` asks the game to fill the screen.
@@ -371,6 +377,9 @@ fn soft_reason(plan: &Plan, winner: &Considered) -> SoftReason {
     if winner.target.kind == RefreshKind::Unmatched {
         return SoftReason::NoRate;
     }
+    if interlace_not_sent(plan, winner) {
+        return SoftReason::InterlaceNotSent { lines };
+    }
     let interlace_refused = plan.considered.iter().any(|c| {
         c.rung == Rung::Interlaced
             && matches!(
@@ -386,6 +395,17 @@ fn soft_reason(plan: &Plan, winner: &Considered) -> SoftReason {
     } else {
         SoftReason::TooTall { lines }
     }
+}
+
+/// An interlaced game on a CRT mode of the 15 kHz class, where the profile
+/// declares interlaced lines and the GPU sends no interlaced mode.
+fn interlace_not_sent(plan: &Plan, winner: &Considered) -> bool {
+    let on_15khz = winner
+        .outcome
+        .as_ref()
+        .is_ok_and(|p| p.mode.line_rate_mhz() < CRT_15KHZ_CLASS_MAX_LINE_RATE_MHZ);
+    let crt = plan.horizontal.is_some();
+    plan.source.interlaced && crt && plan.interlace_held_by_gpu && on_15khz
 }
 
 /// The share of the screen height of a small picture, in per mille, or

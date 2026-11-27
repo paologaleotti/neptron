@@ -32,6 +32,11 @@ pub struct Plan {
     /// On a flat panel, what keeps the game at a whole multiple where the
     /// picture mode would fill the height. `None` on a CRT and on a TV.
     pub held_whole: Option<HeldWhole>,
+    /// The display takes interlaced modes and the GPU does not send them
+    /// (`GpuCaps::interlace` is false): a CRT with a range that declares
+    /// interlaced lines, or a TV. False on a flat panel, which shows no
+    /// interlaced mode.
+    pub interlace_held_by_gpu: bool,
 }
 
 /// A flat panel keeps the game at a whole multiple where the picture mode

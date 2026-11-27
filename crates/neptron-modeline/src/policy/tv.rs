@@ -114,6 +114,7 @@ pub(crate) fn tv_plan(
         skipped: skipped(settings.refresh, source.refresh_mhz),
         considered,
         held_whole: None,
+        interlace_held_by_gpu: !caps.interlace,
     }
 }
 

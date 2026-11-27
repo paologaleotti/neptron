@@ -1,12 +1,14 @@
 //! The policy for 480i and 480p systems (docs/spec/interlaced-systems.md):
-//! the wide mode of a system that changes its width.
+//! the wide mode of a system that changes its width, the reason of an
+//! interlaced game on a GPU that sends no interlace, the 31 kHz CRT and
+//! the flat panel.
 
 use neptron_modeline::policy::{
     GameWidths, HorizontalScale, HorizontalStrategy, PolicySettings, Proposal, REFRESH_MATCH_MHZ,
-    Rung, choose, decide,
+    Rung, SoftReason, choose, decide, notice,
 };
 use neptron_safety::validate;
-use neptron_types::{GpuCaps, Modeline, MonitorProfile, SourceGeometry, TvStandard};
+use neptron_types::{Filter, GpuCaps, Modeline, MonitorProfile, SourceGeometry, TvStandard};
 
 use crate::presets::{all_presets, gpu_table, open_caps, panel_1080, preset, source};
 
@@ -14,6 +16,7 @@ use crate::presets::{all_presets, gpu_table, open_caps, panel_1080, preset, sour
 /// comes with its core (task S10); until then the list lives here.
 const PLAYSTATION_WIDTHS: [u16; 5] = [320, 256, 640, 512, 368];
 const PSX_240P_MHZ: u32 = 59_826;
+const PSX_480I_MHZ: u32 = 59_940;
 
 fn caps(id: &str) -> GpuCaps {
     gpu_table()
@@ -32,10 +35,18 @@ fn playstation() -> PolicySettings {
     }
 }
 
-/// The winner after the validator, with its rung.
+fn interlaced(width: u16, height: u16, refresh_mhz: u32) -> SourceGeometry {
+    SourceGeometry {
+        interlaced: true,
+        ..source(width, height, refresh_mhz)
+    }
+}
+
+/// The winner after the validator, with its rung and its notice.
 struct Won {
     rung: Rung,
     proposal: Proposal,
+    soft: Option<SoftReason>,
 }
 
 fn won_with(
@@ -58,6 +69,7 @@ fn won_with(
     Won {
         rung: w.considered.rung,
         proposal: *w.proposal,
+        soft: notice(&plan, w.considered).and_then(|n| n.soft),
     }
 }
 
@@ -211,6 +223,134 @@ fn the_wide_mode_changes_nothing_on_a_tv_or_a_panel() {
             assert_eq!(wide.proposal, today.proposal, "{} {width}", profile.id);
         }
     }
+}
+
+#[test]
+fn an_interlaced_game_on_a_15khz_crt_without_interlace_is_pressed_into_240p_with_its_reason() {
+    let intel = caps("intel_gen9");
+    let game = interlaced(640, 480, PSX_480I_MHZ);
+    for id in ["generic_15", "arcade_15"] {
+        let profile = preset(id);
+        for settings in [PolicySettings::default(), playstation()] {
+            let w = won(&game, &settings, &profile, &intel);
+            assert_eq!(w.rung, Rung::Fitted, "{id}");
+            assert!(!w.proposal.mode.interlace, "{id}");
+            let placement = &w.proposal.placement;
+            assert_eq!(placement.crop.h, 480, "{id}: every line");
+            assert_eq!(placement.filter, Filter::SharpBilinear, "{id}");
+            assert!(placement.dest.h * 2 >= 480, "{id}: no line dropped");
+            assert_eq!(
+                w.soft,
+                Some(SoftReason::InterlaceNotSent { lines: 480 }),
+                "{id}"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_reason_of_the_intel_limit_is_only_for_an_interlaced_game() {
+    let intel = caps("intel_gen9");
+    let profile = preset("generic_15");
+    let vga = source(640, 480, 60_000);
+    let w = won(&vga, &PolicySettings::default(), &profile, &intel);
+    assert_eq!(w.soft, Some(SoftReason::NoInterlace { lines: 480 }));
+    let progressive = source(320, 240, PSX_240P_MHZ);
+    let w = won(&progressive, &playstation(), &profile, &intel);
+    assert_eq!(w.soft, None);
+    assert_eq!(w.proposal.placement.scale.y, Some(1));
+}
+
+#[test]
+fn the_reason_of_the_intel_limit_needs_a_profile_with_interlaced_lines() {
+    let intel = caps("intel_gen9");
+    let game = interlaced(640, 480, PSX_480I_MHZ);
+    let mut profile = preset("generic_15");
+    if let neptron_types::MonitorKind::Crt { ranges } = &mut profile.kind {
+        for range in ranges {
+            range.interlaced_lines_min = 0;
+            range.interlaced_lines_max = 0;
+        }
+    }
+    let w = won(&game, &PolicySettings::default(), &profile, &intel);
+    assert_eq!(w.rung, Rung::Fitted);
+    assert_eq!(
+        w.soft,
+        Some(SoftReason::TooTall { lines: 480 }),
+        "the profile stops it, not the GPU"
+    );
+    let w = won(
+        &game,
+        &PolicySettings::default(),
+        &preset("generic_15"),
+        &intel,
+    );
+    assert_eq!(w.soft, Some(SoftReason::InterlaceNotSent { lines: 480 }));
+}
+
+#[test]
+fn an_interlace_gpu_shows_480i_interlaced_and_240p_progressive_on_15khz() {
+    let gpu = caps("pi5_rp1_dpi");
+    let profile = preset("generic_15");
+    let i = won(
+        &interlaced(640, 480, PSX_480I_MHZ),
+        &playstation(),
+        &profile,
+        &gpu,
+    );
+    assert!(i.proposal.mode.interlace);
+    assert_eq!(i.proposal.mode.vactive, 480);
+    assert_eq!(i.proposal.placement.scale.y, Some(1));
+    assert_eq!(i.soft, None);
+    let p = won(
+        &source(320, 240, PSX_240P_MHZ),
+        &playstation(),
+        &profile,
+        &gpu,
+    );
+    assert!(!p.proposal.mode.interlace);
+    assert_eq!(p.proposal.mode.vactive, 240);
+    assert_ne!(i.proposal.mode, p.proposal.mode, "a modeset at each change");
+}
+
+#[test]
+fn a_31khz_crt_shows_240p_doubled_and_480i_as_full_frames() {
+    let intel = caps("intel_gen9");
+    for id in ["pc_31_120", "arcade_31"] {
+        let profile = preset(id);
+        let p = won(
+            &source(320, 240, PSX_240P_MHZ),
+            &playstation(),
+            &profile,
+            &intel,
+        );
+        assert!(!p.proposal.mode.interlace, "{id}");
+        assert_eq!(p.proposal.placement.dest.h, 480, "{id}");
+        assert_eq!(p.proposal.placement.scale.y, Some(2), "{id}");
+        let i = won(
+            &interlaced(640, 480, PSX_480I_MHZ),
+            &playstation(),
+            &profile,
+            &intel,
+        );
+        assert!(!i.proposal.mode.interlace, "{id}");
+        assert_eq!(i.proposal.placement.dest.h, 480, "{id}");
+        assert_eq!(i.proposal.placement.scale.y, Some(1), "{id}");
+        assert_eq!(i.soft, None, "{id}");
+    }
+}
+
+#[test]
+fn a_flat_panel_shows_the_frames_of_an_interlaced_game() {
+    let w = won(
+        &interlaced(640, 480, PSX_480I_MHZ),
+        &playstation(),
+        &panel_1080(),
+        &open_caps(),
+    );
+    assert!(!w.proposal.mode.interlace);
+    assert_eq!(w.proposal.placement.dest.h, 960);
+    assert_eq!(w.proposal.placement.filter, Filter::Nearest);
 }
 
 /// The systems of `data/systems` that change their width in play, with

@@ -158,6 +158,8 @@ pub(crate) fn crt_plan(crt: &Crt<'_>) -> Result<Plan, PolicyError> {
         skipped,
         considered: entries.into_iter().map(|(_, c)| c).collect(),
         held_whole: None,
+        interlace_held_by_gpu: !crt.caps.interlace
+            && crt.ranges.iter().any(|r| r.interlaced_lines_max > 0),
     })
 }
 

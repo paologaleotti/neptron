@@ -160,5 +160,6 @@ pub(crate) fn panel_plan(
         skipped: Vec::new(),
         considered: entries.into_iter().map(|(_, c)| c).collect(),
         held_whole,
+        interlace_held_by_gpu: false,
     }
 }

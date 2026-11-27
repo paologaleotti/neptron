@@ -61,6 +61,10 @@ fn reason_text(reason: NoticeReason) -> String {
         NoticeReason::Soft(SoftReason::NoInterlace { lines }) => format!(
             "Soft picture: the game needs {lines} lines, and this monitor profile has no interlaced mode."
         ),
+        NoticeReason::Soft(SoftReason::InterlaceNotSent { .. }) => {
+            "This game is interlaced. This PC cannot send an interlaced picture to a 15 kHz monitor, so the picture is soft."
+                .to_owned()
+        }
         NoticeReason::Soft(SoftReason::NoRate) => {
             "Soft picture: no sharp mode at this game's rate.".to_owned()
         }
@@ -355,6 +359,10 @@ mod tests {
             (
                 SoftReason::NoInterlace { lines: 640 },
                 "Soft picture: the game needs 640 lines, and this monitor profile has no interlaced mode.",
+            ),
+            (
+                SoftReason::InterlaceNotSent { lines: 480 },
+                "This game is interlaced. This PC cannot send an interlaced picture to a 15 kHz monitor, so the picture is soft.",
             ),
             (
                 SoftReason::NoRate,
