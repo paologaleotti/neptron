@@ -1033,8 +1033,7 @@ name = "Picture for 480i and 480p systems: the policy for interlaced and VGA sou
 owns = ["crates/neptron-modeline", "crates/neptron-video", "crates/neptron-gfx", "docs/spec"]
 needs = []
 gate = "T2; screen golden; gles-compare"
-status = "in_progress"
-priority = 1
+status = "merged"
 
 [[task]]
 id = "S08"
@@ -1145,9 +1144,20 @@ status = "pending"
 id = "T101"
 wave = 16
 release = "0.2"
-name = "The screen simulator is the first gate before a test on real screens: a deep check of the simulator itself (does each measure and each picture say what a real CRT, TV and panel show), interlaced modes drawn and measured (the two fields, line pairing, flicker of thin lines, the flicker filter), mode changes in play as a sequence, and one command that runs every stored case and fails on a fault"
+name = "The screen simulator is the first gate before a test on real screens: a deep check of the simulator itself (does each measure and each picture say what a real CRT, TV and panel show), interlaced modes drawn and measured (the two fields, line pairing, flicker of thin lines, the flicker filter), mode changes in play as a sequence, and one command that runs every stored case and fails on a fault; first fact to settle (OP-122): on a TV the measure of the shape was made against the policy's own width rule and agreed with itself, while the glass shows a PlayStation 480i picture 9 % narrow on NTSC and 9 % wide on PAL, and a 224-line game 17 % wide on PAL"
 owns = ["crates/neptron-testkit", "xtask", "docs/spec"]
 needs = ["S07"]
 gate = "T2; screen golden; the owner looks at the pictures"
+status = "pending"
+priority = 1
+
+[[task]]
+id = "T102"
+wave = 16
+release = "0.2"
+name = "Flicker filter for interlaced modes: a vertical blend field in the Scene contract with an ADR, the renderer stage, the setting off by default with its row and texts (decision 4 of OP-120; the blend and the texts are in section 5 of docs/spec/interlaced-systems.md)"
+owns = ["crates/neptron-types", "crates/neptron-gfx", "crates/neptron-video", "crates/neptron-settings", "apps/neptron", "docs/adr", "docs/spec"]
+needs = ["S07"]
+gate = "T2; gles-compare; screen golden"
 status = "pending"
 priority = 2
