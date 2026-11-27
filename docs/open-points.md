@@ -115,6 +115,7 @@ The state column is one line. The full entry below is the reference.
 | OP-117 | Decisions of 2026-11-24 | 0.1.0 is an internal milestone; the public release is 1.0; the bench monitor is a SyncMaster 750s |
 | OP-118 | Hardware-render and milestone 0.2 | The owner took every recommendation of `docs/spec/hw-render.md`; the points that no one has verified are listed |
 | OP-119 | Disc games, BIOS files and memory cards | The owner took every recommendation for task S04; the watchdog notice text is approved |
+| OP-120 | The picture of 480i and 480p systems | The owner took every recommendation for task S07 |
 
 ### Decided
 
@@ -1152,3 +1153,13 @@ The state column is one line. The full entry below is the reference.
 - How to change: a new answer of the owner in the spec.
 - Decision: Owner, 2026-11-27: (1) the disc formats of 0.2 are CHD, cue with its bin files, and m3u lists; (2) a cue shows as one entry and its bin files are hidden; (3) a game of several discs is one entry, from an m3u file or, with none, from the files that NEPTRON groups by "(Disc N)" in the name; (4) the quick menu has a row "Disc" to change the disc; (5) BIOS files go in the one `bios` folder of the share, and NEPTRON also finds one in a subfolder; (6) a BIOS is checked by its content, not by its name; (7) with a missing or wrong BIOS the game does not start, with a notice that names the file and the folder, and a replacement inside a core is used only where S10 or S11 finds it good; (8) a page Settings > System > "BIOS files" shows each system, found or missing, with the file wanted; (9) one memory card for each game, made automatically, kept and backed up as save RAM; (10) the cards live with the other saves and move with them in task C19; (11) a PAL game is a 50 Hz source for the picture policy, with the BIOS of its region if present and any region otherwise.
 - Also decided, Owner, 2026-11-27: the notice of the watchdog of S02 is "The game stopped: it did not answer for 15 seconds."
+
+### OP-120: The picture of 480i and 480p systems.
+
+- Raised by: task S07 (2026-11-27)
+- Status: decided
+- Default: the answers below, written in full in the spec of task S07.
+- Where: `docs/spec/video-policy-cases.md` or the spec of S07, `crates/neptron-modeline`, `crates/neptron-video`, `crates/neptron-gfx`
+- How to change: a new answer of the owner in the spec.
+- Decision: Owner, 2026-11-27: (1) a game that changes between 240p and 480i gets a mode change at each change on a 15 kHz CRT and on a TV, as the console does; (2) on a CRT a game gets one wide mode, so a change of its width needs no mode change; (3) at most one mode change in a second, with no setting: a game that changes faster keeps its mode until it settles; (4) a setting "Flicker filter" for interlaced modes on a CRT, off by default, for a system or a game; (5) on the PC with Intel graphics and a 15 kHz CRT, which cannot send an interlaced mode, a 480i game shows all its lines pressed into 240p, smoothed, with the notice "This game is interlaced. This PC cannot send an interlaced picture to a 15 kHz monitor, so the picture is soft."; (6) on a 31 kHz CRT a 240p game shows as 480p with each line twice and the scanline rule of today, and a 480i game shows as 480p full frames; (7) for Dreamcast and Naomi NEPTRON picks the cable type from the monitor with no setting: VGA 480p on a 31 kHz CRT and on a panel, 480i on a 15 kHz CRT and a TV, and a game that refuses VGA falls back to 480i where the monitor can show it, with a notice where it cannot; (8) a 480i game on a flat panel shows the frames of the core, with no deinterlace filter in 0.2.
+- Open: the limit of Intel graphics on interlaced modes at 15 kHz is not researched. Task R05 researches it (Owner, 2026-11-27).

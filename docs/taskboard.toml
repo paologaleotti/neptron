@@ -904,7 +904,7 @@ name = "Picture for 480i and 480p systems: the policy for interlaced and VGA sou
 owns = ["crates/neptron-modeline", "crates/neptron-video", "crates/neptron-gfx", "docs/spec"]
 needs = []
 gate = "T2; screen golden; gles-compare"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "S08"
@@ -985,4 +985,13 @@ name = "Vulkan cores: the Vulkan hardware-render interface of libretro, a second
 owns = ["docs/spec", "docs/adr", "crates/neptron-gfx", "crates/neptron-libretro", "crates/neptron-kms"]
 needs = ["S02"]
 gate = "T2; tier 3 checks"
+status = "pending"
+
+[[task]]
+id = "R05"
+wave = 17
+name = "Research (no product code): why the PC with Intel graphics sends no interlaced mode to a 15 kHz CRT, and what can lift the limit (the i915 driver and its interlace support on each output type, the kernel version, a patch, another output path); with a test on the bench PC and a recommendation for the owner (OP-120)"
+owns = ["docs/spec"]
+needs = []
+gate = "T0; the owner's decision"
 status = "pending"
