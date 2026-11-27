@@ -877,7 +877,7 @@ name = "Disc games: CHD and cue files, lists of several discs, a BIOS check with
 owns = ["crates/neptron-library", "crates/neptron-session", "crates/neptron-libretro", "apps/neptron"]
 needs = []
 gate = "T2"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "S05"

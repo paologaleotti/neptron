@@ -114,6 +114,7 @@ The state column is one line. The full entry below is the reference.
 | OP-116 | Release review of 2026-11-23 | Six fix tasks before 0.1; the list of what waits until after 0.1 |
 | OP-117 | Decisions of 2026-11-24 | 0.1.0 is an internal milestone; the public release is 1.0; the bench monitor is a SyncMaster 750s |
 | OP-118 | Hardware-render and milestone 0.2 | The owner took every recommendation of `docs/spec/hw-render.md`; the points that no one has verified are listed |
+| OP-119 | Disc games, BIOS files and memory cards | The owner took every recommendation for task S04; the watchdog notice text is approved |
 
 ### Decided
 
@@ -1141,3 +1142,13 @@ The state column is one line. The full entry below is the reference.
 - Decision: Owner, 2026-11-26: Q1 to Q11 as recommended. Beetle PSX HW on the PC and PCSX ReARMed on the Pis; Dreamcast and Naomi hidden on a Pi 3; on a panel the PC takes the largest whole multiple that fits, at most 4x, and a Pi 4 or 5 takes 1x until measured; a CRT and a TV always get 1x; no user setting for internal resolution in 0.2; scanlines force 1x; a system is hidden where no game of it can run; a core with no picture ends after 10 s; one recovery of a lost context; a heartbeat and a kill of a hung core after 15 s, as a package of its own; Naomi and Atomiswave are systems of their own. Milestone 0.3 (wave 17 of the board), Owner, 2026-11-26: a MAME core is important and needs a very good design and research step before any code (task R01); Sega Model 3 gets a feasibility step first (task R03); Vulkan cores are task R04. Facts to verify in R01 and R03, said from memory on 2026-11-26: MAME runs Sega Model 2 and Cave CV1000 in software at a high CPU cost; Supermodel has no maintained libretro core and needs a modern desktop GL; Model 2 and most Model 3 boards ran at 496x384 on a 24 kHz monitor.
 - Not verified, to settle in the task named: the Mesa versions and extensions of `vc4` and `v3d` on the images, a desktop GL library on the PC image, `kmsro` on the Pi 4 and 5 (S02 package W1, S09); the licence and the GLES path of each core (S10, S11); every performance cost (S02 package W6, on hardware); the origin rule and the `context_destroy` order of RetroArch (S02 package W2).
 - Correction of the release review of 2026-11-23: the code has no watchdog for a hung core. The core runs on the main thread, and the only kill is the launcher's, 5 s after a stop. The line "a core that hangs for 10 s is killed" in OP-116 described no code. Q10 adds the watchdog.
+
+### OP-119: Disc games, BIOS files and memory cards.
+
+- Raised by: task S04 (2026-11-26)
+- Status: decided
+- Default: the answers below, written in full in the spec of task S04.
+- Where: the spec of S04 in `docs/spec/`, `crates/neptron-library`, `crates/neptron-session`
+- How to change: a new answer of the owner in the spec.
+- Decision: Owner, 2026-11-27: (1) the disc formats of 0.2 are CHD, cue with its bin files, and m3u lists; (2) a cue shows as one entry and its bin files are hidden; (3) a game of several discs is one entry, from an m3u file or, with none, from the files that NEPTRON groups by "(Disc N)" in the name; (4) the quick menu has a row "Disc" to change the disc; (5) BIOS files go in the one `bios` folder of the share, and NEPTRON also finds one in a subfolder; (6) a BIOS is checked by its content, not by its name; (7) with a missing or wrong BIOS the game does not start, with a notice that names the file and the folder, and a replacement inside a core is used only where S10 or S11 finds it good; (8) a page Settings > System > "BIOS files" shows each system, found or missing, with the file wanted; (9) one memory card for each game, made automatically, kept and backed up as save RAM; (10) the cards live with the other saves and move with them in task C19; (11) a PAL game is a 50 Hz source for the picture policy, with the BIOS of its region if present and any region otherwise.
+- Also decided, Owner, 2026-11-27: the notice of the watchdog of S02 is "The game stopped: it did not answer for 15 seconds."
