@@ -116,6 +116,7 @@ The state column is one line. The full entry below is the reference.
 | OP-118 | Hardware-render and milestone 0.2 | The owner took every recommendation of `docs/spec/hw-render.md`; the points that no one has verified are listed |
 | OP-119 | Disc games, BIOS files and memory cards | The owner took every recommendation for task S04; the watchdog notice text is approved |
 | OP-120 | The picture of 480i and 480p systems | The owner took every recommendation for task S07 |
+| OP-121 | The task board is by release | A `release` field, release states, a priority inside the current release, one id scheme from T101 |
 
 ### Decided
 
@@ -1163,3 +1164,12 @@ The state column is one line. The full entry below is the reference.
 - How to change: a new answer of the owner in the spec.
 - Decision: Owner, 2026-11-27: (1) a game that changes between 240p and 480i gets a mode change at each change on a 15 kHz CRT and on a TV, as the console does; (2) on a CRT a game gets one wide mode, so a change of its width needs no mode change; (3) at most one mode change in a second, with no setting: a game that changes faster keeps its mode until it settles; (4) a setting "Flicker filter" for interlaced modes on a CRT, off by default, for a system or a game; (5) on the PC with Intel graphics and a 15 kHz CRT, which cannot send an interlaced mode, a 480i game shows all its lines pressed into 240p, smoothed, with the notice "This game is interlaced. This PC cannot send an interlaced picture to a 15 kHz monitor, so the picture is soft."; (6) on a 31 kHz CRT a 240p game shows as 480p with each line twice and the scanline rule of today, and a 480i game shows as 480p full frames; (7) for Dreamcast and Naomi NEPTRON picks the cable type from the monitor with no setting: VGA 480p on a 31 kHz CRT and on a panel, 480i on a 15 kHz CRT and a TV, and a game that refuses VGA falls back to 480i where the monitor can show it, with a notice where it cannot; (8) a 480i game on a flat panel shows the frames of the core, with no deinterlace filter in 0.2.
 - Open: the limit of Intel graphics on interlaced modes at 15 kHz is not researched. Task R05 researches it (Owner, 2026-11-27).
+
+### OP-121: The task board is by release.
+
+- Raised by: the owner (2026-11-27)
+- Status: decided
+- Default: run rule 22 of `CLAUDE.md` and the header of `docs/taskboard.toml`.
+- Where: `docs/taskboard.toml`, `CLAUDE.md`
+- How to change: a new answer of the owner; the rule and the header change in one commit.
+- Decision: Owner, 2026-11-27: the board groups tasks by release, not by the wave they were built in. Each task has a `release`; a released version holds no open task; only the open tasks of the current release have a priority; a viewer draws an icon from that number. At this change the open tasks of 0.1 and of "after 0.1" moved: the bench sessions (M13, with P09 folded into it), the saves on the share (C19), the display guard follow-ups (N04) and the tidy-up (N10) to 0.2; N03, N05, N06, N07 and M09 to `later`. A new task gets the id `T` and three digits from `T101`. The orchestrator's choice, to confirm: no existing id is renamed, because the ids are in commits, specs and open points.

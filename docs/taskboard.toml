@@ -1,14 +1,36 @@
-# priority: the order of the open tasks, 1 first. Only a pending or in_progress task has one.
-# The owner sets the order; the orchestrator keeps the numbers current in each push (run rule 22).
-# The MVP taskboard: one row per task with its status. docs/plan/07-mvp-build-taskboard-for-claude-code.md
-# holds the run rules, the contracts and the briefs of the T tasks.
-# The orchestrator reads this file to find ready tasks and updates it on each merge.
+# The task board of NEPTRON. Run rule 22 of CLAUDE.md is the authority.
+#
+# [[release]]  version, state: "released" (with its tag), "current" (exactly one) or "planned".
+# [[task]]     release:  the release that holds the task, or "later" for work with no release yet.
+#                        A released version holds no open task: at a tag, an open task moves
+#                        to the current release or to "later".
+#              priority: only on an open task of the current release, 1 first. The owner sets the order.
+#              status:   pending, in_progress, merged or dropped.
+#              id:       a new task is "T" and three digits, in one sequence from T101. An id never
+#                        changes: it is in commits, specs and open points. The older prefixes
+#                        (T01 to T29, C, CI, D, P, M, N, S, R) are history and mean nothing now.
+#              wave:     the build order of the past. Nothing reads it.
+
+[[release]]
+version = "0.1"
+state = "released"
+tag = "v0.1.1"
+
+[[release]]
+version = "0.2"
+state = "current"
+
+[[release]]
+version = "0.3"
+state = "planned"
+
 #
 # status: pending | in_progress | in_review | merged | blocked
 
 [[task]]
 id = "T01"
 wave = 0
+release = "0.1"
 name = "Scaffold"
 owns = ["Whole repo"]
 needs = []
@@ -18,6 +40,7 @@ status = "merged"
 [[task]]
 id = "T02"
 wave = 0
+release = "0.1"
 name = "Contracts and monitor presets"
 owns = ["crates/neptron-types", "crates/neptron-backend", "API of crates/neptron-safety", "data/monitors"]
 needs = ["T01"]
@@ -27,6 +50,7 @@ status = "merged"
 [[task]]
 id = "T03"
 wave = 1
+release = "0.1"
 name = "Test fakes"
 owns = ["crates/neptron-testkit"]
 needs = ["T02", "T04"]
@@ -36,6 +60,7 @@ status = "merged"
 [[task]]
 id = "T04"
 wave = 1
+release = "0.1"
 name = "Safety validator"
 owns = ["crates/neptron-safety"]
 needs = ["T02"]
@@ -45,6 +70,7 @@ status = "merged"
 [[task]]
 id = "T05"
 wave = 1
+release = "0.1"
 name = "Switchres wrapper"
 owns = ["crates/neptron-modeline", "crates/neptron-switchres-sys", "vendor/switchres"]
 needs = ["T02"]
@@ -54,6 +80,7 @@ status = "merged"
 [[task]]
 id = "T06"
 wave = 1
+release = "0.1"
 name = "Reference renderer"
 owns = ["crates/neptron-gfx except src/gles"]
 needs = ["T02"]
@@ -63,6 +90,7 @@ status = "merged"
 [[task]]
 id = "T07"
 wave = 1
+release = "0.1"
 name = "UI core"
 owns = ["crates/neptron-ui", "xtask/src/ui"]
 needs = ["T01"]
@@ -72,6 +100,7 @@ status = "merged"
 [[task]]
 id = "T08"
 wave = 1
+release = "0.1"
 name = "Settings"
 owns = ["crates/neptron-settings"]
 needs = ["T01"]
@@ -81,6 +110,7 @@ status = "merged"
 [[task]]
 id = "T09"
 wave = 1
+release = "0.1"
 name = "Libretro bindings and test core"
 owns = ["crates/neptron-libretro-sys", "crates/neptron-testcore"]
 needs = ["T01"]
@@ -90,6 +120,7 @@ status = "merged"
 [[task]]
 id = "T10"
 wave = 1
+release = "0.1"
 name = "Library"
 owns = ["crates/neptron-library", "data/systems", "data/cores"]
 needs = ["T01"]
@@ -99,6 +130,7 @@ status = "merged"
 [[task]]
 id = "T11"
 wave = 1
+release = "0.1"
 name = "GPU detection and capability table"
 owns = ["crates/neptron-platform", "data/hardware"]
 needs = ["T02"]
@@ -108,6 +140,7 @@ status = "merged"
 [[task]]
 id = "T12"
 wave = 1
+release = "0.1"
 name = "Control protocol and `neptronctl` client"
 owns = ["crates/neptron-ipc", "apps/neptronctl"]
 needs = ["T02"]
@@ -117,6 +150,7 @@ status = "merged"
 [[task]]
 id = "T13"
 wave = 1
+release = "0.1"
 name = "Window backend"
 owns = ["crates/neptron-window"]
 needs = ["T02", "T04"]
@@ -126,6 +160,7 @@ status = "merged"
 [[task]]
 id = "T14"
 wave = 1
+release = "0.1"
 name = "OS base and QEMU"
 owns = ["os/", "Dockerfile", "xtask/src/os"]
 needs = ["T01"]
@@ -135,6 +170,7 @@ status = "merged"
 [[task]]
 id = "T15"
 wave = 2
+release = "0.1"
 name = "ODREN policy"
 owns = ["crates/neptron-modeline/src/policy"]
 needs = ["T05", "T11"]
@@ -144,6 +180,7 @@ status = "merged"
 [[task]]
 id = "T16"
 wave = 2
+release = "0.1"
 name = "Libretro host (spec first)"
 owns = ["crates/neptron-libretro", "docs/spec/libretro-host.md"]
 needs = ["T03", "T09"]
@@ -153,6 +190,7 @@ status = "merged"
 [[task]]
 id = "T17"
 wave = 2
+release = "0.1"
 name = "Audio (spec first)"
 owns = ["crates/neptron-audio", "docs/spec/pacing-audio.md"]
 needs = ["T03"]
@@ -162,6 +200,7 @@ status = "merged"
 [[task]]
 id = "T18"
 wave = 2
+release = "0.1"
 name = "Input"
 owns = ["crates/neptron-input"]
 needs = ["T03"]
@@ -171,6 +210,7 @@ status = "merged"
 [[task]]
 id = "T19"
 wave = 2
+release = "0.1"
 name = "OpenGL ES renderer"
 owns = ["crates/neptron-gfx/src/gles"]
 needs = ["T06", "T14"]
@@ -180,6 +220,7 @@ status = "merged"
 [[task]]
 id = "T20"
 wave = 2
+release = "0.1"
 name = "Screens"
 owns = ["crates/neptron-ui/src/screens", "data/skins/default"]
 needs = ["T07"]
@@ -189,6 +230,7 @@ status = "merged"
 [[task]]
 id = "T21"
 wave = 2
+release = "0.1"
 name = "KMS spike tool (WP 1.1)"
 owns = ["tools/kms-spike"]
 needs = ["T04"]
@@ -198,6 +240,7 @@ status = "merged"
 [[task]]
 id = "T22"
 wave = 3
+release = "0.1"
 name = "ODREN engine"
 owns = ["crates/neptron-video except src/guard"]
 needs = ["T03", "T04", "T15"]
@@ -207,6 +250,7 @@ status = "merged"
 [[task]]
 id = "T23"
 wave = 3
+release = "0.1"
 name = "KMS backend (spec first)"
 owns = ["crates/neptron-kms", "docs/spec/kms.md"]
 needs = ["T04", "T14", "T19"]
@@ -216,6 +260,7 @@ status = "merged"
 [[task]]
 id = "T24"
 wave = 3
+release = "0.1"
 name = "Three real cores and test ROMs"
 owns = ["os/package/libretro-*", "tests/roms", "tests/traces"]
 needs = ["T14", "T16"]
@@ -225,6 +270,7 @@ status = "merged"
 [[task]]
 id = "T25"
 wave = 4
+release = "0.1"
 name = "Session"
 owns = ["crates/neptron-session"]
 needs = ["T06", "T16", "T17", "T18", "T22"]
@@ -234,6 +280,7 @@ status = "merged"
 [[task]]
 id = "T26"
 wave = 4
+release = "0.1"
 name = "Safety behaviours"
 owns = ["crates/neptron-video/src/guard"]
 needs = ["T08", "T22"]
@@ -243,6 +290,7 @@ status = "merged"
 [[task]]
 id = "T27"
 wave = 5
+release = "0.1"
 name = "App wiring and launcher"
 owns = ["apps/neptron", "apps/neptron-launch", "xtask/src/verify"]
 needs = ["T10", "T11", "T12", "T13", "T20", "T25", "T26"]
@@ -252,6 +300,7 @@ status = "merged"
 [[task]]
 id = "T28"
 wave = 6
+release = "0.1"
 name = "x86_64 image"
 owns = ["os/"]
 needs = ["T23", "T24", "T27"]
@@ -261,6 +310,7 @@ status = "merged"
 [[task]]
 id = "T29"
 wave = 6
+release = "0.1"
 name = "Hardware test kit"
 owns = ["apps/neptronctl/src/selftest", "docs/hardware-checklist.md"]
 needs = ["T23", "T27"]
@@ -270,6 +320,7 @@ status = "merged"
 [[task]]
 id = "C01"
 wave = 2
+release = "0.1"
 name = "Contract change: UI destination rectangle in Scene"
 owns = ["crates/neptron-types/src/scene.rs", "crates/neptron-gfx/src/reference", "callers in crates/neptron-testkit and crates/neptron-window", "docs/adr"]
 needs = ["T03", "T06", "T13"]
@@ -279,6 +330,7 @@ status = "merged"
 [[task]]
 id = "C02"
 wave = 3
+release = "0.1"
 name = "Policy change: the native picture style and border modes of any height"
 owns = ["crates/neptron-modeline"]
 needs = ["T15"]
@@ -288,6 +340,7 @@ status = "merged"
 [[task]]
 id = "C03"
 wave = 3
+release = "0.1"
 name = "Setting: hold Start for N seconds opens the quick menu"
 owns = ["crates/neptron-input/src/hotkeys.rs", "crates/neptron-settings"]
 needs = ["T10", "T18"]
@@ -297,6 +350,7 @@ status = "merged"
 [[task]]
 id = "C04"
 wave = 3
+release = "0.1"
 name = "Contract change: scanlines in Scene, both renderers, and the setting"
 owns = ["crates/neptron-types/src/scene.rs", "crates/neptron-gfx", "crates/neptron-settings", "callers of Scene", "docs/adr"]
 needs = ["T06", "T10", "T19", "C01"]
@@ -306,6 +360,7 @@ status = "merged"
 [[task]]
 id = "C05"
 wave = 3
+release = "0.1"
 name = "Video status block in the quick menu"
 owns = ["crates/neptron-ui", "the status formatter in crates/neptron-video (with T22)"]
 needs = ["T20", "T22"]
@@ -315,6 +370,7 @@ status = "merged"
 [[task]]
 id = "C06"
 wave = 4
+release = "0.1"
 name = "Alert mark in the video status; warning and error colours in the skin"
 owns = ["crates/neptron-ui", "crates/neptron-video/src/status.rs"]
 needs = ["C05", "T22"]
@@ -324,6 +380,7 @@ status = "merged"
 [[task]]
 id = "C07"
 wave = 4
+release = "0.1"
 name = "Contract change: Display::blank and the bounded flip wait"
 owns = ["crates/neptron-backend", "crates/neptron-testkit", "crates/neptron-kms", "crates/neptron-video (engine only)", "docs/adr"]
 needs = ["T22", "T23"]
@@ -333,6 +390,7 @@ status = "merged"
 [[task]]
 id = "C08"
 wave = 6
+release = "0.1"
 name = "Flat panels: detect an HD panel, use its native mode, whole-scale games with black borders"
 owns = ["apps/neptron", "crates/neptron-platform", "crates/neptron-video (monitor, status)", "crates/neptron-types (output kind)", "crates/neptron-kms (subconnector, lower_caps)", "crates/neptron-modeline (panel filter)", "data/hardware", "docs/adr"]
 needs = ["T27"]
@@ -342,6 +400,7 @@ status = "merged"
 [[task]]
 id = "C09"
 wave = 6
+release = "0.1"
 name = "Pixel clocks in whole kHz: the policy gives modes the KMS backend can set"
 owns = ["crates/neptron-modeline", "crates/neptron-testkit", "crates/neptron-backend", "crates/neptron-types (the clock check)", "crates/neptron-kms (the shared check)", "crates/neptron-video (the trace golden)", "docs/adr"]
 needs = ["C02", "T23"]
@@ -351,6 +410,7 @@ status = "merged"
 [[task]]
 id = "C10"
 wave = 7
+release = "0.1"
 name = "Defects found by tracing the flows: confirm dialog, prompts, notices, storage fallback, launcher"
 owns = ["apps/neptron", "apps/neptron-launch", "crates/neptron-ui", "crates/neptron-session", "crates/neptron-video", "crates/neptron-platform", "crates/neptron-kms"]
 needs = ["T27", "T28", "C08"]
@@ -360,6 +420,7 @@ status = "merged"
 [[task]]
 id = "C11"
 wave = 7
+release = "0.1"
 name = "Defects of the first hardware session: panel menu rows, start before the monitor answers, shader cache, empty settings file, firmware (OP-082, OP-083, OP-084)"
 owns = ["apps/neptron", "apps/neptron-launch", "crates/neptron-ui", "crates/neptron-settings", "crates/neptron-kms", "os"]
 needs = ["T28", "C08"]
@@ -369,6 +430,7 @@ status = "merged"
 [[task]]
 id = "C12"
 wave = 7
+release = "0.1"
 name = "Audio settings: volume and output device (OP-085), spec first"
 owns = ["docs/spec/audio-settings.md", "crates/neptron-audio", "crates/neptron-settings", "crates/neptron-ui", "crates/neptron-session", "apps/neptron", "os"]
 needs = ["T28"]
@@ -378,6 +440,7 @@ status = "merged"
 [[task]]
 id = "C13"
 wave = 8
+release = "0.1"
 name = "SMB share for the games folder, on by default in every image (OP-079)"
 owns = ["os", "docs/spec/network-share.md", "xtask/src/os"]
 needs = ["T28"]
@@ -387,6 +450,7 @@ status = "merged"
 [[task]]
 id = "C14"
 wave = 8
+release = "0.1"
 name = "Library rescan without a restart (OP-078)"
 owns = ["crates/neptron-library", "apps/neptron", "crates/neptron-ui"]
 needs = ["C12"]
@@ -396,6 +460,7 @@ status = "merged"
 [[task]]
 id = "C15"
 wave = 8
+release = "0.1"
 name = "Settings under one home row, submenu arrows, breadcrumb, quick menu pages (OP-090), spec first"
 owns = ["docs/spec/ui-navigation.md", "crates/neptron-ui", "apps/neptron"]
 needs = ["C12", "C10", "C11"]
@@ -405,6 +470,7 @@ status = "merged"
 [[task]]
 id = "C16"
 wave = 9
+release = "0.1"
 name = "The share partition is attached and mounted on the first boot in every case, with no silent exit"
 owns = ["os", "xtask/src/os"]
 needs = ["C13"]
@@ -414,6 +480,7 @@ status = "merged"
 [[task]]
 id = "C17"
 wave = 9
+release = "0.1"
 name = "Settings > System: reboot and shut down, with a clean stop (OP-094)"
 owns = ["crates/neptron-ui", "apps/neptron", "apps/neptron-launch", "os"]
 needs = ["C15"]
@@ -423,6 +490,7 @@ status = "merged"
 [[task]]
 id = "P01"
 wave = 10
+release = "0.1"
 name = "Raspberry Pi image with composite video: the spec and the plan (spec first, no code)"
 owns = ["docs/spec/raspberry-pi.md"]
 needs = ["C16", "C17"]
@@ -432,6 +500,7 @@ status = "merged"
 [[task]]
 id = "C18"
 wave = 9
+release = "0.1"
 name = "Settings > System: format the share partition, with a confirm, for the states a format may fix"
 owns = ["os", "apps/neptron", "apps/neptron-launch", "crates/neptron-ui", "xtask/src/os"]
 needs = ["C16", "C17"]
@@ -441,6 +510,7 @@ status = "merged"
 [[task]]
 id = "P02"
 wave = 10
+release = "0.1"
 name = "Raspberry Pi: a TV standard in the video model (ADR, types, validation, fake display)"
 owns = ["docs/adr", "crates/neptron-types", "crates/neptron-safety", "crates/neptron-backend", "crates/neptron-testkit", "data/monitors"]
 needs = ["P01"]
@@ -450,6 +520,7 @@ status = "merged"
 [[task]]
 id = "P04"
 wave = 10
+release = "0.1"
 name = "Raspberry Pi: the board and the image for the Pi 3 B/B+ (rpi-arm64), with the development variant"
 owns = ["os/board/rpi", "os/configs", "os/patches", "xtask/src/os", "os/README.md"]
 needs = ["P01"]
@@ -459,6 +530,7 @@ status = "merged"
 [[task]]
 id = "P03"
 wave = 10
+release = "0.1"
 name = "Raspberry Pi: the TV policy in neptron-modeline"
 owns = ["crates/neptron-modeline"]
 needs = ["P02"]
@@ -468,6 +540,7 @@ status = "merged"
 [[task]]
 id = "P05"
 wave = 10
+release = "0.1"
 name = "Raspberry Pi: the TV mode property in neptron-kms and its kms-check cases"
 owns = ["crates/neptron-kms", "xtask/src/os"]
 needs = ["P02"]
@@ -477,6 +550,7 @@ status = "merged"
 [[task]]
 id = "P06"
 wave = 10
+release = "0.1"
 name = "Raspberry Pi: app, settings, status, the output rule and the matrix entry; the first composite picture"
 owns = ["apps/neptron", "crates/neptron-settings", "crates/neptron-ui", "crates/neptron-video", "crates/neptron-platform", "data/hardware"]
 needs = ["P03", "P05"]
@@ -486,17 +560,19 @@ status = "merged"
 [[task]]
 id = "C19"
 wave = 11
+release = "0.2"
 name = "After 0.1, with TATE mode: the saves live on the share partition, in a saves folder beside roms and bios, as Recalbox does; no second network share (OP-092, OP-117)"
 owns = ["os", "docs/spec/network-share.md", "xtask/src/os"]
 needs = ["C13", "P06"]
 gate = "T1; the boot checks and the share check"
 status = "pending"
-priority = 12
+priority = 7
 
 
 [[task]]
 id = "P07"
 wave = 11
+release = "0.1"
 name = "Raspberry Pi: the neptron.toml reader on the boot partition"
 owns = ["os/board/common/rootfs-overlay", "apps/neptron", "os/board/rpi", "os/board/pc"]
 needs = ["P04", "P06"]
@@ -506,6 +582,7 @@ status = "merged"
 [[task]]
 id = "P08"
 wave = 11
+release = "0.1"
 name = "Raspberry Pi: the rpi-arm64 image in CI and its upload"
 owns = [".github", "docs/ci.md"]
 needs = ["P04"]
@@ -515,16 +592,17 @@ status = "merged"
 [[task]]
 id = "P09"
 wave = 11
-name = "Raspberry Pi: the bench session of the checklist on a Pi 3"
+release = "0.2"
+name = "Folded into M13: Raspberry Pi: the bench session of the checklist on a Pi 3"
 owns = ["docs/hardware-checklist.md"]
 needs = ["P06"]
 gate = "The checklist of docs/spec/raspberry-pi.md, section 6"
-status = "pending"
-priority = 10
+status = "dropped"
 
 [[task]]
 id = "P10"
 wave = 11
+release = "0.1"
 name = "Raspberry Pi: the frame budget on the Pi 3 (programs per filter, underrun count, 1024-frame audio period, performance governor)"
 owns = ["crates/neptron-gfx", "crates/neptron-audio", "apps/neptron", "os/board/rpi", "xtask/src/os"]
 needs = ["P06"]
@@ -534,6 +612,7 @@ status = "merged"
 [[task]]
 id = "P11"
 wave = 11
+release = "0.1"
 name = "Raspberry Pi: sharp bilinear and the frame budget on vc4 (texel per pixel, varying index, window path, audio after the present, fields_missed)"
 owns = ["crates/neptron-gfx", "crates/neptron-session", "crates/neptron-audio", "crates/neptron-ipc", "apps/neptron", "docs"]
 needs = ["P10"]
@@ -543,6 +622,7 @@ status = "merged"
 [[task]]
 id = "P12"
 wave = 11
+release = "0.1"
 name = "Raspberry Pi: a UI over a running game holds the field rate (canvas drawn on change, changed rows uploaded, game drawn outside the UI)"
 owns = ["crates/neptron-ui", "crates/neptron-gfx", "apps/neptron", "docs"]
 needs = ["P11"]
@@ -552,6 +632,7 @@ status = "merged"
 [[task]]
 id = "CI01"
 wave = 11
+release = "0.1"
 name = "CI green on main: tier 2 on Linux and macOS, the x86_64, aarch64 and Raspberry Pi image jobs with their checks"
 owns = [".github", "docs/ci.md", "xtask", "os"]
 needs = ["P04"]
@@ -561,6 +642,7 @@ status = "merged"
 [[task]]
 id = "D01"
 wave = 11
+release = "0.1"
 name = "Documentation and open points brought to the built system"
 owns = ["docs", "README.md", "crate READMEs"]
 needs = []
@@ -578,6 +660,7 @@ status = "merged"
 [[task]]
 id = "M01"
 wave = 12
+release = "0.1"
 name = "The keep or revert dialog of the display (discuss first): it shows in too many places, it shows again at a restart after the settings were kept, and Keep sometimes reports that the settings were reverted. See OP-105"
 owns = ["crates/neptron-video", "crates/neptron-ui", "apps/neptron", "docs/spec"]
 needs = []
@@ -587,6 +670,7 @@ status = "merged"
 [[task]]
 id = "M02"
 wave = 12
+release = "0.1"
 name = "The file neptron-ip.txt on the share always says none: write the address when a port gets its lease, also a late one"
 owns = ["os/board/common", "xtask/src/os"]
 needs = []
@@ -596,6 +680,7 @@ status = "merged"
 [[task]]
 id = "M03"
 wave = 12
+release = "0.1"
 name = "Settings > Network (spec first): the local address, the host name, the state of the share and its switch"
 owns = ["crates/neptron-settings", "crates/neptron-ui", "crates/neptron-platform", "apps/neptron", "docs/spec"]
 needs = ["M02"]
@@ -605,6 +690,7 @@ status = "merged"
 [[task]]
 id = "M04"
 wave = 12
+release = "0.1"
 name = "Input for four players (spec first): four ports, the order of the controllers, a controller that comes and goes, and Settings > Input"
 owns = ["crates/neptron-input", "crates/neptron-session", "crates/neptron-settings", "crates/neptron-ui", "apps/neptron", "docs/spec"]
 needs = []
@@ -614,6 +700,7 @@ status = "merged"
 [[task]]
 id = "M04b"
 wave = 12
+release = "0.1"
 name = "Use every USB gamepad, also when SDL3 has no mapping for it (spec first): a NEPTRON mapping file, a generic layout by position with a notice, and the map of a pad keyed by its identity for M05. First case: the Mad Catz PS3 FightStick TE (0738:8838)"
 owns = ["crates/neptron-input", "os/board/common", "os/package/neptron", "docs/spec", "docs/hardware-checklist.md"]
 needs = ["M04"]
@@ -623,6 +710,7 @@ status = "merged"
 [[task]]
 id = "M05"
 wave = 13
+release = "0.1"
 name = "Input remapping in Settings > Input (spec first): a map per controller, kept in the settings. The lowest priority of M01 to M05"
 owns = ["crates/neptron-input", "crates/neptron-settings", "crates/neptron-ui", "apps/neptron", "docs/spec"]
 needs = ["M04", "M04b"]
@@ -632,6 +720,7 @@ status = "merged"
 [[task]]
 id = "M05b"
 wave = 12
+release = "0.1"
 name = "Pick the pad of each player in Settings > Input (spec first): the owner wants a clear UI that works well; the choice holds for the run and across a relaunch"
 owns = ["crates/neptron-input", "crates/neptron-ui", "apps/neptron", "docs/spec"]
 needs = ["M04", "M05"]
@@ -641,6 +730,7 @@ status = "dropped"
 [[task]]
 id = "M06"
 wave = 12
+release = "0.1"
 name = "Arcade, part 1 (discuss first, spec first): choose the cores with measurements on the Pi 3 and on the PC, their licences, the ROM sets and the BIOS files, the systems data, and how a vertical game is shown (the scene has no rotation, OP-047)"
 owns = ["docs/spec", "docs/adr", "data/systems", "data/cores"]
 needs = []
@@ -650,6 +740,7 @@ status = "merged"
 [[task]]
 id = "M07"
 wave = 13
+release = "0.1"
 name = "Arcade, part 2: the core packages in both images, the library scan of arcade sets, the BIOS check, core traces"
 owns = ["os/package", "os/configs", "crates/neptron-library", "crates/neptron-libretro", "data", "xtask"]
 needs = ["M06"]
@@ -659,6 +750,7 @@ status = "merged"
 [[task]]
 id = "M08"
 wave = 13
+release = "0.1"
 name = "Arcade, part 3: vertical games and the arcade refresh rates, as M06 decides (rotation in the scene and the renderer needs an ADR)"
 owns = ["crates/neptron-types", "crates/neptron-gfx", "crates/neptron-modeline", "crates/neptron-session", "docs/adr"]
 needs = ["M06"]
@@ -668,6 +760,7 @@ status = "merged"
 [[task]]
 id = "M08d"
 wave = 13
+release = "0.1"
 name = "Video policy, owner decisions of 2026-11-17: V6 the exact lines win over the fit also when the speed changes more; V7 a handheld takes 2x with a squeeze of 5 % where 1x leaves less than half the height"
 owns = ["crates/neptron-modeline", "docs/spec/video-policy-cases.md", "docs/spec/arcade.md"]
 needs = ["M08"]
@@ -677,6 +770,7 @@ status = "merged"
 [[task]]
 id = "M08e"
 wave = 13
+release = "0.1"
 name = "Picture mode (spec first): one setting with more options (auto, sharp, speed, native, whole multiples, fit), speed part of the mode, a notice per choice that names its compromises, in Settings and in the quick menu. The proposal is in docs/spec/video-policy-cases.md"
 owns = ["crates/neptron-modeline", "crates/neptron-settings", "crates/neptron-video", "crates/neptron-ui", "apps/neptron", "docs/spec"]
 needs = ["M08d"]
@@ -686,16 +780,17 @@ status = "merged"
 [[task]]
 id = "M09"
 wave = 12
+release = "later"
 name = "After 0.1: Adopt an older share that lies at another place on the disk, after the user confirms (OP-101)"
 owns = ["os/board/common", "xtask/src/os", "crates/neptron-ui", "apps/neptron", "docs/spec"]
 needs = []
 gate = "T2; os share-check with a new case"
 status = "pending"
-priority = 19
 
 [[task]]
 id = "M10"
 wave = 13
+release = "0.1"
 name = "The Raspberry Pi leftovers: the HDMI sound card named Analog (OP-102), the menu width on a TV (OP-097), the audio cover of a TV standard change (OP-103)"
 owns = ["crates/neptron-audio", "crates/neptron-modeline", "apps/neptron"]
 needs = ["M01"]
@@ -705,6 +800,7 @@ status = "merged"
 [[task]]
 id = "M11"
 wave = 13
+release = "0.1"
 name = "Build tooling: a push or a build from another worktree never links a stale crate, and a warm image build rebuilds the NEPTRON packages (OP-089)"
 owns = ["xtask", "os/package"]
 needs = []
@@ -714,6 +810,7 @@ status = "merged"
 [[task]]
 id = "M12"
 wave = 14
+release = "0.1"
 name = "The 15 kHz kernel patches for a release (OP-070): the author set GPL-2.0-only on 2026-11-15; record it, pin a commit with the licence, let the release image carry the set"
 owns = ["os/patches", "os/board/pc", "docs"]
 needs = []
@@ -723,16 +820,18 @@ status = "merged"
 [[task]]
 id = "M13"
 wave = 14
-name = "The bench sessions: the PC with the CRT and with a flat panel, and the Raspberry Pi 3 (P09), by the hardware checklist"
+release = "0.2"
+name = "Bench session on the images of release 0.1.1: the PC with the CRT and with a flat panel, and the Raspberry Pi 3, by the hardware checklist; with Fit and TATE (holds the former task P09)"
 owns = ["docs/hardware-checklist.md"]
 needs = ["M01", "M04", "M07c", "M08a"]
 gate = "Every check of the checklist has a recorded result"
 status = "pending"
-priority = 9
+priority = 5
 
 [[task]]
 id = "M14"
 wave = 14
+release = "0.1"
 name = "Release 0.1: clean builds of the release images, the version, the release notes, the licence manifest, and the artifacts from CI"
 owns = ["os", ".github", "docs", "README.md"]
 needs = ["M12", "M13"]
@@ -742,6 +841,7 @@ status = "merged"
 [[task]]
 id = "M16"
 wave = 14
+release = "0.1"
 name = "Frame pacing (spec first): a core that is a little too slow for the field loses that little, not half its frames; the sound follows a slow game with no crackle; a notice says when a game runs below its speed. Measured on the bench PC with Killer Instinct"
 owns = ["crates/neptron-session", "crates/neptron-testkit", "crates/neptron-ipc", "apps/neptron", "docs/spec"]
 needs = []
@@ -751,6 +851,7 @@ status = "merged"
 [[task]]
 id = "M15"
 wave = 12
+release = "0.1"
 name = "Screensaver (spec first): on by default, to protect a CRT from burn-in. After a time with no input the menu, a paused game and the quick menu go to a dark, moving picture; any input brings the picture back. Settings: on or off and the time. The spec also decides what a running game does. Animated styles (in the manner of the 1990s) are for a later milestone"
 owns = ["crates/neptron-ui", "crates/neptron-settings", "crates/neptron-session", "apps/neptron", "docs/spec"]
 needs = []
@@ -762,6 +863,7 @@ status = "merged"
 [[task]]
 id = "N01"
 wave = 15
+release = "0.1"
 name = "TATE mode (spec first, with an ADR for the turned UI canvas): one system setting for the screen orientation (0, 90, 180, 270), the UI and its input directions follow it, a vertical game runs at its own lines full screen, a horizontal game shows upright and small with a notice, and each game has an orientation override (OP-107)"
 owns = ["crates/neptron-types", "crates/neptron-gfx", "crates/neptron-modeline", "crates/neptron-video", "crates/neptron-ui", "crates/neptron-settings", "crates/neptron-input", "apps/neptron", "docs/spec", "docs/adr"]
 needs = []
@@ -771,6 +873,7 @@ status = "merged"
 [[task]]
 id = "N02"
 wave = 15
+release = "0.1"
 name = "Screen simulator: a command that renders what a monitor of a given profile shows for a game and its settings (the mode on the wire, then the picture on a 4:3 or 16:9 screen with its lines, borders and scanlines) to a PNG with its measures, for every display class and orientation"
 owns = ["xtask", "crates/neptron-testkit", "docs/spec"]
 needs = []
@@ -780,56 +883,58 @@ status = "merged"
 [[task]]
 id = "N03"
 wave = 15
+release = "later"
 name = "The menu on a TV fills the width: a backdrop colour in the Scene contract, with an ADR (OP-097, OP-102 point 1); Fit follow-ups from the review of N08: Fit must not take a mode at another refresh rate where an exact picture at the rate of the game exists, and a game of more than twice the lines of a TV mode must not lose lines"
 owns = ["crates/neptron-types", "crates/neptron-gfx", "crates/neptron-video", "apps/neptron", "docs/adr"]
 needs = ["N01"]
 gate = "T2; goldens on NTSC and PAL; tier 3 GLES compare"
 status = "pending"
-priority = 14
 
 [[task]]
 id = "N04"
 wave = 15
+release = "0.2"
 name = "Display guard follow-ups of the release review: a hot plug of another monitor during a run, the confirm or revert when the frontend hangs, the sync polarity check, and the last resort for a fixed 25 or 31 kHz chassis (needs an ADR) (OP-116)"
 owns = ["crates/neptron-video", "crates/neptron-safety", "crates/neptron-launch", "apps/neptron", "docs/spec", "docs/adr"]
 needs = []
 gate = "T2; a second review of the safety paths"
 status = "pending"
-priority = 15
+priority = 9
 
 [[task]]
 id = "N05"
 wave = 15
+release = "later"
 name = "Session follow-ups of the release review: a notice when the sound device goes away, a display that stops for a short time does not end the game, no sound bursts while the display does not flip, a limit on the rate of modesets (OP-116)"
 owns = ["crates/neptron-session", "crates/neptron-audio", "apps/neptron", "docs/spec"]
 needs = []
 gate = "T2 with the simulated clock"
 status = "pending"
-priority = 16
 
 [[task]]
 id = "N06"
 wave = 15
+release = "later"
 name = "Frame pacing, second part: the fake audio sink gets the period and the blocking of the real device, then the speed measure at the start of a heavy scene is taken up again (OP-115)"
 owns = ["crates/neptron-session", "crates/neptron-testkit", "docs/spec"]
 needs = []
 gate = "T2; a measurement on the bench PC that is not worse than the build of 0.1"
 status = "pending"
-priority = 17
 
 [[task]]
 id = "N07"
 wave = 15
+release = "later"
 name = "Small system points: a setting for the old USB scheme (OP-112), the power button of a PC, a root partition id per stick, AMD graphics firmware, a per-frame budget for the picture answers on a Pi 3 (OP-115, OP-116)"
 owns = ["os", "crates/neptron-video", "crates/neptron-settings", "apps/neptron"]
 needs = []
 gate = "T2; boot checks"
 status = "pending"
-priority = 18
 
 [[task]]
 id = "N08"
 wave = 15
+release = "0.1"
 name = "Picture mode Fit: the option Fill becomes Fit, the whole picture as large as the screen allows at its right shape, never cut; an uneven line scale only in Fit and always smoothed (OP-117)"
 owns = ["crates/neptron-modeline", "crates/neptron-video", "crates/neptron-settings", "crates/neptron-testkit", "apps/neptron", "docs/spec"]
 needs = ["N02"]
@@ -839,6 +944,7 @@ status = "merged"
 [[task]]
 id = "N09"
 wave = 15
+release = "0.1"
 name = "TATE in the screen simulator: the orientation settings through the engine path of the product, the measures of the picture as the player sees it, stored cases; a test card that shows shape and direction for the turned goldens"
 owns = ["crates/neptron-testkit", "crates/neptron-testcore", "apps/neptron", "docs/spec"]
 needs = ["N01", "N02"]
@@ -848,16 +954,18 @@ status = "merged"
 [[task]]
 id = "N10"
 wave = 15
+release = "0.2"
 name = "Tidy-up after release 0.1.1: one place for the version number (the crates, the Buildroot package, the licence file paths) and a release check that the tag matches it; smaller files for the 36 turned goldens; the time limits of the load-sensitive xtask tests; remove the draft and the tag of v0.1.0-rc1 on the owner's word"
 owns = ["xtask", "os", "apps/neptron", ".github"]
 needs = []
 gate = "T1; image builds"
 status = "pending"
-priority = 13
+priority = 12
 
 [[task]]
 id = "S01"
 wave = 16
+release = "0.2"
 name = "Milestone 0.2, design: the hardware-render interface of libretro for GL and GLES cores in the host and the renderer, with an ADR and the questions for the owner; no product code"
 owns = ["docs/spec", "docs/adr"]
 needs = []
@@ -867,6 +975,7 @@ status = "merged"
 [[task]]
 id = "S02"
 wave = 16
+release = "0.2"
 name = "Hardware-render for GL and GLES cores: the core draws into a frame buffer of the renderer, on the PC and on the Pi; a GL test core. Part 1 is merged (the contract of ADR 0022, the answers of the host, the GL test core and the reference GL of the fake display). Part 2 is merged (the review points of part 1, the GPU code, the probe; gles-compare 322 checks and kms-check 137, 0 failed). Part 3 is merged (the review points of part 2, the session for a GL core, the notices H1 to H4, the watchdog for a hung game with its heartbeat; gles-compare 342 checks and kms-check 137, 0 failed). No real core runs yet: that is S10 and S11"
 owns = ["crates/neptron-libretro", "crates/neptron-libretro-sys", "crates/neptron-gfx", "crates/neptron-video", "crates/neptron-session", "crates/neptron-testcore"]
 needs = ["S01"]
@@ -876,6 +985,7 @@ status = "merged"
 [[task]]
 id = "S03"
 wave = 16
+release = "0.2"
 name = "Pad model for 3D systems: two analog sticks, analog triggers, L2, R2, L3, R3, in the layouts and the guided mapping"
 owns = ["crates/neptron-input", "crates/neptron-types", "crates/neptron-libretro", "apps/neptron"]
 needs = []
@@ -886,6 +996,7 @@ priority = 2
 [[task]]
 id = "S04"
 wave = 16
+release = "0.2"
 name = "Disc games: CHD and cue files, lists of several discs, a BIOS check with a clear message, memory cards as save data"
 owns = ["crates/neptron-library", "crates/neptron-session", "crates/neptron-libretro", "apps/neptron"]
 needs = []
@@ -895,6 +1006,7 @@ status = "merged"
 [[task]]
 id = "S05"
 wave = 16
+release = "0.2"
 name = "Core options: defaults for each core and machine, and a menu page for the options a user needs"
 owns = ["crates/neptron-libretro", "crates/neptron-settings", "crates/neptron-ui", "apps/neptron"]
 needs = []
@@ -905,16 +1017,18 @@ priority = 3
 [[task]]
 id = "S06"
 wave = 16
+release = "0.2"
 name = "Save states: slots for each game, save and load in the quick menu, written as temp file, fsync, rename"
 owns = ["crates/neptron-session", "crates/neptron-libretro", "crates/neptron-ui", "apps/neptron"]
 needs = []
 gate = "T2"
 status = "pending"
-priority = 5
+priority = 6
 
 [[task]]
 id = "S07"
 wave = 16
+release = "0.2"
 name = "Picture for 480i and 480p systems: the policy for interlaced and VGA sources on each display class, and a filter against the flicker of interlaced modes"
 owns = ["crates/neptron-modeline", "crates/neptron-video", "crates/neptron-gfx", "docs/spec"]
 needs = []
@@ -925,26 +1039,29 @@ priority = 1
 [[task]]
 id = "S08"
 wave = 16
+release = "0.2"
 name = "Picture adjustment for a CRT: horizontal and vertical position and horizontal size, stored for each monitor profile, every mode still through the validator"
 owns = ["crates/neptron-modeline", "crates/neptron-video", "crates/neptron-settings", "apps/neptron", "docs/spec"]
 needs = []
 gate = "T2; a review of monitor safety"
 status = "pending"
-priority = 6
+priority = 8
 
 [[task]]
 id = "S09"
 wave = 16
+release = "0.2"
 name = "Images for the Raspberry Pi 4 and 5: 64-bit, KMS, HDMI and composite where the board has it, boot checks"
 owns = ["os"]
 needs = []
 gate = "image builds; boot checks"
 status = "pending"
-priority = 7
+priority = 10
 
 [[task]]
 id = "S10"
 wave = 16
+release = "0.2"
 name = "PlayStation: the core and its licence check, the system in the library and the images, the picture cases; from S02: an `internal_resolution` table in the `data/cores` file of each GL core, a writable temp directory for the heartbeat socket of the launcher in the images, and a rule in xtask that holds the names NEPTRON_HEARTBEAT and NEPTRON_HUNG equal in the launcher and the app; from S04 (section 12 of `docs/spec/disc-games.md`): the psx system file with the real BIOS sizes and checksums, how the core keeps its memory card and the core options for it, other files the core needs in its system folder, the real frame count of an open tray, discs added after the load, 50 Hz for a PAL disc and the BIOS region the core picks"
 owns = ["os", "crates/neptron-library", "apps/neptron", "docs/spec"]
 needs = ["S02", "S03", "S04", "S05", "S07"]
@@ -955,69 +1072,71 @@ priority = 4
 [[task]]
 id = "S11"
 wave = 16
+release = "0.2"
 name = "Dreamcast and Naomi: the core and its licence check, the system in the library and the images of the PC and the Pi 4 and 5, the picture cases"
 owns = ["os", "crates/neptron-library", "apps/neptron", "docs/spec"]
 needs = ["S02", "S03", "S04", "S05", "S07", "S09"]
 gate = "T2; core-trace; image builds"
 status = "pending"
-priority = 8
+priority = 11
 
 [[task]]
 id = "S12"
 wave = 16
+release = "0.2"
 name = "Bench session and release 0.2; with the measurements of section 8 of `docs/spec/hw-render.md` and the GL core lines of the hardware checklist (the real drivers of Intel, the Pi 3, the Pi 4 and 5, a lost context)"
 owns = ["docs"]
 needs = ["S06", "S08", "S10", "S11"]
 gate = "the owner's bench session"
 status = "pending"
-priority = 11
+priority = 13
 
 [[task]]
 id = "R01"
 wave = 17
+release = "0.3"
 name = "Milestone 0.3, design and research for a MAME core (important to the owner; no product code): which MAME version and build (the full set or a subset of drivers, the size of the core and of the image), its licence, the machines (PC, Raspberry Pi 4 and 5), the speed of Sega Model 1 and 2, Cave CV1000 and Namco System 22 on the bench PC, the ROM set version and its check, BIOS and CHD files, how the library shows a game that FinalBurn Neo and MAME both run and which core starts it, the picture policy for the board resolutions (24 kHz boards on 15, 25 and 31 kHz monitors), the input model (analog wheels, guns, spinners), core options, save states; ends with the questions for the owner"
 owns = ["docs/spec", "docs/adr"]
 needs = []
 gate = "T0; the owner's answers"
 status = "pending"
-priority = 20
 
 [[task]]
 id = "R02"
 wave = 17
+release = "0.3"
 name = "The MAME core in the images and the library, by the design of R01"
 owns = ["os", "crates/neptron-library", "crates/neptron-session", "apps/neptron", "docs/spec"]
 needs = ["R01"]
 gate = "T2; core-trace; image builds"
 status = "pending"
-priority = 21
 
 [[task]]
 id = "R03"
 wave = 17
+release = "0.3"
 name = "Feasibility of Sega Model 3 (no product code): read the source of Supermodel (GPL v3) and say what a libretro core of it costs, which GL version it needs through the hardware-render path, which machines can run it, and how its 24 kHz picture fits each monitor class; ends with a recommendation for the owner"
 owns = ["docs/spec"]
 needs = ["S02"]
 gate = "T0; the owner's decision"
 status = "pending"
-priority = 23
 
 [[task]]
 id = "R04"
 wave = 17
+release = "0.3"
 name = "Vulkan cores: the Vulkan hardware-render interface of libretro, a second renderer path, GameCube and PlayStation 2 class cores (design first, with an ADR)"
 owns = ["docs/spec", "docs/adr", "crates/neptron-gfx", "crates/neptron-libretro", "crates/neptron-kms"]
 needs = ["S02"]
 gate = "T2; tier 3 checks"
 status = "pending"
-priority = 24
 
 [[task]]
 id = "R05"
 wave = 17
+release = "0.3"
 name = "Research (no product code): why the PC with Intel graphics sends no interlaced mode to a 15 kHz CRT, and what can lift the limit (the i915 driver and its interlace support on each output type, the kernel version, a patch, another output path); with a test on the bench PC and a recommendation for the owner (OP-120)"
 owns = ["docs/spec"]
 needs = []
 gate = "T0; the owner's decision"
 status = "pending"
-priority = 22
