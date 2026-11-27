@@ -152,7 +152,7 @@ mod tests {
         );
         assert_eq!(
             shots.iter().filter(|s| s.form == Form::Portrait).count(),
-            36
+            40
         );
         for shot in &shots {
             let found = find_shot(&shot.id()).expect("found by its id");

@@ -387,6 +387,41 @@ pub(super) const SCENES: &[SceneDef] = &[
         build: system_format_confirm,
         forms: BOTH,
     },
+    SceneDef {
+        name: "screens/bios-files",
+        build: bios_files,
+        forms: BOTH,
+    },
+    SceneDef {
+        name: "screens/bios-files-none",
+        build: bios_files_none,
+        forms: LANDSCAPE,
+    },
+    SceneDef {
+        name: "screens/quick-menu-disc",
+        build: quick_menu_disc,
+        forms: BOTH,
+    },
+    SceneDef {
+        name: "screens/disc",
+        build: disc,
+        forms: BOTH,
+    },
+    SceneDef {
+        name: "screens/notice-bios-missing",
+        build: notice_bios_missing,
+        forms: LANDSCAPE,
+    },
+    SceneDef {
+        name: "screens/notice-bios-wrong",
+        build: notice_bios_wrong,
+        forms: BOTH,
+    },
+    SceneDef {
+        name: "screens/notice-disc-missing",
+        build: notice_disc_missing,
+        forms: LANDSCAPE,
+    },
 ];
 
 /// The settings of the fixtures.
@@ -493,9 +528,14 @@ pub(super) const REBOOT: crate::snapshot::ActionId = crate::snapshot::ActionId(2
 /// The action of the fixture `Shut down` row.
 pub(super) const SHUT_DOWN: crate::snapshot::ActionId = crate::snapshot::ActionId(3);
 
-/// The rows of the System panel as the app gives them, enabled or
-/// disabled for `reason`.
+/// The rows of the System panel as the app gives them: the BIOS files page,
+/// always enabled, then the power rows, enabled or disabled for `reason`.
 pub(super) fn system_rows(reason: Option<&str>) -> Vec<MenuItem> {
+    let bios = MenuItem::new(
+        SettingKey(9),
+        "BIOS files",
+        SettingValue::Page(BIOS_FILES_PAGE),
+    );
     let rows = [
         (
             10,
@@ -514,7 +554,8 @@ pub(super) fn system_rows(reason: Option<&str>) -> Vec<MenuItem> {
             "Shutting down...",
         ),
     ];
-    rows.into_iter()
+    let power = rows
+        .into_iter()
         .map(|(key, label, action, question, message, working)| {
             let row = MenuItem::new(SettingKey(key), label, SettingValue::Action(action))
                 .with_confirm(question, message, working);
@@ -522,9 +563,15 @@ pub(super) fn system_rows(reason: Option<&str>) -> Vec<MenuItem> {
                 Some(reason) => row.unavailable(reason),
                 None => row,
             }
-        })
-        .collect()
+        });
+    std::iter::once(bios).chain(power).collect()
 }
+
+/// The BIOS files page of the app, under Settings > System.
+pub(super) const BIOS_FILES_PAGE: crate::snapshot::PageId = crate::snapshot::PageId(0x0200);
+
+/// The Disc page of the app, under the quick menu.
+pub(super) const DISC_PAGE: crate::snapshot::PageId = crate::snapshot::PageId(0x0201);
 
 /// The fixture systems with the System panel in the snapshot.
 pub(super) fn with_system(reason: Option<&str>) -> Snapshot {
@@ -1207,7 +1254,7 @@ fn system(frame: &mut UiFrame, theme: &Theme, form: Form) {
     let snap = with_system(None);
     let mut screens = Screens::with_form(theme.clone(), form);
     screens.update(&snap, &TO_SYSTEM, frame);
-    screens.update(&snap, &[UiAction::Down], frame);
+    screens.update(&snap, &[UiAction::Down, UiAction::Down], frame);
 }
 
 /// The confirm question of `Shut down`, with the focus on `Cancel`.
@@ -1215,7 +1262,11 @@ fn system_shutdown_confirm(frame: &mut UiFrame, theme: &Theme, form: Form) {
     let snap = with_system(None);
     let mut screens = Screens::with_form(theme.clone(), form);
     screens.update(&snap, &TO_SYSTEM, frame);
-    screens.update(&snap, &[UiAction::Down, UiAction::Accept], frame);
+    screens.update(
+        &snap,
+        &[UiAction::Down, UiAction::Down, UiAction::Accept],
+        frame,
+    );
 }
 
 /// The last frame after the confirm of `Shut down`: the box that says
@@ -1227,6 +1278,7 @@ fn system_shutting_down(frame: &mut UiFrame, theme: &Theme, form: Form) {
     screens.update(
         &snap,
         &[
+            UiAction::Down,
             UiAction::Down,
             UiAction::Accept,
             UiAction::Right,
@@ -1263,7 +1315,11 @@ fn system_format(frame: &mut UiFrame, theme: &Theme, form: Form) {
     let snap = with_format_offer();
     let mut screens = Screens::with_form(theme.clone(), form);
     screens.update(&snap, &TO_SYSTEM, frame);
-    screens.update(&snap, &[UiAction::Down, UiAction::Down], frame);
+    screens.update(
+        &snap,
+        &[UiAction::Down, UiAction::Down, UiAction::Down],
+        frame,
+    );
 }
 
 /// The confirm question of the format row, with the focus on `Cancel`.
@@ -1273,8 +1329,151 @@ fn system_format_confirm(frame: &mut UiFrame, theme: &Theme, form: Form) {
     screens.update(&snap, &TO_SYSTEM, frame);
     screens.update(
         &snap,
-        &[UiAction::Down, UiAction::Down, UiAction::Accept],
+        &[
+            UiAction::Down,
+            UiAction::Down,
+            UiAction::Down,
+            UiAction::Accept,
+        ],
         frame,
+    );
+}
+
+/// The rows of the BIOS files page as the app gives them: one row for each
+/// BIOS file of each system, with its state and the file name, the longest
+/// label and the longest value of a region.
+pub(super) fn bios_rows() -> Vec<MenuItem> {
+    [
+        ("PlayStation (Japan)", "Found: scph5500.bin"),
+        ("PlayStation (USA)", "Missing: scph5501.bin"),
+        ("PlayStation (Europe)", "Wrong file: scph5502.bin"),
+    ]
+    .into_iter()
+    .zip(40..)
+    .map(|((label, text), key)| {
+        MenuItem::new(SettingKey(key), label, SettingValue::Text(text.to_owned()))
+    })
+    .collect()
+}
+
+/// The System panel, then the BIOS files page with `rows`.
+fn bios_files_with(frame: &mut UiFrame, theme: &Theme, form: Form, rows: Vec<MenuItem>) {
+    let mut snap = with_system(None);
+    let mut screens = Screens::with_form(theme.clone(), form);
+    screens.update(&snap, &TO_SYSTEM, frame);
+    screens.update(&snap, &[UiAction::Accept], frame);
+    snap.settings = SettingsPage::new(BIOS_FILES_PAGE, "BIOS files", rows);
+    screens.update(&snap, &[], frame);
+}
+
+/// The BIOS files page: a found, a missing and a wrong file.
+fn bios_files(frame: &mut UiFrame, theme: &Theme, form: Form) {
+    bios_files_with(frame, theme, form, bios_rows());
+}
+
+/// The BIOS files page when no system needs a BIOS file.
+fn bios_files_none(frame: &mut UiFrame, theme: &Theme, form: Form) {
+    let row = MenuItem::new(
+        SettingKey(40),
+        "BIOS files",
+        SettingValue::Text("None needed".to_owned()),
+    );
+    bios_files_with(frame, theme, form, vec![row]);
+}
+
+/// The quick menu of a game of several discs: the Disc row after Video.
+pub(super) fn in_disc_game() -> Snapshot {
+    let mut snap = in_game();
+    let disc = MenuItem::new(SettingKey(15), "Disc", SettingValue::Page(DISC_PAGE));
+    snap.settings.rows.insert(3, disc);
+    snap
+}
+
+/// The first page of the quick menu of a game of several discs, with the
+/// focus on the Disc row.
+fn quick_menu_disc(frame: &mut UiFrame, theme: &Theme, form: Form) {
+    let snap = in_disc_game();
+    let mut screens = Screens::with_form(theme.clone(), form);
+    screens.update(&snap, &[], frame);
+    screens.update(
+        &snap,
+        &[
+            UiAction::Menu,
+            UiAction::Down,
+            UiAction::Down,
+            UiAction::Down,
+        ],
+        frame,
+    );
+}
+
+/// The Disc page of a game of three discs with disc 1 in the drive, and
+/// the focus on disc 2.
+fn disc(frame: &mut UiFrame, theme: &Theme, form: Form) {
+    let mut snap = in_disc_game();
+    let mut screens = Screens::with_form(theme.clone(), form);
+    screens.update(&snap, &[], frame);
+    screens.update(
+        &snap,
+        &[
+            UiAction::Menu,
+            UiAction::Down,
+            UiAction::Down,
+            UiAction::Down,
+            UiAction::Accept,
+        ],
+        frame,
+    );
+    let rows = (0..3u32)
+        .map(|i| {
+            let row = MenuItem::new(
+                SettingKey(50 + i),
+                format!("Disc {}", i + 1),
+                SettingValue::Action(crate::snapshot::ActionId(0x0200 + i)),
+            );
+            if i == 0 {
+                row.unavailable("In the drive")
+            } else {
+                row
+            }
+        })
+        .collect();
+    snap.settings = SettingsPage::new(DISC_PAGE, "Disc", rows);
+    screens.update(&snap, &[], frame);
+    screens.update(&snap, &[UiAction::Down], frame);
+}
+
+/// The notice of a missing BIOS file.
+fn notice_bios_missing(frame: &mut UiFrame, theme: &Theme, form: Form) {
+    notice_over_list(
+        frame,
+        theme,
+        form,
+        "Astro Racer did not start: the PlayStation BIOS is missing. Put scph5501.bin in the bios folder.",
+        NoticeKind::Warning,
+    );
+}
+
+/// The notice of a wrong BIOS file, the longest BIOS text, with a long
+/// game name.
+fn notice_bios_wrong(frame: &mut UiFrame, theme: &Theme, form: Form) {
+    notice_over_list(
+        frame,
+        theme,
+        form,
+        "Final Mission: The Long Road Home (Europe) did not start: scph5502.bin is not a good PlayStation BIOS. Put a good copy of scph5502.bin in the bios folder.",
+        NoticeKind::Warning,
+    );
+}
+
+/// The notice of a missing disc file of an m3u list.
+fn notice_disc_missing(frame: &mut UiFrame, theme: &Theme, form: Form) {
+    notice_over_list(
+        frame,
+        theme,
+        form,
+        "Astro Racer did not start: the disc file Astro Racer (Europe) (Disc 2).chd is missing. Put it beside Astro Racer (Europe).m3u.",
+        NoticeKind::Warning,
     );
 }
 

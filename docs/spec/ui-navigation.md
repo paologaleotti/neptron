@@ -115,7 +115,7 @@ Screen ids: `audio` for `AUDIO_PAGE`, `input` for `INPUT_PAGE` (`INPUT_SCREEN`),
 
 ### The System panel
 
-`Settings > System` holds two action rows of the app, with no arrow: `Reboot` and `Shut down`, and a third row when a format of the share partition is on offer (see below). Each row has a confirm question, so accept opens a dialog first:
+`Settings > System` opens with the row `BIOS files`, which opens the page of the BIOS files (`docs/spec/disc-games.md`, section 10.2); it changes nothing, so it stays enabled in a game and with no power control. Then it holds two action rows of the app, with no arrow: `Reboot` and `Shut down`, and a further row when a format of the share partition is on offer (see below). Each row has a confirm question, so accept opens a dialog first:
 
 | Row | Dialog title | Dialog message | Buttons |
 | --- | --- | --- | --- |

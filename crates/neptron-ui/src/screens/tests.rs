@@ -2722,7 +2722,7 @@ fn the_system_panel_is_the_last_page_of_the_settings_page() {
     run.step(&snap, &TO_SYSTEM);
     assert_eq!(run.screen(), "system");
     assert_eq!(title(&run), ("Settings > System", None));
-    assert_eq!(run.focused(), Some("Reboot"));
+    assert_eq!(run.focused(), Some("BIOS files"));
     let rows: Vec<_> = run
         .frame
         .tree
@@ -2731,7 +2731,14 @@ fn the_system_panel_is_the_last_page_of_the_settings_page() {
         .map(|r| (r.label, r.kind))
         .collect();
     let action = Some(crate::RowKind::Action);
-    assert_eq!(rows, [("Reboot", action), ("Shut down", action)]);
+    assert_eq!(
+        rows,
+        [
+            ("BIOS files", Some(crate::RowKind::Page)),
+            ("Reboot", action),
+            ("Shut down", action)
+        ]
+    );
     run.step(&snap, &[Back]);
     assert_eq!((run.screen(), run.focused()), ("settings", Some("System")));
     let empty = with_systems();
@@ -2750,7 +2757,7 @@ fn a_confirm_question_opens_with_the_focus_on_cancel_and_sends_nothing() {
     let mut run = Run::new();
     let snap = with_system(None);
     run.step(&snap, &TO_SYSTEM);
-    run.step(&snap, &[Down, Accept]);
+    run.step(&snap, &[Down, Down, Accept]);
     assert_eq!(run.intents(), []);
     assert_eq!(run.screen(), "confirm-action");
     assert_eq!(run.focused(), Some("Cancel"));
@@ -2781,7 +2788,7 @@ fn only_right_then_accept_sends_the_action_of_the_row_once() {
     let mut run = Run::new();
     let snap = with_system(None);
     run.step(&snap, &TO_SYSTEM);
-    run.step(&snap, &[Accept]);
+    run.step(&snap, &[Down, Accept]);
     assert_eq!(run.screen(), "confirm-action");
     assert_eq!(run.labels().first().copied(), Some("Reboot NEPTRON?"));
     run.step(&snap, &[Right]);
@@ -2805,7 +2812,7 @@ fn a_confirmed_question_shows_what_happens_with_no_buttons() {
     let mut run = Run::new();
     let snap = with_system(None);
     run.step(&snap, &TO_SYSTEM);
-    run.step(&snap, &[Down, Accept, Right, Accept]);
+    run.step(&snap, &[Down, Down, Accept, Right, Accept]);
     assert_eq!(run.intents(), [Intent::Action(SHUT_DOWN)]);
     assert_eq!(run.screen(), "confirm-action/working");
     assert_eq!(run.labels()[..2], ["Shut down", "Shutting down..."]);
@@ -2832,7 +2839,7 @@ fn a_row_that_goes_away_or_is_disabled_closes_its_question() {
     let mut run = Run::new();
     let snap = with_system(None);
     run.step(&snap, &TO_SYSTEM);
-    run.step(&snap, &[Accept, Right]);
+    run.step(&snap, &[Down, Accept, Right]);
     assert_eq!(run.screen(), "confirm-action");
     let disabled = with_system(Some("Not during a game"));
     run.step(&disabled, &[]);
@@ -2861,7 +2868,7 @@ fn a_disabled_system_row_opens_no_question() {
     let mut run = Run::new();
     let snap = with_system(Some("Not during a game"));
     run.step(&snap, &TO_SYSTEM);
-    run.step(&snap, &[Accept, Down, Accept]);
+    run.step(&snap, &[Down, Accept, Down, Accept]);
     assert_eq!(run.intents(), []);
     assert_eq!(run.screen(), "system");
     let values: Vec<_> = run
@@ -2872,7 +2879,11 @@ fn a_disabled_system_row_opens_no_question() {
         .map(|r| (r.value, r.kind))
         .collect();
     let disabled = (Some("Not during a game"), Some(crate::RowKind::Disabled));
-    assert_eq!(values, [disabled, disabled]);
+    assert_eq!(
+        values,
+        [(None, Some(crate::RowKind::Page)), disabled, disabled],
+        "the BIOS files page changes nothing, so it stays enabled"
+    );
 }
 
 #[test]
