@@ -662,6 +662,9 @@ fn launch<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone
             native_lines: r.native_lines,
             values: &r.values,
         }),
+        more_discs: &[],
+        save_name: None,
+        core_saves_in_game_folder: false,
     };
     let policy = config.policy().map_err(|e| (e.to_string(), Vec::new()))?;
     let scanlines = config

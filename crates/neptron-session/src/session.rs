@@ -1,5 +1,8 @@
 //! The session: one game from launch to exit.
 
+mod disc;
+
+pub use disc::DISC_TRAY_OPEN_FRAMES;
 mod frame;
 mod hw;
 mod launch;
@@ -141,6 +144,12 @@ pub struct Session<D: Display, S: AudioSink, I: InputSource, C: Clock> {
     too_slow_for_sound: bool,
     /// The app asked for frames with no game picture while paused.
     picture_hidden: bool,
+    /// The core frames until the session closes the disc tray after a
+    /// change of disc; 0 when the tray is not open for a change.
+    disc_close_frames: u32,
+    /// What went wrong with the discs of the game: an added disc that the
+    /// core refused, a tray that would not close. The app logs them.
+    disc_issues: Vec<String>,
     counters: Counters,
 }
 

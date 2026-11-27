@@ -67,9 +67,15 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             path: game.save_dir.to_owned(),
             source,
         })?;
+        let core_save_dir = if game.core_saves_in_game_folder {
+            let folders: Vec<&str> = game.save_folders.iter().map(String::as_str).collect();
+            save_folder(game.save_dir, &folders).map_err(LaunchError::SaveFolder)?
+        } else {
+            game.save_dir.to_owned()
+        };
         let config = HostConfig {
             system_dir: game.system_dir.to_owned(),
-            save_dir: game.save_dir.to_owned(),
+            save_dir: core_save_dir,
         };
         let mut display = video.display;
         let offer = video.core_offer.unwrap_or_else(|| {
@@ -114,6 +120,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             Err(e) => return Err(LaunchError::Load(e)),
         };
         let refused_options = host.held_option_report().len();
+        let disc_issues = add_discs(&mut host, game.more_discs);
         let save = load_save_file(&mut host, game)?;
 
         let mut engine = VideoEngine::new(display, video.monitor, video.policy);
@@ -184,6 +191,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             queue_level: 0,
             too_slow_for_sound: false,
             picture_hidden: false,
+            disc_close_frames: 0,
+            disc_issues,
             counters: Counters {
                 refused_options: refused_options as u64,
                 ..Counters::default()
@@ -259,11 +268,12 @@ fn load_save_file(host: &mut Host, game: &GameLaunch<'_>) -> Result<Option<SaveF
     };
     let folders: Vec<&str> = game.save_folders.iter().map(String::as_str).collect();
     let folder = save_folder(game.save_dir, &folders).map_err(LaunchError::SaveFolder)?;
-    let Some(path) = save_file_path(&folder, content) else {
+    let Some(path) = save_path(&folder, content, game.save_name) else {
         return Ok(None);
     };
     if game.adopt_flat_save && !folders.is_empty() {
-        adopt_flat_save(game.save_dir, content, &path)?;
+        let flat = save_path(game.save_dir, content, game.save_name);
+        adopt_flat_save(flat, &path)?;
     }
     let loaded = read_save_file(&path)
         .map_err(LaunchError::ReadSave)?
@@ -278,17 +288,49 @@ fn load_save_file(host: &mut Host, game: &GameLaunch<'_>) -> Result<Option<SaveF
     }))
 }
 
+/// The save file of a game in `folder`: `<save name>.srm` with the save
+/// name of the launch, else the file of the content. A save name that is
+/// empty, starts with `.` or holds a separator or NUL cannot name a file
+/// in the folder, so the content names it then. `None` when the content
+/// has no file stem.
+fn save_path(
+    folder: &std::path::Path,
+    content: &std::path::Path,
+    save_name: Option<&str>,
+) -> Option<PathBuf> {
+    match save_name {
+        Some(name)
+            if !name.is_empty() && !name.starts_with('.') && !name.contains(['/', '\\', '\0']) =>
+        {
+            Some(folder.join(format!("{name}.srm")))
+        }
+        _ => save_file_path(folder, content),
+    }
+}
+
+/// Adds each disc of `more` after the load, in order. A core with no disc
+/// control interface plays the first disc only. Returns what went wrong,
+/// for the log of the app; nothing here stops the launch.
+fn add_discs(host: &mut Host, more: &[PathBuf]) -> Vec<String> {
+    let mut issues = Vec::new();
+    for disc in more {
+        if let Err(e) = host.add_disc(disc) {
+            issues.push(format!("disc {} not added: {e}", disc.display()));
+            if e == neptron_libretro::DiscError::NoInterface {
+                break;
+            }
+        }
+    }
+    issues
+}
+
 /// Copies the flat save `<save_dir>/<stem>.srm` to `path`, the game's own
 /// save file, when `path` has no file yet and the flat save exists, once:
 /// the empty file `<path>.adopted` records it. The
 /// flat save stays as it is. The copy is a full write (temp file, fsync,
 /// rename), so a crash leaves no half copy, and it makes no backup: the
 /// first write of the session does.
-fn adopt_flat_save(
-    save_dir: &std::path::Path,
-    content: &std::path::Path,
-    path: &std::path::Path,
-) -> Result<(), LaunchError> {
+fn adopt_flat_save(flat: Option<PathBuf>, path: &std::path::Path) -> Result<(), LaunchError> {
     let mut record = path.as_os_str().to_owned();
     record.push(ADOPTED_SUFFIX);
     let record = std::path::PathBuf::from(record);
@@ -296,7 +338,7 @@ fn adopt_flat_save(
         return Ok(());
     }
     let own = read_save_file(path).map_err(LaunchError::ReadSave)?;
-    let flat = match (own, save_file_path(save_dir, content)) {
+    let flat = match (own, flat) {
         (None, Some(flat)) => read_save_file(&flat).map_err(LaunchError::ReadSave)?,
         _ => None,
     };

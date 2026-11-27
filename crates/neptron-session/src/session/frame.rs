@@ -239,6 +239,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         if dark {
             self.count_dark_frame();
         }
+        self.tick_disc_tray();
         Ok(())
     }
 

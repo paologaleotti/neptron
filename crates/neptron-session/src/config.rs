@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use neptron_audio::Resampling;
 use neptron_backend::ContextOffer;
@@ -51,6 +51,21 @@ pub struct GameLaunch<'a> {
     /// [`internal_scale`](crate::internal_scale) with the core options.
     /// `None` for a core with no such option.
     pub internal_scale: Option<InternalScale<'a>>,
+    /// The discs after the first of a group of disc files, in order. The
+    /// launch adds them with the disc control interface of the core after
+    /// the load (`docs/spec/disc-games.md`, section 9). Empty for every
+    /// other game.
+    pub more_discs: &'a [PathBuf],
+    /// The name of the save file with no extension, in place of the stem
+    /// of the content: the name of a disc game with no disc tag, so that
+    /// every disc of a game shares one save, which holds its memory card.
+    /// `None` takes the stem of the content.
+    pub save_name: Option<&'a str>,
+    /// The core gets the save folder of the game, which follows
+    /// `save_folders`, as its save directory, in place of `save_dir`: a
+    /// disc core that writes its own memory card files puts them with the
+    /// saves of the game.
+    pub core_saves_in_game_folder: bool,
 }
 
 /// The display and the resolved video settings.

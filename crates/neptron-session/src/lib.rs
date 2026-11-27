@@ -24,6 +24,9 @@ mod start;
 
 pub use config::{Devices, GameLaunch, RunRateSource, SessionOptions, VideoSetup};
 pub use error::{LaunchError, SessionError};
+/// The discs of a disc game, which the app reaches only through the
+/// session.
+pub use neptron_libretro::{DiscError, DiscState};
 /// The hardware context that a core asked for and the host refused, for
 /// the notice of the app, which reaches the host only through the session.
 pub use neptron_libretro::{HwApi, HwRefusal, HwRefusalReason};
@@ -38,7 +41,7 @@ pub use pads::{CORE_PORTS, LATE_PRESS_MAX_FRAMES, LATE_PRESS_MIN_FRAMES};
 pub use report::{Counters, EndReason, ExitReport, FrameReport, PacingChange};
 pub use save::{Flush, SAVE_RAM_FLUSH_INTERVAL_NS, SaveError, SaveStats};
 pub use scale::{INTERNAL_SCALE_LIMIT, InternalScale, Machine, internal_scale, scale_value};
-pub use session::{CONTEXT_RECOVERIES_MAX, FLIPLESS_FRAMES_LIMIT, Session};
+pub use session::{CONTEXT_RECOVERIES_MAX, DISC_TRAY_OPEN_FRAMES, FLIPLESS_FRAMES_LIMIT, Session};
 pub use source::{
     FrameRules, INTERLACE_MIN_LINES, LAUNCH_SETTLE_MAX_FRAMES, LAUNCH_STABLE_FRAMES,
     source_geometry,

@@ -5,6 +5,7 @@
 #![forbid(unsafe_code)]
 
 mod arcade;
+mod discs;
 mod faults;
 mod gl;
 mod harness;

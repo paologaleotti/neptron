@@ -210,6 +210,12 @@ pub struct Setup {
     pub save_folders: Vec<String>,
     /// The launch may copy the flat save of the game to its own folder.
     pub adopt_flat_save: bool,
+    /// The discs that the launch adds after the load.
+    pub more_discs: Vec<PathBuf>,
+    /// The save name in place of the stem of the content.
+    pub save_name: Option<String>,
+    /// The core gets the save folder of the game as its save directory.
+    pub core_saves_in_game_folder: bool,
     /// A monitor in place of the preset of `monitor`, such as a panel.
     pub monitor_profile: Option<MonitorProfile>,
     /// The internal resolution option of the core data: the native lines
@@ -276,6 +282,9 @@ impl Default for Setup {
             always_progressive: false,
             save_folders: Vec::new(),
             adopt_flat_save: false,
+            more_discs: Vec::new(),
+            save_name: None,
+            core_saves_in_game_folder: false,
             monitor_profile: None,
             internal_scale: None,
             machine: Machine::Pc,
@@ -324,6 +333,9 @@ pub fn launch_on<S: AudioSink>(
         save_folders: &setup.save_folders,
         adopt_flat_save: setup.adopt_flat_save,
         internal_scale: setup.internal_scale(),
+        more_discs: &setup.more_discs,
+        save_name: setup.save_name.as_deref(),
+        core_saves_in_game_folder: setup.core_saves_in_game_folder,
     };
     let sink = audio(&clock, &display);
     let video = VideoSetup {
@@ -408,6 +420,9 @@ impl Rig {
             save_folders: &setup.save_folders,
             adopt_flat_save: setup.adopt_flat_save,
             internal_scale: setup.internal_scale(),
+            more_discs: &setup.more_discs,
+            save_name: setup.save_name.as_deref(),
+            core_saves_in_game_folder: setup.core_saves_in_game_folder,
         };
         let video = VideoSetup {
             display: display.clone(),
