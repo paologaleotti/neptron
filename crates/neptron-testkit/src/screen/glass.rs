@@ -41,8 +41,8 @@ pub enum TubeClass {
     /// field rate, so a 50 Hz picture is taller.
     Fixed15khz,
     /// A PC or multisync CRT in a range at 20 kHz or more: the user or the
-    /// monitor sets the size of each mode, so the window is the field of
-    /// the mode less the vertical blank of its range.
+    /// monitor sets the size of each mode, so the window is the active area
+    /// of the mode, less its own blank.
     PerMode,
 }
 
@@ -333,12 +333,41 @@ impl Tube {
             .map(raster_lines)
             .fold(0.0_f64, f64::max)
             .max(1.0);
+        if class == TubeClass::PerMode {
+            return Self::sized_to(mode, spot_lines, overscan_permille);
+        }
         Self {
             class,
             h_start_ns: f64::from(range.h_back_porch_ns),
             h_len_ns: (line_ns - h_blank).max(1.0),
             v_start_ns: f64::from(range.v_back_porch_ns),
             v_len_ns: (field_ns - v_blank_ns(range)).max(1.0),
+            spot_lines,
+            overscan_permille,
+        }
+    }
+
+    /// A [`TubeClass::PerMode`] tube that the user has sized to `mode`: the
+    /// window is the active area of the mode, its own blank left out, so
+    /// every mode fills the screen.
+    fn sized_to(mode: &Modeline, spot_lines: f64, overscan_permille: u32) -> Self {
+        let pixel_ns = 1e9 / f64::from(mode.pclock_hz.max(1));
+        let line_ns = 1e12 / mode.line_rate_mhz().max(1) as f64;
+        // Scan lines per row of the frame buffer, as in `Tube::y`.
+        let per_row = if mode.interlace {
+            0.5
+        } else if mode.doublescan {
+            2.0
+        } else {
+            1.0
+        };
+        let back = f64::from(mode.vtotal - mode.vsync_end);
+        Self {
+            class: TubeClass::PerMode,
+            h_start_ns: f64::from(mode.htotal - mode.hsync_end) * pixel_ns,
+            h_len_ns: (f64::from(mode.hactive) * pixel_ns).max(1.0),
+            v_start_ns: back * per_row * line_ns,
+            v_len_ns: (f64::from(mode.vactive) * per_row * line_ns).max(1.0),
             spot_lines,
             overscan_permille,
         }
@@ -603,6 +632,45 @@ mod tests {
         // 12 lines at the top and the bottom.
         assert!(close(tv.y(&TV_525_240P, 12.0), 0.0, 1e-6));
         assert!(close(tv.y(&TV_525_240P, 228.0), 1.0, 1e-6));
+    }
+
+    /// A PC monitor is sized to each mode: the standard 640x480 at 60 Hz
+    /// fills the glass, though its blank is longer than the least blank of
+    /// the range.
+    #[test]
+    fn a_pc_monitor_is_sized_to_each_mode() {
+        let range = CrtRange {
+            h_min_mhz: 30_000_000,
+            h_max_mhz: 32_000_000,
+            v_min_mhz: 50_000,
+            v_max_mhz: 120_000,
+            h_front_porch_ns: 600,
+            h_sync_ns: 3_800,
+            h_back_porch_ns: 1_900,
+            v_front_porch_ns: 64_000,
+            v_sync_ns: 64_000,
+            v_back_porch_ns: 600_000,
+            ..range_320()
+        };
+        let vga = Modeline {
+            pclock_hz: 25_175_000,
+            hactive: 640,
+            hsync_start: 656,
+            hsync_end: 752,
+            htotal: 800,
+            vactive: 480,
+            vsync_start: 490,
+            vsync_end: 492,
+            vtotal: 525,
+            ..MODE_320
+        };
+        let tube = Tube::crt(&[range], &vga, 0);
+        assert_eq!(tube.class, TubeClass::PerMode);
+        let glass = Glass::Tube(tube);
+        assert!(close(glass.x(&vga, 0.0), 0.0, 1e-9));
+        assert!(close(glass.x(&vga, 640.0), 1.0, 1e-9));
+        assert!(close(glass.y(&vga, 0.0), 0.0, 1e-9));
+        assert!(close(glass.y(&vga, 480.0), 1.0, 1e-9));
     }
 
     #[test]

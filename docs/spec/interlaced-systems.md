@@ -181,9 +181,9 @@ The measures of each case are in section 12.
 | `ps1_480i-generic_15-pi5` | 1280x480i | 1280x480 | 2 / 1 | 1000 / 995 | 0 | none |
 | `ps1_320-arcade_15` | 1280x240p | 1280x240 | 4 / 1 | 1000 / 995 | 0 | none |
 | `ps1_480i-arcade_15` (Intel) | 1280x248p | 1280x248 | 2 / 0.517 | 1000 / 998 | 0 | decision 5 |
-| `ps1_320-pc_31_120` | 1280x480p, scanlines 75 % | 1280x480 | 4 / 2 | 1000 / 947 | 0 | none |
-| `ps1_480i-pc_31_120` | 1280x480p | 1280x480 | 2 / 1 | 1000 / 948 | 0 | none |
-| `vga_480p-pc_31_120` | 640x480p, 60.000 Hz | 640x480 | 1 / 1 | 999 / 949 | 0 | none |
+| `ps1_320-pc_31_120` | 1280x480p, scanlines 75 % | 1280x480 | 4 / 2 | 1000 / 1000 | 0 | none |
+| `ps1_480i-pc_31_120` | 1280x480p | 1280x480 | 2 / 1 | 1000 / 1000 | 0 | none |
+| `vga_480p-pc_31_120` | 640x480p, 60.000 Hz | 640x480 | 1 / 1 | 1000 / 1000 | 0 | none |
 | `ps1_320-ntsc` | 720x240p | 640x240 at 40 | 2 / 1 | 1000 / 1000 | placement -6, glass -91 | none |
 | `ps1_480i-ntsc` | 720x480i | 640x480 at 40 | 1 / 1 | 1000 / 1000 | placement -6, glass -91 | none |
 | `ps1_320-pal` | 720x288p, 50.080 Hz | 640x240 at 40, 24 | 2 / 1 | 1000 / 926 | placement -15, glass 91 | speed |
@@ -205,4 +205,4 @@ The placement error on a TV is the console width rule of today (640 samples agai
 | `snes_512-pal` | 720x288p (no change) | 650x224 at 35, 32 | 1.270 | 1000 / 864 | placement 0, glass 187 |
 | `md_320-pal` | 720x288p (no change) | 640x224 at 40, 32 | 2 | 1000 / 864 | placement -15, glass 169 |
 
-On `pc_31_120` with Intel (no golden; section 3): the SNES at 256 goes from 768x448p (3) to 1024x448p (4), the Mega Drive at 320 from 640x448p (2) and at 256 from 768x448p (3) to 1280x448p (4 and 5); the fill (1000 / 887 and 1000 / 884) and the shape (0) stay.
+On `pc_31_120` with Intel (no golden; section 3): the SNES at 256 goes from 768x448p (3) to 1024x448p (4), the Mega Drive at 320 from 640x448p (2) and at 256 from 768x448p (3) to 1280x448p (4 and 5); the fill (1000 / 1000: a PC monitor is sized to each mode) and the shape (0) stay.
