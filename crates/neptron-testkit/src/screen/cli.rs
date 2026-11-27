@@ -656,6 +656,7 @@ impl Args {
             source,
             label: settings.label(&defaults),
             settings,
+            card_pixel_aspect: None,
         })
     }
 }
@@ -881,7 +882,7 @@ mod tests {
                 "{name}"
             );
             assert_eq!(
-                p.aspect_error_permille, expected.aspect_error_permille,
+                p.policy_aspect_error_permille, expected.aspect_error_permille,
                 "{name}"
             );
             assert_eq!(p.uneven_lines, expected.uneven, "{name}");
@@ -902,9 +903,9 @@ mod tests {
             assert_eq!(p.cropped, Edges::default(), "{name}");
             assert_eq!(p.dropped_lines, 0, "{name}");
             assert!(
-                p.aspect_error_permille.abs() < 10,
+                p.policy_aspect_error_permille.abs() < 10,
                 "{name}: {}",
-                p.aspect_error_permille
+                p.policy_aspect_error_permille
             );
             assert!(!p.mode.interlace, "{name}");
             assert_eq!(p.filter, "sharpbilinear", "{name}");
@@ -965,6 +966,7 @@ mod tests {
             label: settings.label(&defaults),
             source,
             settings,
+            card_pixel_aspect: None,
         };
         let options = GlassOptions {
             overscan_permille: None,
@@ -979,9 +981,9 @@ mod tests {
         assert_eq!(p.dropped_lines, 0);
         assert_eq!(p.cropped, Edges::default());
         assert!(
-            p.aspect_error_permille.abs() < 10,
+            p.policy_aspect_error_permille.abs() < 10,
             "{}",
-            p.aspect_error_permille
+            p.policy_aspect_error_permille
         );
         let flags = survey::own_flags("fit", &out.measures);
         assert_eq!(flags, [Flag::UnevenLines { fit: true }, Flag::SpeedAlert]);
@@ -1101,9 +1103,10 @@ mod tests {
     // These values record the picture of a TV as it is on `main`: a console
     // picture keeps its width in the field, so its shape on the glass is
     // not the shape of the game. They are not a claim that the shape is
-    // right; the question is with the owner. The policy measures the shape
-    // on a TV against its own width rule (`aspect_error_permille`), so only
-    // the glass gives a number that a change of that rule moves.
+    // right; the question is with the owner (OP-122). The intended shape
+    // (`policy_aspect_error_permille`) reads the width rule of the policy,
+    // so only the glass model gives a number that a change of that rule
+    // moves; the gate reads the same shape from the light.
     const TV_GLASS_ASPECT_PERMILLE: [(&str, i64); 12] = [
         ("ps1_320-ntsc", -91),
         ("ps1_480i-ntsc", -91),
@@ -1130,7 +1133,7 @@ mod tests {
             .find(|(case, _)| *case == name)
             .unwrap_or_else(|| panic!("{name}: a TV case needs its glass value"));
         let p = m.picture.as_ref().unwrap();
-        assert_eq!(p.glass_aspect_error_permille, expected.1, "{name}");
+        assert_eq!(p.model_aspect_error_permille, expected.1, "{name}");
     }
 
     /// The measures of a case of [`INTERLACED_CASES`].
@@ -1342,7 +1345,7 @@ mod tests {
             assert_eq!(p.cropped, Edges::default(), "{name}: every line");
             assert_eq!(p.dropped_lines, 0, "{name}");
             assert_eq!(
-                p.aspect_error_permille, expected.aspect_error_permille,
+                p.policy_aspect_error_permille, expected.aspect_error_permille,
                 "{name}"
             );
             assert_eq!(p.player.upright, Some(true), "{name}");
@@ -1439,7 +1442,7 @@ mod tests {
             assert_eq!(p.dest, Rect { x, y, w, h }, "{name}");
             assert_eq!((p.scale_x_milli, p.scale_y_milli), *scale, "{name}");
             assert_eq!((p.fill_w_permille, p.fill_h_permille), *fill, "{name}");
-            assert_eq!(p.aspect_error_permille, *aspect, "{name}");
+            assert_eq!(p.policy_aspect_error_permille, *aspect, "{name}");
             assert_eq!(p.cropped, Edges::default(), "{name}");
             assert_eq!(p.dropped_lines, 0, "{name}");
             assert_eq!(p.player.upright, Some(true), "{name}");

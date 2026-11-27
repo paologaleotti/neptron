@@ -46,10 +46,22 @@ pub const CIRCLE_RADIUS_PERMILLE: u32 = 400;
 /// aspect is `aspect_milli` (width over height, in thousandths; 0 for
 /// square pixels).
 pub fn test_pattern(width: u16, height: u16, aspect_milli: u32) -> Rgb {
+    let pixel_aspect = match aspect_milli {
+        0 => 1.0,
+        a => f64::from(a) / 1000.0 * f64::from(height) / f64::from(width),
+    };
+    test_pattern_for(width, height, pixel_aspect)
+}
+
+/// The test picture for a frame of `width` by `height` pixels whose pixels
+/// are `pixel_aspect` as wide as they are high: the circle is round when
+/// each pixel shows at that shape. A real game of a console draws with the
+/// pixel shape of its dot clock, so the card of a console is drawn so.
+pub fn test_pattern_for(width: u16, height: u16, pixel_aspect: f64) -> Rgb {
     let (w, h) = (u32::from(width), u32::from(height));
     let mut img = Rgb::new(w, h, BACKGROUND);
     grid(&mut img);
-    circle(&mut img, aspect_milli);
+    circle(&mut img, pixel_aspect);
     cross(&mut img);
     rectangle(&mut img, 0, OUTER_BORDER);
     rectangle(&mut img, INNER_BORDER_INSET_PX, INNER_BORDER);
@@ -97,12 +109,8 @@ fn rectangle(img: &mut Rgb, inset: u32, color: [u8; 3]) {
 
 /// An ellipse that a screen of the right aspect shows as a circle: its
 /// radius across is the radius down divided by the pixel aspect.
-fn circle(img: &mut Rgb, aspect_milli: u32) {
+fn circle(img: &mut Rgb, pixel_aspect: f64) {
     let (w, h) = (f64::from(img.width), f64::from(img.height));
-    let pixel_aspect = match aspect_milli {
-        0 => 1.0,
-        a => f64::from(a) / 1000.0 * h / w,
-    };
     let ry = h * f64::from(CIRCLE_RADIUS_PERMILLE) / 1000.0;
     let rx = ry / pixel_aspect;
     let (cx, cy) = (w / 2.0, h / 2.0);
@@ -232,6 +240,29 @@ mod tests {
         assert!(
             (f64::from(span) - expected).abs() <= 2.0,
             "{span} {expected}"
+        );
+    }
+
+    /// The card of a console with pixels 32:35 as wide as high draws the
+    /// circle 35/32 as wide in pixels as the card of square pixels.
+    #[test]
+    fn the_card_of_a_console_draws_its_pixel_shape() {
+        let span = |img: &Rgb| {
+            let row: Vec<u32> = (0..img.width)
+                .filter(|&x| img.get(x, 121) == CIRCLE)
+                .collect();
+            f64::from(row.last().unwrap() - row.first().unwrap())
+        };
+        let square = span(&test_pattern(320, 240, 1_333));
+        let console = span(&test_pattern_for(320, 240, 32.0 / 35.0));
+        assert!(
+            (console / square - 35.0 / 32.0).abs() < 0.02,
+            "{console} {square}"
+        );
+        let core = f64::from(1_333_u32) / 1000.0 * 240.0 / 320.0;
+        assert_eq!(
+            test_pattern_for(320, 240, core),
+            test_pattern(320, 240, 1_333)
         );
     }
 

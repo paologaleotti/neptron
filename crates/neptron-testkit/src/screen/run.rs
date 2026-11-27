@@ -6,14 +6,16 @@ use std::{fs, io};
 
 use neptron_platform::Matrix;
 use neptron_settings::Schema;
-use neptron_types::{MonitorKind, MonitorProfile, Rotation};
+use neptron_types::{MonitorKind, MonitorProfile, Orientation, Rotation};
 use neptron_video::{PolicySettings, wide_strategy};
 
+use super::card;
 use super::case::{self, Board, CaseError, DisplaySpec, Screen, Settings, Source};
+use super::consoles;
 use super::glass::Glass;
 use super::image::{Rgb, Turn};
 use super::measure::{self, Measures, Names, View};
-use super::pattern::test_pattern;
+use super::pattern::{test_pattern, test_pattern_for};
 use super::survey::{self, Row};
 use super::wire::{self, Wire, WireError};
 use crate::preset::{PresetError, monitor_preset};
@@ -68,6 +70,10 @@ pub struct Case {
     pub settings: Settings,
     /// The settings label.
     pub label: String,
+    /// The test card is drawn with this pixel shape, the width of a pixel
+    /// over its height: the shape of the real console. `None` for the
+    /// shape of the display aspect of the core.
+    pub card_pixel_aspect: Option<f64>,
 }
 
 /// What a case gives.
@@ -163,6 +169,7 @@ impl Tables {
             source,
             label: settings.label(&defaults),
             settings,
+            card_pixel_aspect: None,
         })
     }
 }
@@ -198,6 +205,21 @@ pub fn simulate(case: &Case, frame: &Rgb, options: &GlassOptions) -> Result<Outc
         orientation,
         frame,
     )?;
+    Ok(finish(case, frame, options, orientation, wire))
+}
+
+/// The glass and the measures of `case` at `orientation` for the wire
+/// `wire` of `frame`: the second half of [`simulate`]. A test gives it a
+/// wire that the engine did not make, to prove that a measure sees a
+/// wrong placement.
+pub fn finish(
+    case: &Case,
+    frame: &Rgb,
+    options: &GlassOptions,
+    orientation: Orientation,
+    wire: Wire,
+) -> Outcome {
+    let geometry = case.source.geometry;
     let turn = player_turn(orientation.screen, options.turn);
     let glass = wire
         .shown
@@ -217,17 +239,76 @@ pub fn simulate(case: &Case, frame: &Rgb, options: &GlassOptions) -> Result<Outc
         settings: &case.label,
         arcade: case.source.arcade,
     };
+    let pattern = *frame == card_of(case);
     let view = View {
         orientation,
         core_source: &geometry,
-        pattern: *frame == pattern_of(&case.source),
+        pattern,
     };
-    let measures = measure::measure(names, view, &wire, glass.as_ref().zip(bare.as_ref()));
-    Ok(Outcome {
+    let mut measures = measure::measure(names, view, &wire, glass.as_ref().zip(bare.as_ref()));
+    if let (Some(p), Some(shown), true) = (&mut measures.picture, &wire.shown, pattern) {
+        p.border_on_wire = Some(card::border_seen(&shown.frame_buffer));
+    }
+    Outcome {
         wire,
         glass_image,
         measures,
-    })
+    }
+}
+
+/// The glass size on which the test card is measured: large, so one
+/// glass pixel is about 0.1 % of the circle.
+pub const CARD_MEASURE_SIZE: (u32, u32) = (1440, 1080);
+
+/// Measures the test card `frame` of `case` on the glass of `outcome`, in
+/// the scan-out frame of the mode at [`CARD_MEASURE_SIZE`]: the glass
+/// shape against both references and the sides of the border that show.
+/// Nothing changes when the frame is not the test card or nothing shows.
+pub fn measure_card(
+    case: &Case,
+    frame: &Rgb,
+    overscan_permille: Option<u32>,
+    outcome: &mut Outcome,
+) {
+    let (Some(shown), Some(p)) = (&outcome.wire.shown, &mut outcome.measures.picture) else {
+        return;
+    };
+    if *frame != card_of(case) {
+        return;
+    }
+    let glass = Glass::of(&case.screen.profile, &shown.mode, overscan_permille);
+    let size = glass.picture_size(CARD_MEASURE_SIZE);
+    let image = glass.render(&shown.mode, &shown.frame_buffer, size);
+    p.border_on_glass = Some(card::border_seen(&image));
+    p.glass_centre_permille = card::lit_centre(&image);
+    let (aw, ah) = glass.aspect();
+    let unit = (
+        f64::from(aw) / f64::from(image.width),
+        f64::from(ah) / f64::from(image.height),
+    );
+    let g = case.source.geometry;
+    let (Some(on_glass), Some(in_frame)) = (
+        card::card_size(&image, unit),
+        card::card_size(frame, (1.0, 1.0)),
+    ) else {
+        return;
+    };
+    let core_pixel_aspect = match g.aspect_milli {
+        0 => 1.0,
+        a => f64::from(a) / 1000.0 * f64::from(g.height) / f64::from(g.width),
+    };
+    let console = consoles::console_of(&case.source.name).and_then(|c| {
+        card::console_pixel_aspect(c, g.width, g.interlaced, &glass)
+            .map(|(clock, par)| (c.name, clock, par))
+    });
+    let expected = card::Expected {
+        frame: in_frame,
+        frame_size: (g.width, g.height),
+        across: shown.scene.rotation.across(),
+        core_pixel_aspect,
+        console,
+    };
+    p.glass_shape = Some(card::glass_shape(&on_glass, &expected));
 }
 
 /// The clockwise turn of the glass picture: the screen at `screen`
@@ -242,6 +323,50 @@ pub fn player_turn(screen: Rotation, extra: Turn) -> Turn {
     let degrees = (360 - screen.degrees() + extra_degrees) % 360;
     // The sum of two quarter turns is a quarter turn.
     Turn::from_degrees(u32::from(degrees)).unwrap_or(Turn::R0)
+}
+
+/// The test card of `case`: drawn with the pixel shape of the console
+/// when the case names one, else with the display aspect of the core.
+pub fn card_of(case: &Case) -> Rgb {
+    let g = case.source.geometry;
+    match case.card_pixel_aspect {
+        Some(par) => test_pattern_for(g.width, g.height, par),
+        None => pattern_of(&case.source),
+    }
+}
+
+/// The pixel shape of the real console of `case` on the glass of the
+/// mode of `outcome`, or `None` when the table has no clock for it or
+/// nothing shows.
+pub fn console_pixel_shape(case: &Case, outcome: &Outcome) -> Option<f64> {
+    let shown = outcome.wire.shown.as_ref()?;
+    let console = consoles::console_of(&case.source.name)?;
+    let glass = Glass::of(&case.screen.profile, &shown.mode, None);
+    let g = case.source.geometry;
+    card::console_pixel_aspect(console, g.width, g.interlaced, &glass).map(|(_, par)| par)
+}
+
+/// Runs `case` with the card of the reference that judges it: the card of
+/// the console when the table has a clock for it (the case then keeps
+/// that card in `card_pixel_aspect`), else the card of the core. Returns
+/// the outcome and the card.
+///
+/// # Errors
+///
+/// As [`simulate`].
+pub fn simulate_with_reference_card(
+    case: &mut Case,
+    options: &GlassOptions,
+) -> Result<(Outcome, Rgb), RunError> {
+    case.card_pixel_aspect = None;
+    let core = pattern_of(&case.source);
+    let outcome = simulate(case, &core, options)?;
+    let Some(par) = console_pixel_shape(case, &outcome) else {
+        return Ok((outcome, core));
+    };
+    case.card_pixel_aspect = Some(par);
+    let card = card_of(case);
+    Ok((simulate(case, &card, options)?, card))
 }
 
 /// The test picture of `source`.
@@ -287,6 +412,7 @@ pub fn survey_rows(
                     source: source.clone(),
                     label: settings.label(&defaults),
                     settings,
+                    card_pixel_aspect: None,
                 };
                 let outcome = simulate(&case, &frame, &options)?;
                 rows.push(Row {

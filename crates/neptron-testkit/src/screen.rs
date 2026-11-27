@@ -11,8 +11,10 @@
 //! flags. `cargo xtask screen` runs the command line of [`cli`] through the
 //! example `screen` and writes the PNG files.
 
+mod card;
 mod case;
 pub mod cli;
+mod consoles;
 mod glass;
 mod image;
 mod json;
@@ -22,9 +24,16 @@ mod run;
 mod survey;
 mod wire;
 
+pub use card::{
+    CardSize, ConsoleShape, Expected, GlassShape, border_seen, card_size, glass_shape, lit_centre,
+};
 pub use case::{
     Board, CaseError, DEFAULT_GPU, DEFAULT_TV_GPU, DisplaySpec, REFERENCE_NAMES, SETTING_KEYS,
     Screen, Settings, Source, panel_mode, parse_arcade_table, rate_text, screen,
+};
+pub use consoles::{
+    Console, LINE_525_MHZ, LINE_625_MHZ, MEGA_DRIVE, NEO_GEO, NES, NES_PAL, PLAYSTATION, Region,
+    SNES, console_of,
 };
 pub use glass::{
     Band, GLASS_SIZE, Glass, TUBE_15KHZ_FIELD_MHZ, TUBE_ASPECT, TV_OVERSCAN_PERMILLE, Tube,
@@ -36,10 +45,11 @@ pub use measure::{
     Edges, Measures, ModeFacts, Names, Picture, Player, View, measure, milli_text, notice_parts,
     scan_letter, turned,
 };
-pub use pattern::test_pattern;
+pub use pattern::{test_pattern, test_pattern_for};
 pub use run::{
-    ARCADE_TABLE, Case, GlassOptions, Outcome, RunError, SurveyRun, Tables, class_of, pattern_of,
-    player_turn, simulate, survey_rows,
+    ARCADE_TABLE, CARD_MEASURE_SIZE, Case, GlassOptions, Outcome, RunError, SurveyRun, Tables,
+    card_of, class_of, console_pixel_shape, finish, measure_card, pattern_of, player_turn,
+    simulate, simulate_with_reference_card, survey_rows,
 };
 pub use survey::{
     ASPECT_ERROR_MAX_PERMILLE, Counts, DISPLAYS, EXTRA_SOURCES, Flag, LABEL_ADVANCE_PX,

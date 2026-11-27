@@ -219,7 +219,7 @@ pub fn own_flags(style: &str, measures: &Measures) -> Vec<Flag> {
             declined: measures.offer.starts_with("declined"),
         });
     }
-    if p.aspect_error_permille.abs() > ASPECT_ERROR_MAX_PERMILLE {
+    if p.policy_aspect_error_permille.abs() > ASPECT_ERROR_MAX_PERMILLE {
         flags.push(Flag::Aspect);
     }
     if off_centre(p) {
@@ -649,10 +649,10 @@ mod tests {
             borders: Edges::default(),
             fill_w_permille: 1_000,
             fill_h_permille: 1_000,
-            aspect_shown_milli: 1_333,
+            policy_aspect_milli: 1_333,
             aspect_asked_milli: 1_333,
-            aspect_error_permille: 0,
-            glass_aspect_error_permille: 0,
+            policy_aspect_error_permille: 0,
+            model_aspect_error_permille: 0,
             uneven_lines: false,
             dropped_lines: 0,
             notice_cropped_lines: 0,
@@ -663,8 +663,13 @@ mod tests {
             overscan_hidden: None,
             speed_ppm: 0,
             speed_alert: false,
+            mode_speed_ppm: 0,
             scanlines: "none".into(),
             notices: Vec::new(),
+            border_on_wire: None,
+            border_on_glass: None,
+            glass_shape: None,
+            glass_centre_permille: None,
         }
     }
 
@@ -698,7 +703,7 @@ mod tests {
         p.cropped.top = 8;
         p.fill_w_permille = 500;
         p.fill_h_permille = 600;
-        p.aspect_error_permille = -62;
+        p.policy_aspect_error_permille = -62;
         p.scale_y_whole = false;
         p.uneven_lines = true;
         p.dropped_lines = 3;
@@ -785,7 +790,7 @@ mod tests {
         let mut p = picture();
         p.fill_w_permille = SMALL_FILL_MIN_PERMILLE;
         p.fill_h_permille = 100;
-        p.aspect_error_permille = ASPECT_ERROR_MAX_PERMILLE;
+        p.policy_aspect_error_permille = ASPECT_ERROR_MAX_PERMILLE;
         p.dest.w = 319;
         assert!(row("auto", Some(p.clone())).flags.is_empty());
         p.scale_y_whole = false;

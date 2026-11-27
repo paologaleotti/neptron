@@ -8,6 +8,7 @@ use neptron_video::{
     TV_CONSOLE_LINES_MIN,
 };
 
+use super::card::GlassShape;
 use super::glass::{Glass, Tube, TubeClass};
 use super::image::Rgb;
 use super::json::{Json, object};
@@ -125,22 +126,26 @@ pub struct Picture {
     pub fill_w_permille: u32,
     /// The part of the visible height the picture fills, in per mille.
     pub fill_h_permille: u32,
-    /// The width to height of the picture as the policy places it in the
-    /// mode, with the reference area of the mode filling the screen: the
+    /// The width to height of the picture as the policy intends it: as it
+    /// places it in the mode, with the reference area of the mode filling
+    /// the screen, and on a TV against the console width of the policy:
+    /// the
     /// active area of a CRT mode filling 4:3 (the usual set-up of the
     /// size controls), the 4:3 picture of a TV, square pixels on a panel.
     /// In thousandths.
-    pub aspect_shown_milli: u32,
+    pub policy_aspect_milli: u32,
     /// The width to height the source asks for the shown part, in
     /// thousandths.
     pub aspect_asked_milli: u32,
-    /// Shown over asked, less 1, in per mille: a wrong shape that the
-    /// placement gives.
-    pub aspect_error_permille: i64,
-    /// The same error on the glass model, where the window of the class
-    /// model and not the size controls set the size. In per mille. For
-    /// information: a monitor adjustment changes it.
-    pub glass_aspect_error_permille: i64,
+    /// Intended over asked, less 1, in per mille: what the policy meant.
+    /// It reads the rule of the policy, so it cannot prove the shape; the
+    /// glass shape does.
+    pub policy_aspect_error_permille: i64,
+    /// The error of the shape from the geometry of the glass model, worked
+    /// out from `dest` and the window of the scan, in per mille. The glass
+    /// shape measures the same from the light; the two agree when the
+    /// model and the picture agree.
+    pub model_aspect_error_permille: i64,
     /// Source lines do not map to whole mode lines: the scale down is not
     /// a whole number, so some lines show taller than others.
     pub uneven_lines: bool,
@@ -167,12 +172,29 @@ pub struct Picture {
     pub speed_ppm: i64,
     /// The speed alert of the status line shows.
     pub speed_alert: bool,
+    /// The speed from the mode read back, not from the timing of the
+    /// policy: the field rate over the whole number of fields nearest one
+    /// game frame, less the rate of the game, in parts per million of it.
+    pub mode_speed_ppm: i64,
     /// The scanlines the renderer draws: `none` or `black N%`.
     pub scanlines: String,
     /// The notice of the policy, one entry per part.
     pub notices: Vec<String>,
     /// The picture as the player sees it.
     pub player: Player,
+    /// The sides of the outer border of the test card that show in the
+    /// frame buffer; `None` when the frame is not the test card.
+    pub border_on_wire: Option<Edges<bool>>,
+    /// The sides of the outer border that show on the glass; `None` until
+    /// the card is measured on the glass.
+    pub border_on_glass: Option<Edges<bool>>,
+    /// The shape of the test card on the glass against the two
+    /// references; `None` until it is measured.
+    pub glass_shape: Option<GlassShape>,
+    /// The centre of the lit picture on the glass, across and down, in per
+    /// mille of the glass, read from the light; `None` until it is
+    /// measured or when nothing is lit.
+    pub glass_centre_permille: Option<(u32, u32)>,
 }
 
 /// The measures of one case.
@@ -364,6 +386,9 @@ fn picture(
     let timing = &shown.proposal.timing;
     let game = i64::from(source.refresh_mhz.max(1));
     let speed_ppm = (timing.shown_mhz() as i64 - game) * 1_000_000 / game;
+    let field = i64::try_from(mode.field_rate_mhz()).unwrap_or(i64::MAX);
+    let repeats = ((field + game / 2) / game).max(1);
+    let mode_speed_ppm = (field * 1_000_000 / repeats - game * 1_000_000) / game;
     Picture {
         mode: ModeFacts {
             hactive: mode.hactive,
@@ -389,10 +414,10 @@ fn picture(
         borders,
         fill_w_permille,
         fill_h_permille,
-        aspect_shown_milli: (shown_aspect * 1000.0).round() as u32,
+        policy_aspect_milli: (shown_aspect * 1000.0).round() as u32,
         aspect_asked_milli: (asked_aspect * 1000.0).round() as u32,
-        aspect_error_permille: error(shown_aspect),
-        glass_aspect_error_permille: error(glass_aspect),
+        policy_aspect_error_permille: error(shown_aspect),
+        model_aspect_error_permille: error(glass_aspect),
         uneven_lines: th == 0 || !dest.h.is_multiple_of(th),
         dropped_lines: dropped_lines(th, dest.h, scene.filter),
         console_picture: console.is_some(),
@@ -402,12 +427,17 @@ fn picture(
         overscan_hidden,
         speed_ppm,
         speed_alert: timing.changes_speed(),
+        mode_speed_ppm,
         scanlines: match scene.scanlines.kind {
             ScanlineKind::None => "none".to_owned(),
             ScanlineKind::Black => format!("black {}%", scene.scanlines.strength_percent),
         },
         notices: shown.notice.as_ref().map(notice_parts).unwrap_or_default(),
         player: Player::default(),
+        border_on_wire: None,
+        border_on_glass: None,
+        glass_shape: None,
+        glass_centre_permille: None,
     }
 }
 
@@ -419,7 +449,7 @@ fn player(view: &View<'_>, shown: &Shown, p: &Picture) -> Player {
     // frame for that turn. A game override that differs shows as an error.
     let game = view.core_source.rotation;
     let asked = asked_aspect(view.core_source, &p.crop, game);
-    let shown_aspect = f64::from(p.aspect_shown_milli) / 1000.0;
+    let shown_aspect = f64::from(p.policy_aspect_milli) / 1000.0;
     let seen = match screen {
         Rotation::R90 | Rotation::R270 if shown_aspect > 0.0 => 1.0 / shown_aspect,
         _ => shown_aspect,
@@ -767,7 +797,7 @@ impl Measures {
             edges_text(&p.borders),
             permille_text(i64::from(p.fill_w_permille)),
             permille_text(i64::from(p.fill_h_permille)),
-            signed_permille_text(p.aspect_error_permille),
+            signed_permille_text(p.policy_aspect_error_permille),
             speed_text(p.speed_ppm, p.speed_alert),
             p.scanlines,
             edges_text(&p.glass_hidden),
@@ -830,12 +860,15 @@ impl Picture {
             ("borders_mode_px", edges_json(&self.borders)),
             ("fill_w_permille", self.fill_w_permille.into()),
             ("fill_h_permille", self.fill_h_permille.into()),
-            ("aspect_shown_milli", self.aspect_shown_milli.into()),
+            ("policy_aspect_milli", self.policy_aspect_milli.into()),
             ("aspect_asked_milli", self.aspect_asked_milli.into()),
-            ("aspect_error_permille", self.aspect_error_permille.into()),
             (
-                "glass_aspect_error_permille",
-                self.glass_aspect_error_permille.into(),
+                "policy_aspect_error_permille",
+                self.policy_aspect_error_permille.into(),
+            ),
+            (
+                "model_aspect_error_permille",
+                self.model_aspect_error_permille.into(),
             ),
             ("uneven_lines", self.uneven_lines.into()),
             ("dropped_lines", self.dropped_lines.into()),
@@ -849,9 +882,28 @@ impl Picture {
             ),
             ("speed_ppm", self.speed_ppm.into()),
             ("speed_alert", self.speed_alert.into()),
+            ("mode_speed_ppm", self.mode_speed_ppm.into()),
             ("scanlines", (&self.scanlines).into()),
             ("notices", self.notices.clone().into()),
             ("player", self.player.to_json()),
+            (
+                "border_on_wire",
+                self.border_on_wire.as_ref().map(edges_json).into(),
+            ),
+            (
+                "border_on_glass",
+                self.border_on_glass.as_ref().map(edges_json).into(),
+            ),
+            (
+                "glass_shape",
+                self.glass_shape.as_ref().map(GlassShape::to_json).into(),
+            ),
+            (
+                "glass_centre_permille",
+                self.glass_centre_permille
+                    .map(|(x, y)| object([("x", x.into()), ("y", y.into())]))
+                    .into(),
+            ),
         ])
     }
 }
