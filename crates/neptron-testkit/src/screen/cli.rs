@@ -7,6 +7,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use neptron_types::TvStandard;
+
 use super::case::{DisplaySpec, REFERENCE_NAMES, Settings, Source};
 use super::glass::GLASS_SIZE;
 use super::image::{Rgb, Turn};
@@ -423,6 +425,21 @@ fn run_gate_command(root: &Path, tables: &Tables, args: &[&str]) -> Result<ExitC
                 &dir.join("fields").join(format!("{}-{suffix}.ppm", f.name)),
                 picture,
             )?;
+        }
+    }
+    for standard in [TvStandard::Ntsc, TvStandard::Pal] {
+        let cells = super::options::option_cells(tables, standard, GATE_TILE)?;
+        let (image, labels) = super::options::option_sheet(&cells, GATE_TILE);
+        let stem = format!("tv_options_{}", standard.key());
+        write_ppm(&dir.join(format!("{stem}.ppm")), &image)?;
+        let json = survey::labels_json(&labels).compact();
+        write(&dir.join(format!("{stem}.labels.json")), json.as_bytes())?;
+        for cell in &cells {
+            println!(
+                "{}: {}",
+                standard.key(),
+                super::options::option_lines(cell).join(" | ")
+            );
         }
     }
     let table = super::gate::table(&run.rows);

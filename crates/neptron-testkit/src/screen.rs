@@ -21,6 +21,7 @@ mod glass;
 mod image;
 mod json;
 mod measure;
+mod options;
 mod pattern;
 mod redraw;
 mod run;
@@ -61,6 +62,7 @@ pub use measure::{
     Edges, Measures, ModeFacts, Names, Picture, Player, View, measure, milli_text, notice_parts,
     scan_letter, turned,
 };
+pub use options::{OPTION_SOURCES, OptionCell, TvOption, option_cells, option_lines, option_sheet};
 pub use pattern::{test_pattern, test_pattern_for};
 pub use redraw::draw;
 pub use run::{
