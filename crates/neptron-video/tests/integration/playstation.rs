@@ -3,7 +3,7 @@
 //! 240p and 480i (docs/spec/interlaced-systems.md sections 2 and 3).
 
 use neptron_testkit::preset::monitor_preset;
-use neptron_types::SourceGeometry;
+use neptron_types::{Filter, SourceGeometry};
 use neptron_video::{Directive, Monitor, PolicySettings, wide_strategy};
 
 use crate::harness::{Rig, hold_frames, source};
@@ -61,6 +61,35 @@ fn a_playstation_game_gets_a_modeset_at_each_change_between_240p_and_480i() {
     assert_eq!(rig.modes().len(), 4);
     assert_eq!(switches[0], switches[2], "the same 240p mode comes back");
     assert_eq!(switches[1], switches[3], "the same 480i mode comes back");
+}
+
+/// A 480i frame that the one-second rule holds back in the 240p mode
+/// shows all its lines pressed into the 240 lines, smoothed, not its
+/// middle 240 lines.
+#[test]
+fn a_held_480i_frame_shows_every_line_in_the_240p_mode() {
+    let mut rig = playstation("generic_15");
+    let progressive = source(320, 240, 59_826);
+    rig.frame(progressive);
+    for _ in 0..3 {
+        rig.frame(PSX_480I);
+    }
+    assert!(rig.current_mode().interlace, "the first change is not held");
+    for _ in 0..hold_frames(&PSX_480I) {
+        rig.frame(progressive);
+    }
+    let mode = rig.current_mode();
+    assert!(!mode.interlace);
+    let step = rig.frame(PSX_480I);
+    assert!(
+        matches!(step.directive, Directive::Waiting { .. }),
+        "{:?}",
+        step.directive
+    );
+    let scene = rig.fake.frames().last().unwrap().scene;
+    assert_eq!((scene.crop.w, scene.crop.h), (640, 480), "every line");
+    assert_eq!(scene.dest.h, u32::from(mode.vactive));
+    assert_eq!(scene.filter, Filter::SharpBilinear);
 }
 
 #[test]

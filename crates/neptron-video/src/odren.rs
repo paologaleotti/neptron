@@ -382,6 +382,10 @@ impl Odren {
             ui_turn: self.orientation.ui_turn(),
             form: self.form(),
             picture_scale,
+            frame_interlaced: self
+                .request
+                .as_ref()
+                .map_or(current.source.interlaced, |r| r.source.interlaced),
         };
         Some(build_scene(&inputs, game, ui))
     }
@@ -407,6 +411,7 @@ impl Odren {
             ui_turn: self.orientation.ui_turn(),
             form: self.form(),
             picture_scale: 1,
+            frame_interlaced: source.interlaced,
         };
         build_scene(&inputs, game.map(GamePicture::Memory), ui)
     }

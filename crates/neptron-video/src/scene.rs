@@ -31,6 +31,12 @@ pub struct SceneInputs<'p> {
     /// core that draws at its native size. A GL core that draws above it
     /// sends a picture `picture_scale` times the source.
     pub picture_scale: u16,
+    /// The game frame comes from an interlaced source. A frame of another
+    /// size that is taller than a whole-step destination then shows all
+    /// its lines pressed in, smoothed, by the rule of Fit, in place of its
+    /// middle lines: a 480i frame that the engine holds back in a 240p
+    /// mode keeps every line.
+    pub frame_interlaced: bool,
 }
 
 /// The one place where the engine builds a `Scene`: the run and the preview
@@ -55,7 +61,11 @@ pub struct SceneInputs<'p> {
 /// whole steps of lines: the largest whole multiple of the frame's lines
 /// up to the planned one that fits, centred, with the width scaled by the
 /// same step; a frame taller than the destination shows its middle lines
-/// once each. Only the picture mode Fit scales lines by a fraction.
+/// once each, unless it is interlaced (`SceneInputs::frame_interlaced`):
+/// then all its lines are pressed into the destination with sharp
+/// bilinear, the width scaled by the same factor. Fit and an interlaced
+/// frame held in a progressive mode are the only pictures that scale
+/// lines by a fraction.
 ///
 /// The UI canvas turns by `inputs.ui_turn`, and goes where
 /// `neptron_modeline::policy::ui_placement` places the canvas after that
@@ -88,7 +98,7 @@ pub fn build_scene<'a>(
     let native = game.map(|g| (g.width() / k, g.height() / k));
     let (native_crop, dest, filter) = match native {
         Some(size) if !crop_holds(&placement.crop, inputs.source, size) => {
-            other_frame(placement, rotation, size)
+            other_frame(placement, rotation, size, inputs.frame_interlaced)
         }
         _ => (placement.crop, placement.dest, placement.filter),
     };
@@ -179,6 +189,7 @@ fn other_frame(
     placement: &Placement,
     rotation: Rotation,
     frame: (u16, u16),
+    interlaced: bool,
 ) -> (Rect, Rect, Filter) {
     let all = whole(frame);
     let dest = placement.dest;
@@ -188,6 +199,9 @@ fn other_frame(
     let (columns, lines) = turned_size(&all, rotation);
     let (planned_columns, _) = turned_size(&placement.crop, rotation);
     let step = (dest.h / lines.max(1)).min(u32::from(planned_step));
+    if step == 0 && interlaced {
+        return pressed_in(placement, rotation, all, planned_step);
+    }
     let (crop, step, h) = if step == 0 {
         (middle_lines(all, rotation, lines - dest.h), 1, dest.h)
     } else {
@@ -209,6 +223,30 @@ fn other_frame(
         placed,
         filter_for(turned_size(&crop, rotation), &placed),
     )
+}
+
+/// The whole frame `all`, taller than the destination, pressed into its
+/// height. The width keeps the planned columns per game column, scaled by
+/// the lines of the destination over the lines of the frame, as the
+/// height is.
+fn pressed_in(
+    placement: &Placement,
+    rotation: Rotation,
+    all: Rect,
+    planned_step: u16,
+) -> (Rect, Rect, Filter) {
+    let dest = placement.dest;
+    let (columns, lines) = turned_size(&all, rotation);
+    let (planned_columns, _) = turned_size(&placement.crop, rotation);
+    let w = u64::from(columns) * u64::from(dest.w) * u64::from(dest.h)
+        / (u64::from(planned_columns.max(1)) * u64::from(planned_step) * u64::from(lines.max(1)));
+    let w = u32::try_from(w).unwrap_or(dest.w).clamp(1, dest.w);
+    let placed = Rect {
+        x: dest.x + centre(dest.w, w),
+        w,
+        ..dest
+    };
+    (all, placed, Filter::SharpBilinear)
 }
 
 /// `all` less `cut` lines of the turned picture, half at each edge.
@@ -353,6 +391,7 @@ mod tests {
             ui_turn: Rotation::R0,
             form: Form::Landscape,
             picture_scale: 1,
+            frame_interlaced: false,
         };
         build_scene(&inputs, game.map(GamePicture::Memory), ui)
     }
@@ -380,6 +419,7 @@ mod tests {
                 Form::Landscape
             },
             picture_scale: 1,
+            frame_interlaced: false,
         };
         build_scene(&inputs, Some(GamePicture::Memory(frame(256, 224))), ui)
     }
@@ -578,6 +618,7 @@ mod tests {
             ui_turn: Rotation::R0,
             form: Form::Landscape,
             picture_scale: k,
+            frame_interlaced: false,
         };
         let gpu = GpuFrame {
             image: GpuImageId(1),
@@ -699,6 +740,51 @@ mod tests {
         assert_eq!(scene.crop, rect(0, 112, 512, 224));
         assert_eq!(scene.dest, p.dest);
         assert_eq!(scene.dest.h, scene.crop.h);
+    }
+
+    /// A 480i frame held back in a 240p mode of whole steps shows all its
+    /// lines pressed into the 240 lines, smoothed, at the shape of the
+    /// game: 640 columns in the 1280 of 320 columns at 4x, 480 lines in
+    /// 240.
+    #[test]
+    fn an_interlaced_frame_taller_than_whole_steps_is_pressed_in() {
+        let p = Placement {
+            crop: rect(0, 0, 320, 240),
+            dest: rect(0, 0, 1280, 240),
+            scale: ScaleClaim {
+                x: Some(4),
+                y: Some(1),
+            },
+            ..placement()
+        };
+        let source = SourceGeometry {
+            width: 320,
+            height: 240,
+            ..SOURCE
+        };
+        let monitor = crt();
+        let inputs = SceneInputs {
+            placement: &p,
+            source: &source,
+            monitor: &monitor,
+            mode: &MODE_448P,
+            scanlines: ScanlineSettings::OFF,
+            ui_turn: Rotation::R0,
+            form: Form::Landscape,
+            picture_scale: 1,
+            frame_interlaced: true,
+        };
+        let held = frame(640, 480);
+        let scene = build_scene(&inputs, Some(GamePicture::Memory(held)), None);
+        assert_eq!(scene.crop, rect(0, 0, 640, 480), "every line");
+        assert_eq!(scene.dest, rect(0, 0, 1280, 240));
+        assert_eq!(scene.filter, Filter::SharpBilinear);
+        let progressive = SceneInputs {
+            frame_interlaced: false,
+            ..inputs
+        };
+        let scene = build_scene(&progressive, Some(GamePicture::Memory(held)), None);
+        assert_eq!(scene.crop, rect(0, 120, 640, 240), "the middle lines");
     }
 
     /// A fit keeps the whole frame in its destination, smoothed.

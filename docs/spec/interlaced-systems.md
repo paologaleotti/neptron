@@ -81,7 +81,7 @@ A TV has one mode width (720 samples) for every width already, and a flat panel 
 
 A modeset that the game's own frames ask for (`Trigger::Geometry`) waits until one second has passed since the last such modeset (`MODESET_MIN_INTERVAL_NS`, 1,000,000,000 ns). The time is the core frames since the frame of that modeset, at the rate of the source on screen: `frames x 10^12 / refresh_mhz` ns. No setting changes it. The debounce of 3 frames still holds; the hold adds to it.
 
-- While a change is held back, `begin_frame` returns `Directive::Waiting`. The mode on screen stays. The new frame shows in it by the rule of a frame of another size (`docs/spec/video-policy-cases.md`, 8.12, rule 5): whole steps, centred, where the plan is whole steps; the middle lines when even one step is too tall. A 480i frame held in a 240p mode shows its middle 240 lines for at most one second (question W2).
+- While a change is held back, `begin_frame` returns `Directive::Waiting`. The mode on screen stays. The new frame shows in it by the rule of a frame of another size (`docs/spec/video-policy-cases.md`, 8.12, rule 5): whole steps, centred, where the plan is whole steps; the middle lines when even one step is too tall. A 480i frame held in a 240p mode shows all its 480 lines pressed into the 240 lines, smoothed, at the shape of the game, for at most one second (question W2, answer (b)).
 - A game that changes faster than once a second keeps its mode until it settles: when it goes back to the source on screen, nothing changes. When it settles on a new source, the modeset comes at the first frame that is both debounced and one second after the last modeset.
 - The launch, a change of the settings, the monitor, the orientation, a retry and a refused mode on screen are not held: the player asked for them, or safety needs them. They start no hold: the first change of the game after the launch comes after the debounce alone. A change of the orientation also ends a hold, as the player asked for the new turn.
 - A scale-only change (decision 2, or a winner equal to the mode on screen) is no modeset and is never held.
@@ -165,7 +165,7 @@ The measures of each case are in section 12.
 | Id | Question | Options | Default |
 | --- | --- | --- | --- |
 | W1 | Which systems get the wide mode? | Answered by the owner on 2026-11-27: every system whose real console changes its width with no new sync, from its data (section 3). | SNES, Mega Drive; PlayStation in task S10 |
-| W2 | What a held-back frame shows (decision 3), for at most one second: | (a) The rule of today: whole steps, centred, the middle 240 lines of a 480i frame in a 240p mode. (b) A 480i frame pressed into the 240p mode, smoothed, every line shown. | (a), as built |
+| W2 | What a held-back frame shows (decision 3), for at most one second: | (a) The rule of today: whole steps, centred, the middle 240 lines of a 480i frame in a 240p mode. (b) A 480i frame pressed into the 240p mode, smoothed, every line shown. | Answered by the owner on 2026-11-27: (b) |
 | W3 | The text of decision 5 says "This PC". A Raspberry Pi on DPI has the same limit. | (a) The text as decided on every machine. (b) "This Raspberry Pi" on a Pi. | (a), as built; the Pi 3 DPI with a 480i game is rare |
 | W4 | The flicker filter on a TV (decision 4 names a CRT; a TV in 480i flickers the same way). | (a) Every interlaced mode, CRT and TV. (b) A CRT monitor only. | (a) |
 
