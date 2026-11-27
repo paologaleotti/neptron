@@ -3,6 +3,7 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
+use crate::disc::{DiscFormat, disc_tag};
 use crate::folders::FolderStamp;
 
 /// The longest name or path, in bytes, that the index holds.
@@ -20,6 +21,12 @@ pub struct Game {
     parent: Option<String>,
     details: String,
     marks: Marks,
+    /// The discs of a list: the paths that an m3u file names, or the files
+    /// of a group of discs.
+    discs: Vec<String>,
+    /// The entry of a group of disc files, made by [`SystemGames::new`]. It
+    /// is not a file of its own, so the cache does not hold it.
+    grouped: bool,
 }
 
 /// The marks of a game in the list. An arcade game gets them from the
@@ -46,6 +53,9 @@ pub struct SystemGames {
     /// The folded clones, sorted by parent set name (ASCII lower case),
     /// then in game order.
     folded: Vec<Game>,
+    /// The disc files that an m3u file names or that a group holds. They
+    /// are not in the list.
+    hidden: Vec<Game>,
 }
 
 /// Every game that a scan found, by system, and the stamps of the folders
@@ -82,7 +92,28 @@ impl Game {
             parent: None,
             details: String::new(),
             marks: Marks::default(),
+            discs: Vec::new(),
+            grouped: false,
         }
+    }
+
+    /// The same game with the discs of a list: paths below `share/roms/`.
+    pub fn with_discs(mut self, discs: Vec<String>) -> Self {
+        self.discs = discs;
+        self
+    }
+
+    /// The discs of a list, in order: the paths below `share/roms/` that an
+    /// m3u file names, or the files of a group of discs, the first disc
+    /// first. Empty for any other game.
+    pub fn discs(&self) -> &[String] {
+        &self.discs
+    }
+
+    /// True for the entry of a group of disc files: its path is the path of
+    /// its first disc, and [`Game::discs`] holds every disc.
+    pub fn is_group(&self) -> bool {
+        self.grouped
     }
 
     /// The same game as a clone of the set `parent`.
@@ -163,6 +194,7 @@ impl SystemGames {
     /// Makes the game list of one system. The games are sorted and the
     /// clones whose parent is in the list are folded here.
     pub fn new(system: String, games: Vec<Game>) -> Self {
+        let (games, hidden) = arrange_discs(games);
         let stems: HashSet<String> = games
             .iter()
             .map(|g| g.stem().to_ascii_lowercase())
@@ -178,6 +210,7 @@ impl SystemGames {
             system,
             games,
             folded,
+            hidden,
         }
     }
 
@@ -191,9 +224,21 @@ impl SystemGames {
         &self.games
     }
 
-    /// Every game: those of the list, then the folded clones.
+    /// Every game file: those of the list, then the folded clones, then
+    /// the hidden disc files. The entry of a group of discs is not a file,
+    /// so it is not here; its discs are.
     pub fn all(&self) -> impl Iterator<Item = &Game> {
-        self.games.iter().chain(&self.folded)
+        self.games
+            .iter()
+            .filter(|g| !g.grouped)
+            .chain(&self.folded)
+            .chain(&self.hidden)
+    }
+
+    /// The disc files that are not in the list: those that an m3u file
+    /// names, and those of a group of discs.
+    pub fn hidden(&self) -> &[Game] {
+        &self.hidden
     }
 
     /// The folded clones of the set named `stem`, in sort order: its
@@ -252,13 +297,14 @@ impl Index {
         let mut repeated = Vec::new();
         for list in systems
             .into_iter()
-            .filter(|s| !s.games.is_empty() || !s.folded.is_empty())
+            .filter(|s| !s.games.is_empty() || !s.folded.is_empty() || !s.hidden.is_empty())
         {
             match position.get(&list.system) {
                 Some(&i) => {
                     if let Some(m) = merged.get_mut(i) {
                         m.games.extend(list.games);
                         m.games.extend(list.folded);
+                        m.games.extend(list.hidden);
                         repeated.push(i);
                     }
                 }
@@ -275,6 +321,7 @@ impl Index {
                 let games = std::mem::take(&mut m.games)
                     .into_iter()
                     .chain(std::mem::take(&mut m.folded))
+                    .chain(std::mem::take(&mut m.hidden))
                     .collect();
                 *m = SystemGames::new(std::mem::take(&mut m.system), games);
             }
@@ -332,6 +379,106 @@ impl Index {
     pub fn page(&self, id: &str, start: usize, len: usize) -> &[Game] {
         self.system(id).map_or(&[], |s| s.page(start, len))
     }
+}
+
+/// Splits the game files of one list into the games of the list and the
+/// hidden disc files (`docs/spec/disc-games.md`, sections 3.3 and 3.4): a
+/// file that an m3u file names is hidden, and the disc files of one game
+/// with a disc tag make one group entry. Group entries in `games` come from
+/// an earlier arrangement and are made again from their files.
+fn arrange_discs(games: Vec<Game>) -> (Vec<Game>, Vec<Game>) {
+    let mut games: Vec<Game> = games.into_iter().filter(|g| !g.grouped).collect();
+    if !games
+        .iter()
+        .any(|g| !g.discs.is_empty() || disc_extension(g))
+    {
+        return (games, Vec::new());
+    }
+    // exFAT ignores case, so a line names a file in any case. A line that
+    // names an m3u file is an error of its list and hides nothing, so no
+    // list can hide another list, or itself.
+    let named: HashSet<String> = games
+        .iter()
+        .flat_map(|g| &g.discs)
+        .filter(|d| !names_a_list(d))
+        .map(|d| d.to_lowercase())
+        .collect();
+    let is_named: Vec<bool> = games
+        .iter()
+        .map(|g| named.contains(&g.path.to_lowercase()))
+        .collect();
+    let mut groups: HashMap<GroupKey<'_>, Vec<(u8, usize)>> = HashMap::new();
+    for (i, game) in games.iter().enumerate() {
+        if is_named[i] || !disc_extension(game) {
+            continue;
+        }
+        if let Some(tag) = disc_tag(game.stem()) {
+            let folder = game.path.rsplit_once('/').map_or("", |(f, _)| f);
+            let extension = extension(game).to_ascii_lowercase();
+            groups
+                .entry((folder, tag.group, extension))
+                .or_default()
+                .push((tag.number, i));
+        }
+    }
+    let mut member = vec![false; games.len()];
+    let mut entries = Vec::new();
+    for ((_, name, _), mut discs) in groups {
+        discs.sort_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then_with(|| games[a.1].path.cmp(&games[b.1].path))
+        });
+        discs.dedup_by_key(|(number, _)| *number);
+        if discs.len() < 2 {
+            continue;
+        }
+        let first = &games[discs[0].1];
+        let paths = discs.iter().map(|&(_, i)| games[i].path.clone()).collect();
+        entries.push(Game {
+            name,
+            discs: paths,
+            grouped: true,
+            ..first.clone()
+        });
+        for &(_, i) in &discs {
+            member[i] = true;
+        }
+    }
+    let mut hidden = Vec::new();
+    let mut listed = Vec::with_capacity(games.len());
+    for (i, game) in games.drain(..).enumerate() {
+        if is_named[i] || member[i] {
+            hidden.push(game);
+        } else {
+            listed.push(game);
+        }
+    }
+    listed.extend(entries);
+    hidden.sort_by(|a, b| a.path.cmp(&b.path));
+    (listed, hidden)
+}
+
+/// True for a disc path of a list that names an m3u file.
+fn names_a_list(path: &str) -> bool {
+    path.rsplit_once('.')
+        .is_some_and(|(_, ext)| DiscFormat::of_extension(ext) == Some(DiscFormat::M3u))
+}
+
+/// The folder, the group name and the lower-case extension of a disc file.
+type GroupKey<'a> = (&'a str, String, String);
+
+/// True for a file of a disc format that can carry a disc tag: `.chd` and
+/// `.cue`.
+fn disc_extension(game: &Game) -> bool {
+    matches!(
+        DiscFormat::of_extension(extension(game)),
+        Some(DiscFormat::Chd | DiscFormat::Cue)
+    )
+}
+
+fn extension(game: &Game) -> &str {
+    let file = game.path.rsplit('/').next().unwrap_or(&game.path);
+    file.rsplit_once('.').map_or("", |(_, ext)| ext)
 }
 
 fn order(a: &Game, b: &Game) -> Ordering {

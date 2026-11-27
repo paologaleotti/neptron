@@ -1,6 +1,6 @@
 # neptron-library
 
-ROM scan, index cache, core and system metadata. The crate reads the Batocera and RetroPie layout `share/roms/<system>/`, with the folder names and aliases of `data/systems`. It never opens, changes or deletes a ROM file: the scan reads directory entries and their types only. It does not import `gamelist.xml` (OP-023).
+ROM scan, index cache, core and system metadata. The crate reads the Batocera and RetroPie layout `share/roms/<system>/`, with the folder names and aliases of `data/systems`. It never changes or deletes a ROM file: the scan reads directory entries and their types, and the text of the m3u files of a disc system. It does not import `gamelist.xml` (OP-023).
 
 ## Must never depend on
 
@@ -20,7 +20,7 @@ ROM scan, index cache, core and system metadata. The crate reads the Batocera an
 - `changes(old, new)`: the games added, removed and changed (a rename is one removed and one added), for the notice after a scan.
 - `ScanWorker` runs `scan` (`spawn`) or `refresh` (`spawn_refresh`) on a thread it owns. `progress()` and `cancel()` use atomics and never wait. `is_finished()` tells when `join()` returns at once. Drop cancels and joins.
 - `ensure_system_folders(roms_root, catalog)` makes the empty system folders of the first boot.
-- `Index`, `SystemGames`, `Game`, `Marks`: the query side. `Index::folders()` and `folder(path)` give the folder stamps. `Game::size()` is the size when the scan read the folder. An arcade game has `parent()`, `details()` and `marks()` (vertical, not working, unknown set). `SystemGames::games()` leaves out folded clones, `versions(stem)` gives the clones of a set, `all()` every game. `systems()`, `system(id)`, `count(id)`, `page(id, start, len)`.
+- `Index`, `SystemGames`, `Game`, `Marks`: the query side. `Index::folders()` and `folder(path)` give the folder stamps. `Game::size()` is the size when the scan read the folder. An arcade game has `parent()`, `details()` and `marks()` (vertical, not working, unknown set). `SystemGames::games()` leaves out folded clones and hidden disc files, `versions(stem)` gives the clones of a set, `all()` every game file (not the entry of a group of discs), `hidden()` the hidden disc files. `Game::discs` and `Game::is_group` for disc games. `systems()`, `system(id)`, `count(id)`, `page(id, start, len)`.
 - `arcade`: `ArcadeIndex` (`find(stem)` ignores ASCII case and allocates nothing, `bios_of(set)` follows `romof`), `encode`, `decode`, `read`, `split_description`, `check_set`, `wanted`, `wanted_version`, `disk_paths`.
 - `cache`: `load`, `read`, `write`, `encode`, `decode`.
 - `SystemDef::discs` (`DiscFormat`: `chd`, `cue`, `m3u`) and `SystemDef::bios` (`BiosFile`): the disc formats and the BIOS files of a system, from the keys `discs` and `bios` of `data/systems`. `has_discs`, `disc_format(extension)`.
@@ -72,7 +72,8 @@ On the state partition (ext4), for example `state/cache/library.cache`, not on t
 | Bad names | A name that is not UTF-8, or a path longer than `MAX_TEXT_BYTES` (4096 bytes), is skipped and counted. |
 | Duplicate names | Kept. Equal names sort by path, by bytes. A `.zip` and a plain ROM with the same stem in one folder are both listed; with lower-case extensions the plain ROM comes first, because every accepted extension sorts before `zip`. |
 | Read errors | A folder that cannot be read is listed in the report, and the scan goes on. Only an unreadable `share/roms/` stops the scan. |
-| Multi-disc sets | Not handled. The MVP systems are cartridge systems. |
+| Disc systems | `docs/spec/disc-games.md`, section 3. A `.bin` file is not a game, so the bin files of a cue never show. The scan reads each `.m3u` file (at most `LIST_MAX_BYTES`, 64 KiB, and `M3U_MAX_DISCS`, 64, discs) and keeps its discs as paths below `share/roms/` (`Game::discs`). A larger file or one that is not UTF-8 names no disc and is counted in `ScanReport::bad_lists`. |
+| Lists and groups | `SystemGames::new` hides every file that an m3u file of the list names, in any folder, and makes one entry of the `.chd` or `.cue` files of one folder with one group name and one extension and two disc numbers or more (`Game::is_group`, `Game::discs`). `SystemGames::hidden` holds the hidden files. As the folding, it follows the files and not the cache. An m3u file edited in place does not change the time of its folder, so a refresh keeps its old discs until the folder is read again. |
 
 ## Sort order
 
@@ -85,16 +86,16 @@ One binary file, all integers little-endian:
 | Offset | Size | Field |
 | --- | --- | --- |
 | 0 | 8 | magic `NEPTRIDX` |
-| 8 | 4 | format version (`CACHE_VERSION`, 3) |
+| 8 | 4 | format version (`CACHE_VERSION`, 4) |
 | 12 | 8 | payload length in bytes |
 | 20 | 4 | CRC-32 (IEEE) of the payload |
-| 24 | n | payload: system count, then per system its id, its game count, and per game its name, path, size (`u64`), parent set (empty for none), details, and marks (one byte: bit 0 vertical, bit 1 not working, bit 2 unknown set). The folded clones of a system are among its games. Then the folder count, and per folder its path, a trust byte (1 or 0), the seconds (`i64`) and nanoseconds (`u32`) of its time (both 0 when the byte is 0). A count is a `u32`; a string is a `u32` byte length and UTF-8 bytes. |
+| 24 | n | payload: system count, then per system its id, its game count, and per game its name, path, size (`u64`), parent set (empty for none), details, and marks (one byte: bit 0 vertical, bit 1 not working, bit 2 unknown set), and its discs (a count and the paths). The folded clones and the hidden disc files of a system are among its games; the entry of a group of discs is not. Then the folder count, and per folder its path, a trust byte (1 or 0), the seconds (`i64`) and nanoseconds (`u32`) of its time (both 0 when the byte is 0). A count is a `u32`; a string is a `u32` byte length and UTF-8 bytes. |
 
 `cache::load` deletes the file and returns `CacheLoad::Discarded` with the reason, and the caller scans again, when the file has: another magic or version, a wrong length or checksum, a payload that does not parse, more than `MAX_CACHE_BYTES` (16 MiB), a system the catalog does not have, an unknown mark bit, a game path that is empty, absolute, has an empty, `.` or `..` part, or does not start with a folder of its system, or a folder path that is not a system folder or inside one, or that does not rise strictly from the one before. A new layout gets a new version, so an older file is rebuilt.
 
 `cache::write` removes any entry at the temporary path, makes the temporary file with `create_new` (so it never follows a link), fsyncs it, renames it and fsyncs the folder.
 
-Every loop and allocation of the decoder has a bound: the system count is at most the catalog's system count, each game count at most the bytes left divided by 29 (the smallest valid game), the folder count at most the bytes left divided by 18 (the smallest valid folder), each string at most 4096 bytes and the bytes left. Each system id is looked up once. So a hostile file with a valid checksum decodes in time linear in its size.
+Every loop and allocation of the decoder has a bound: the system count is at most the catalog's system count, each game count at most the bytes left divided by 33 (the smallest valid game), each disc count at most `M3U_MAX_DISCS` (64), the folder count at most the bytes left divided by 18 (the smallest valid folder), each string at most 4096 bytes and the bytes left. Each system id is looked up once. So a hostile file with a valid checksum decodes in time linear in its size.
 
 A No-Intro game takes about 150 bytes, so 16 MiB holds about 110,000 games and decodes to about 30 MiB. A crafted 16 MiB file of the smallest valid games gives about 580,000 entries, less than 160 MiB for a short time at start, which fits a device with 512 MB. A larger library gets no cache and is scanned at each start.
 
@@ -122,7 +123,6 @@ A No-Intro game takes about 150 bytes, so 16 MiB holds about 110,000 games and d
 - `.7z` archives are not game files. When NEPTRON reads them, add `7z` to `data/systems`.
 - Sort order: no article rule, no locale collation, no natural number order. To change it, change `compare_names` and raise the cache version, because the stored order changes.
 - Symbolic links: to follow folder links, add loop detection by device and inode.
-- Multi-disc sets (`.m3u`, `.cue`): not handled, because no MVP system needs them.
 
 ## Tests
 

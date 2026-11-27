@@ -249,3 +249,131 @@ fn the_stem_has_no_folder_and_no_extension() {
     assert_eq!(Game::new("n".into(), "snes/a/b.c.sfc".into()).stem(), "b.c");
     assert_eq!(Game::new("n".into(), "snes/noext".into()).stem(), "noext");
 }
+
+fn disc(path: &str) -> Game {
+    let file = path.rsplit('/').next().unwrap();
+    let stem = file.rsplit_once('.').map_or(file, |(s, _)| s);
+    Game::new(stem.to_owned(), path.to_owned())
+}
+
+fn arranged(games: Vec<Game>) -> SystemGames {
+    SystemGames::new("psx".into(), games)
+}
+
+fn hidden_paths(list: &SystemGames) -> Vec<&str> {
+    list.hidden().iter().map(Game::path).collect()
+}
+
+#[test]
+fn files_with_a_disc_tag_make_one_entry_in_disc_order() {
+    let list = arranged(vec![
+        disc("psx/Saga (USA) (Disc 2).chd"),
+        disc("psx/Saga (USA) (Disc 1).chd"),
+        disc("psx/Saga (USA) (Disc 3 of 3).chd"),
+        disc("psx/Other.chd"),
+    ]);
+    assert_eq!(names(&list), ["Other", "Saga (USA)"]);
+    let saga = &list.games()[1];
+    assert!(saga.is_group());
+    assert_eq!(saga.path(), "psx/Saga (USA) (Disc 1).chd");
+    assert_eq!(
+        saga.discs(),
+        [
+            "psx/Saga (USA) (Disc 1).chd",
+            "psx/Saga (USA) (Disc 2).chd",
+            "psx/Saga (USA) (Disc 3 of 3).chd"
+        ]
+    );
+    assert_eq!(list.hidden().len(), 3);
+    assert_eq!(list.all().count(), 4, "the files, not the entry");
+}
+
+#[test]
+fn a_group_needs_one_folder_one_name_one_format_and_two_numbers() {
+    let list = arranged(vec![
+        disc("psx/Lone (Disc 1).chd"),
+        disc("psx/Mixed (Disc 1).cue"),
+        disc("psx/Mixed (Disc 2).chd"),
+        disc("psx/a/Split (Disc 1).chd"),
+        disc("psx/b/Split (Disc 2).chd"),
+        disc("psx/Game (Disc 1).nes"),
+        disc("psx/Game (Disc 2).nes"),
+    ]);
+    assert!(list.hidden().is_empty());
+    assert_eq!(list.len(), 7);
+    assert!(list.games().iter().all(|g| !g.is_group()));
+}
+
+#[test]
+fn a_repeated_number_leaves_the_later_path_on_its_own_and_gaps_are_kept() {
+    let list = arranged(vec![
+        disc("psx/Q (Disc 1).chd"),
+        disc("psx/Q (Disc 1 of 3).chd"),
+        disc("psx/Q (Disc 3).chd"),
+        disc("psx/Q (disc 3).CHD"),
+    ]);
+    // " of 3" sorts before ")" in bytes.
+    assert_eq!(names(&list), ["Q", "Q (Disc 1)", "Q (disc 3)"]);
+    let q = list.games().iter().find(|g| g.is_group()).unwrap();
+    assert_eq!(q.discs(), ["psx/Q (Disc 1 of 3).chd", "psx/Q (Disc 3).chd"]);
+}
+
+#[test]
+fn an_m3u_hides_the_files_it_names_in_any_folder() {
+    let list = arranged(vec![
+        disc("psx/Epic.m3u").with_discs(vec![
+            "psx/discs/Epic (Disc 1).cue".into(),
+            "psx/discs/Epic (Disc 2).cue".into(),
+            "psx/gone.chd".into(),
+        ]),
+        disc("psx/Twin.m3u").with_discs(vec!["psx/discs/Epic (Disc 2).cue".into()]),
+        disc("psx/discs/Epic (Disc 1).cue"),
+        disc("psx/discs/Epic (Disc 2).cue"),
+        disc("psx/discs/Epic (Disc 3).cue"),
+        disc("psx/Self.m3u").with_discs(vec!["psx/Self.m3u".into()]),
+    ]);
+    assert_eq!(names(&list), ["Epic", "Epic (Disc 3)", "Self", "Twin"]);
+    assert_eq!(
+        hidden_paths(&list),
+        ["psx/discs/Epic (Disc 1).cue", "psx/discs/Epic (Disc 2).cue"]
+    );
+}
+
+#[test]
+fn a_group_is_made_again_from_its_files_when_lists_merge() {
+    let first = arranged(vec![disc("psx/S (Disc 1).chd")]);
+    let second = arranged(vec![disc("psx/S (Disc 2).chd")]);
+    let index = Index::from_systems(vec![first, second]);
+    let list = index.system("psx").unwrap();
+    assert_eq!(names(list), ["S"]);
+    let again = Index::from_systems(vec![list.clone(), arranged(vec![disc("psx/T.chd")])]);
+    let list = again.system("psx").unwrap();
+    assert_eq!(names(list), ["S", "T"]);
+    assert_eq!(list.games()[0].discs().len(), 2);
+}
+
+#[test]
+fn an_m3u_line_names_a_file_in_any_case() {
+    let list = arranged(vec![
+        disc("psx/Epic.m3u").with_discs(vec!["psx/DISCS/epic (disc 1).CUE".into()]),
+        disc("psx/discs/Epic (Disc 1).cue"),
+        disc("psx/discs/EPIC (DISC 1).cue"),
+    ]);
+    assert_eq!(names(&list), ["Epic"]);
+    assert_eq!(
+        list.hidden().len(),
+        2,
+        "on ext4 both files of one name in two cases"
+    );
+}
+
+#[test]
+fn a_line_that_names_a_list_hides_nothing() {
+    let list = arranged(vec![
+        disc("psx/A.m3u").with_discs(vec!["psx/B.m3u".into()]),
+        disc("psx/B.m3u").with_discs(vec!["psx/a.M3U".into()]),
+        disc("psx/Self.m3u").with_discs(vec!["psx/Self.m3u".into()]),
+    ]);
+    assert_eq!(names(&list), ["A", "B", "Self"]);
+    assert!(list.hidden().is_empty());
+}

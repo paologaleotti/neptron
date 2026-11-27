@@ -901,3 +901,129 @@ fn a_refresh_keeps_the_folded_clones() {
     assert_eq!(list.len(), 1);
     assert_eq!(list.versions("starpat").len(), 1);
 }
+
+/// A catalog with the disc system `psx` and its core.
+fn disc_catalog() -> Catalog {
+    let system = "format = 1\nfolder = \"psx\"\naliases = []\nname = \"Disc\"\nextensions = [\"chd\", \"cue\", \"m3u\"]\ndiscs = [\"chd\", \"cue\", \"m3u\"]\n";
+    let core = "format = 1\nid = \"disc\"\nname = \"Disc\"\nlibrary = \"disc.so\"\nsystems = [\"psx\"]\nlicence = \"MIT\"\n";
+    Catalog::from_sources(
+        &[crate::catalog::Source {
+            name: "psx",
+            text: system,
+        }],
+        &[crate::catalog::Source {
+            name: "disc",
+            text: core,
+        }],
+    )
+    .expect("the disc catalog")
+}
+
+fn disc_refresh(root: &Path, previous: &Index, now: SystemTime) -> ScanOutcome {
+    refresh(
+        root,
+        &disc_catalog(),
+        &[],
+        previous,
+        now,
+        &AtomicBool::new(false),
+        &mut |_| {},
+    )
+    .expect("the scan")
+}
+
+#[test]
+fn a_disc_system_lists_one_entry_for_each_game() {
+    let dir = TestDir::new("discs");
+    for file in [
+        "psx/Alpha.cue",
+        "psx/Alpha (Track 1).bin",
+        "psx/Alpha (Track 2).bin",
+        "psx/Beta (USA) (Disc 1).chd",
+        "psx/Beta (USA) (Disc 2).chd",
+        "psx/.hidden/Gamma (Disc 1).chd",
+        "psx/.hidden/Gamma (Disc 2).chd",
+        "psx/sub/Delta (Disc 1).cue",
+        "psx/Game.iso",
+    ] {
+        dir.file(file);
+    }
+    write(
+        &dir,
+        "psx/Gamma.m3u",
+        b"#EXTM3U\n.hidden/Gamma (Disc 1).chd\n.hidden/Gamma (Disc 2).chd\n",
+    );
+    write(
+        &dir,
+        "psx/Delta.m3u",
+        b"sub/Delta (Disc 1).cue\r\n../x.cue\n",
+    );
+    let outcome = scan(
+        dir.path(),
+        &disc_catalog(),
+        &[],
+        &AtomicBool::new(false),
+        &mut |_| {},
+    )
+    .expect("the scan");
+    let index = &outcome.index;
+    assert_eq!(
+        names(index, "psx"),
+        ["Alpha", "Beta (USA)", "Delta", "Gamma"]
+    );
+    let list = index.system("psx").unwrap();
+    assert_eq!(
+        list.games()[3].discs(),
+        [
+            "psx/.hidden/Gamma (Disc 1).chd",
+            "psx/.hidden/Gamma (Disc 2).chd"
+        ]
+    );
+    assert_eq!(list.games()[2].discs(), ["psx/sub/Delta (Disc 1).cue"]);
+    assert_eq!(outcome.report.ignored_files, 3, "two bin files and the iso");
+    assert_eq!(outcome.report.bad_lists, 0);
+}
+
+#[test]
+fn a_list_that_is_too_large_or_not_text_names_no_disc() {
+    let dir = TestDir::new("bad-lists");
+    dir.file("psx/a (Disc 1).chd");
+    dir.file("psx/a (Disc 2).chd");
+    let mut large = b"a (Disc 1).chd\n".to_vec();
+    large.resize(LIST_MAX_BYTES + 1, b'#');
+    write(&dir, "psx/Large.m3u", &large);
+    write(&dir, "psx/Binary.m3u", b"a (Disc 2).chd\n\xff\n");
+    write(&dir, "psx/Fits.m3u", &large[..LIST_MAX_BYTES]);
+    let outcome = disc_refresh(dir.path(), &Index::new(), t(3600));
+    assert_eq!(outcome.report.bad_lists, 2);
+    // Only `Fits` names a disc; `a (Disc 2)` then has no group and shows.
+    assert_eq!(
+        names(&outcome.index, "psx"),
+        ["a (Disc 2)", "Binary", "Fits", "Large"]
+    );
+    let list = outcome.index.system("psx").unwrap();
+    assert_eq!(list.games()[2].discs(), ["psx/a (Disc 1).chd"]);
+    assert_eq!(list.hidden().len(), 1);
+}
+
+#[test]
+fn a_kept_folder_keeps_its_hidden_discs() {
+    let dir = TestDir::new("disc-refresh");
+    dir.file("psx/d/Z (Disc 1).chd");
+    dir.file("psx/d/Z (Disc 2).chd");
+    write(&dir, "psx/Z.m3u", b"d/Z (Disc 1).chd\nd/Z (Disc 2).chd\n");
+    for folder in ["psx/d", "psx"] {
+        set_mtime(&dir, folder, t(0));
+    }
+    let first = disc_refresh(dir.path(), &Index::new(), t(3600));
+    assert_eq!(names(&first.index, "psx"), ["Z"]);
+    fs::remove_file(dir.path().join("psx/Z.m3u")).unwrap();
+    set_mtime(&dir, "psx", t(10));
+    let second = disc_refresh(dir.path(), &first.index, t(7200));
+    assert_eq!(
+        names(&second.index, "psx"),
+        ["Z"],
+        "the files group by name now"
+    );
+    assert!(second.index.system("psx").unwrap().games()[0].is_group());
+}

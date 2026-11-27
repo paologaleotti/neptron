@@ -1,11 +1,11 @@
 //! The ROM scan: reads directory entries under `share/roms/` and builds an [`Index`].
 //!
-//! The scan reads directory entries and their types only. It never opens,
-//! changes or deletes a file.
+//! The scan reads directory entries and their types, and the text of the
+//! m3u files of a disc system. It never changes or deletes a file.
 
 use std::collections::HashMap;
 use std::fs;
-use std::io;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,6 +13,7 @@ use std::time::SystemTime;
 
 use crate::arcade::ArcadeIndex;
 use crate::catalog::Catalog;
+use crate::disc::{DiscFormat, LIST_MAX_BYTES, m3u_disc_path, m3u_lines};
 use crate::folders::{FolderStamp, Mtime, parent, trusted};
 use crate::index::{Game, Index, MAX_TEXT_BYTES, Marks, SystemGames};
 
@@ -62,6 +63,9 @@ pub struct ScanReport {
     pub unreadable: Vec<Unreadable>,
     /// Errors that did not fit in `unreadable`.
     pub more_unreadable: u32,
+    /// m3u files that are larger than [`LIST_MAX_BYTES`] or not UTF-8.
+    /// They are games with no discs.
+    pub bad_lists: u32,
 }
 
 /// A folder or entry that the scan could not read.
@@ -444,10 +448,16 @@ impl Scanner<'_> {
                     .get(system)
                     .is_some_and(|s| s.accepts_extension(ext))
         });
-        let Some((stem, _)) = accepted else {
+        let Some((stem, extension)) = accepted else {
             bump(&mut self.report.ignored_files);
             return;
         };
+        let is_list = self
+            .catalog
+            .systems()
+            .get(system)
+            .and_then(|s| s.disc_format(extension))
+            == Some(DiscFormat::M3u);
         let Some(game) = self.game_of(system, stem, relative) else {
             bump(&mut self.report.bios_sets);
             return;
@@ -462,10 +472,43 @@ impl Scanner<'_> {
                 return;
             }
         };
+        let game = if is_list {
+            let discs = self.read_list(&entry.path(), game.path());
+            game.with_discs(discs)
+        } else {
+            game
+        };
         if let Some(list) = self.games.get_mut(system) {
             list.push(game.with_size(size));
             bump(&mut self.counts.games);
         }
+    }
+
+    /// The discs of the m3u file at `path` (`relative` below
+    /// `share/roms/`), as paths below `share/roms/`. A line that leaves the
+    /// folder gives no path. A file that is too large or not UTF-8 gives no
+    /// discs and is counted; one that cannot be read is reported.
+    fn read_list(&mut self, path: &Path, relative: &str) -> Vec<String> {
+        let mut bytes = Vec::new();
+        let read = fs::File::open(path)
+            .and_then(|file| file.take(LIST_MAX_BYTES as u64 + 1).read_to_end(&mut bytes));
+        if let Err(e) = read {
+            if e.kind() != io::ErrorKind::NotFound {
+                self.unreadable(path, &e);
+            }
+            return Vec::new();
+        }
+        let text = match std::str::from_utf8(&bytes) {
+            Ok(text) if bytes.len() <= LIST_MAX_BYTES => text,
+            _ => {
+                bump(&mut self.report.bad_lists);
+                return Vec::new();
+            }
+        };
+        m3u_lines(text)
+            .into_iter()
+            .filter_map(|line| m3u_disc_path(relative, line))
+            .collect()
     }
 
     /// The game of a file with an accepted extension, or `None` for a BIOS

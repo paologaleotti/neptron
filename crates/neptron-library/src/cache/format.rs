@@ -8,24 +8,27 @@
 //! | 20 | 4 | CRC-32 of the payload |
 //! | 24 | n | payload |
 //!
-//! Payload of version 3: a `u32` system count, then for each system its id
+//! Payload of version 4: a `u32` system count, then for each system its id
 //! (a string) and a `u32` game count, then for each game its name and its
 //! path (two strings), its size (`u64`), its parent set (a string, empty
-//! for none), its details (a string) and its marks (one byte: bit 0
-//! vertical, bit 1 not working, bit 2 unknown set; the other bits 0). The
-//! folded clones of a system are among its games. Then a `u32` folder count, and
+//! for none), its details (a string), its marks (one byte: bit 0
+//! vertical, bit 1 not working, bit 2 unknown set; the other bits 0), and
+//! its discs (a `u32` count, at most [`M3U_MAX_DISCS`], and the paths as
+//! strings). The folded clones and the hidden disc files of a system are
+//! among its games; the entry of a group of discs is not. Then a `u32` folder count, and
 //! for each folder its path (a string), a trust byte (1: the time is
 //! trusted, 0: it is not and the time fields are 0), the seconds (`i64`)
 //! and the nanoseconds (`u32`) of its time. The folders are sorted by path,
 //! each path once. A string is a `u32` byte length and UTF-8 bytes.
 //!
 //! Version 1 had no sizes and no folders; version 2 had no parent, details
-//! and marks. A file of an older version is discarded and the scan writes
-//! version 3.
+//! and marks; version 3 had no discs. A file of an older version is
+//! discarded and the scan writes version 4.
 
 use super::CacheError;
 use super::crc32::crc32;
 use crate::catalog::{Catalog, SystemDef};
+use crate::disc::M3U_MAX_DISCS;
 use crate::folders::{FolderStamp, Mtime};
 use crate::index::{Game, Index, MAX_TEXT_BYTES, Marks, SystemGames};
 
@@ -33,14 +36,15 @@ use crate::index::{Game, Index, MAX_TEXT_BYTES, Marks, SystemGames};
 pub const MAGIC: [u8; 8] = *b"NEPTRIDX";
 
 /// The format version that this crate writes and reads.
-pub const CACHE_VERSION: u32 = 3;
+pub const CACHE_VERSION: u32 = 4;
 
 /// The size of the header in bytes.
 pub const HEADER_BYTES: usize = 24;
 
 /// The bytes of the smallest valid game: two length fields, a 1-byte name,
-/// a 3-byte path such as `s/n`, the size, two empty strings and the marks.
-const MIN_GAME_BYTES: usize = 4 + 1 + 4 + 3 + 8 + 4 + 4 + 1;
+/// a 3-byte path such as `s/n`, the size, two empty strings, the marks and
+/// a disc count of 0.
+const MIN_GAME_BYTES: usize = 4 + 1 + 4 + 3 + 8 + 4 + 4 + 1 + 4;
 
 const MARK_VERTICAL: u8 = 1;
 const MARK_NOT_WORKING: u8 = 1 << 1;
@@ -67,6 +71,10 @@ pub(super) fn encode(index: &Index) -> Vec<u8> {
             put_str(&mut payload, game.parent().unwrap_or_default());
             put_str(&mut payload, game.details());
             payload.push(marks_byte(game.marks()));
+            put_count(&mut payload, game.discs().len());
+            for disc in game.discs() {
+                put_str(&mut payload, disc);
+            }
         }
     }
     put_count(&mut payload, index.folders().len());
@@ -137,12 +145,25 @@ pub(super) fn decode(bytes: &[u8], catalog: &Catalog) -> Result<Index, CacheErro
             if marks & !MARKS_KNOWN != 0 {
                 return Err(r.malformed("game marks"));
             }
+            let disc_count = r.u32("disc count")? as usize;
+            if disc_count > M3U_MAX_DISCS {
+                return Err(r.malformed("disc count"));
+            }
+            let mut discs = Vec::with_capacity(disc_count);
+            for _ in 0..disc_count {
+                let disc = r.string("disc path")?;
+                if !path_is_inside(&disc, system) {
+                    return Err(r.malformed("disc path"));
+                }
+                discs.push(disc);
+            }
             games.push(
                 Game::new(name, path)
                     .with_size(size)
                     .with_parent((!parent.is_empty()).then_some(parent))
                     .with_details(details)
-                    .with_marks(marks_of(marks)),
+                    .with_marks(marks_of(marks))
+                    .with_discs(discs),
             );
         }
         systems.push(SystemGames::new(id, games));

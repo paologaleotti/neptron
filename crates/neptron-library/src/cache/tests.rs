@@ -1,5 +1,6 @@
 use super::format::encode as encode_raw;
 use super::*;
+use crate::disc::M3U_MAX_DISCS;
 use crate::folders::{FolderStamp, Mtime};
 use crate::index::{Game, MAX_TEXT_BYTES, Marks, SystemGames};
 use crate::test_dir::TestDir;
@@ -117,7 +118,7 @@ fn round_trip_keeps_the_index() {
 fn header_has_the_documented_layout() {
     let bytes = encode(&sample());
     assert_eq!(&bytes[..8], b"NEPTRIDX");
-    assert_eq!(bytes[8..12], 3u32.to_le_bytes());
+    assert_eq!(bytes[8..12], 4u32.to_le_bytes());
     assert_eq!(
         bytes[12..20],
         ((bytes.len() - HEADER_BYTES) as u64).to_le_bytes()
@@ -153,13 +154,13 @@ fn every_single_bit_flip_is_rejected() {
 #[test]
 fn version_mismatch_is_rejected() {
     let mut bytes = encode(&sample());
-    bytes[8..12].copy_from_slice(&2u32.to_le_bytes());
+    bytes[8..12].copy_from_slice(&3u32.to_le_bytes());
     let err = decode(&bytes).expect_err("another version");
     assert!(matches!(
         err,
         CacheError::Version {
-            found: 2,
-            expected: 3
+            found: 3,
+            expected: 4
         }
     ));
 }
@@ -235,7 +236,7 @@ fn the_arcade_fields_and_the_folding_survive_the_cache() {
 #[test]
 fn an_unknown_mark_bit_is_rejected() {
     let mut payload = one_game("nes", "a", "nes/a.nes");
-    let marks_at = payload.len() - 4 - 1;
+    let marks_at = payload.len() - 4 - 4 - 1;
     for bit in 3..8 {
         payload[marks_at] = 1 << bit;
         let err = decode(&with_payload(&payload)).expect_err("an unknown bit");
@@ -363,6 +364,7 @@ fn one_game(system: &str, name: &str, path: &str) -> Vec<u8> {
     put(&mut p, "");
     p.push(0);
     p.extend_from_slice(&0u32.to_le_bytes());
+    p.extend_from_slice(&0u32.to_le_bytes());
     p
 }
 
@@ -422,7 +424,7 @@ fn a_game_smaller_than_the_smallest_valid_game_is_refused_by_the_count() {
     p.extend_from_slice(&3u32.to_le_bytes());
     p.extend_from_slice(b"nes");
     p.extend_from_slice(&1u32.to_le_bytes());
-    p.extend_from_slice(&[0; 28]);
+    p.extend_from_slice(&[0; 32]);
     let err = decode(&with_payload(&p)).expect_err("too short");
     assert!(
         matches!(
@@ -675,4 +677,68 @@ fn ten_thousand_games_round_trip() {
         bytes.len()
     );
     assert_eq!(decoded, index);
+}
+
+fn disc_game(discs: &[&str]) -> Vec<u8> {
+    let mut p = one_game("nes", "a", "nes/a.nes");
+    // The game ends with its marks, its disc count and the folder count.
+    p.truncate(p.len() - 8);
+    p.extend_from_slice(&(discs.len() as u32).to_le_bytes());
+    for disc in discs {
+        p.extend_from_slice(&(disc.len() as u32).to_le_bytes());
+        p.extend_from_slice(disc.as_bytes());
+    }
+    p.extend_from_slice(&0u32.to_le_bytes());
+    p
+}
+
+#[test]
+fn the_discs_of_a_list_survive_the_cache_and_the_groups_are_made_again() {
+    let games = vec![
+        Game::new("Quest".into(), "nes/Quest.m3u".into()).with_discs(vec![
+            "nes/q/Quest (Disc 1).chd".into(),
+            "nes/q/b.cue".into(),
+        ]),
+        Game::new("Quest (Disc 1)".into(), "nes/q/Quest (Disc 1).chd".into()),
+        Game::new("Saga (Disc 1)".into(), "nes/Saga (Disc 1).cue".into()),
+        Game::new("Saga (Disc 2)".into(), "nes/Saga (Disc 2).cue".into()),
+    ];
+    let index = Index::from_systems(vec![SystemGames::new("nes".into(), games)]);
+    let decoded = decode(&encode(&index)).expect("a valid cache");
+    assert_eq!(decoded, index);
+    let nes = decoded.system("nes").unwrap();
+    let names: Vec<&str> = nes.games().iter().map(Game::name).collect();
+    assert_eq!(names, ["Quest", "Saga"]);
+    assert_eq!(nes.hidden().len(), 3);
+    assert_eq!(nes.all().count(), 4, "the group entry is no file");
+}
+
+#[test]
+fn a_bad_disc_count_or_path_is_rejected() {
+    assert!(decode(&with_payload(&disc_game(&["nes/x/y.chd"]))).is_ok());
+    for path in ["", "/nes/a.chd", "nes/../a.chd", "snes/a.chd", "nes"] {
+        let err = decode(&with_payload(&disc_game(&[path]))).expect_err(path);
+        assert!(
+            matches!(
+                err,
+                CacheError::Malformed {
+                    what: "disc path",
+                    ..
+                }
+            ),
+            "{path}: {err}"
+        );
+    }
+    let many = vec!["nes/a.chd"; M3U_MAX_DISCS + 1];
+    let err = decode(&with_payload(&disc_game(&many))).expect_err("too many discs");
+    assert!(
+        matches!(
+            err,
+            CacheError::Malformed {
+                what: "disc count",
+                ..
+            }
+        ),
+        "{err}"
+    );
 }
