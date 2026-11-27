@@ -877,7 +877,7 @@ name = "Disc games: CHD and cue files, lists of several discs, a BIOS check with
 owns = ["crates/neptron-library", "crates/neptron-session", "crates/neptron-libretro", "apps/neptron"]
 needs = []
 gate = "T2"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "S05"
@@ -927,7 +927,7 @@ status = "pending"
 [[task]]
 id = "S10"
 wave = 16
-name = "PlayStation: the core and its licence check, the system in the library and the images, the picture cases; from S02: an `internal_resolution` table in the `data/cores` file of each GL core, a writable temp directory for the heartbeat socket of the launcher in the images, and a rule in xtask that holds the names NEPTRON_HEARTBEAT and NEPTRON_HUNG equal in the launcher and the app"
+name = "PlayStation: the core and its licence check, the system in the library and the images, the picture cases; from S02: an `internal_resolution` table in the `data/cores` file of each GL core, a writable temp directory for the heartbeat socket of the launcher in the images, and a rule in xtask that holds the names NEPTRON_HEARTBEAT and NEPTRON_HUNG equal in the launcher and the app; from S04 (section 12 of `docs/spec/disc-games.md`): the psx system file with the real BIOS sizes and checksums, how the core keeps its memory card and the core options for it, other files the core needs in its system folder, the real frame count of an open tray, discs added after the load, 50 Hz for a PAL disc and the BIOS region the core picks"
 owns = ["os", "crates/neptron-library", "apps/neptron", "docs/spec"]
 needs = ["S02", "S03", "S04", "S05", "S07"]
 gate = "T2; core-trace; image builds"
