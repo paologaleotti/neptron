@@ -21,6 +21,7 @@
 use std::io;
 use std::path::Path;
 
+use neptron_library::disc::save_name;
 use neptron_library::{Catalog, SystemDef};
 
 use crate::relaunch::GameRef;
@@ -148,7 +149,18 @@ pub fn top_level_game(roms: &Path, system: &SystemDef, stem: &str) -> io::Result
 /// unknown system or a folder that cannot be read adopts nothing, and the
 /// reason goes to `issues`.
 pub fn find(roms: &Path, catalog: &Catalog, game: &GameRef, issues: &mut Vec<String>) -> GameFiles {
-    let files = GameFiles::of(game);
+    let mut files = GameFiles::of(game);
+    if catalog
+        .system(&game.system)
+        .is_some_and(SystemDef::has_discs)
+    {
+        // Every disc of a game shares one save and one settings file
+        // (`docs/spec/disc-games.md`, section 8).
+        let name = save_name(&files.stem);
+        if !name.is_empty() {
+            files.stem = name;
+        }
+    }
     if files.folders.is_empty() {
         return files;
     }
@@ -296,5 +308,46 @@ mod tests {
         );
         assert!(!files.adopt_flat);
         assert_eq!(issues.len(), 1, "{issues:?}");
+    }
+
+    #[test]
+    fn every_disc_of_a_game_shares_one_save_and_settings_name() {
+        let catalog = crate::test_disc::catalog();
+        let dir = crate::test_disc::Dir::new("game-files-discs");
+        let disc = |path: &str| GameRef {
+            system: "testdisc".to_owned(),
+            path: path.to_owned(),
+        };
+        let mut issues = Vec::new();
+        let files = find(
+            &dir.0,
+            &catalog,
+            &disc("testdisc/rpg/Saga (USA) (Disc 2).cue"),
+            &mut issues,
+        );
+        assert_eq!(files.key(), "rpg/Saga (USA)");
+        let files = find(
+            &dir.0,
+            &catalog,
+            &disc("testdisc/Saga (USA).m3u"),
+            &mut issues,
+        );
+        assert_eq!(files.key(), "Saga (USA)");
+        let files = find(
+            &dir.0,
+            &catalog,
+            &disc("testdisc/(Disc 1).chd"),
+            &mut issues,
+        );
+        assert_eq!(files.key(), "(Disc 1)", "an empty name keeps the stem");
+        let snes = Catalog::builtin().unwrap();
+        let cart = GameRef {
+            system: "snes".to_owned(),
+            path: "snes/Game (Disc 1).sfc".to_owned(),
+        };
+        assert_eq!(
+            find(&dir.0, &snes, &cart, &mut issues).key(),
+            "Game (Disc 1)"
+        );
     }
 }

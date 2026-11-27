@@ -94,6 +94,7 @@ pub fn run(
         power: false,
         // The window has no watchdog: a hung game closes with its window.
         pulse: neptron::heartbeat::Pulse::default(),
+        catalog: None,
     };
     let devices = Devices {
         display,

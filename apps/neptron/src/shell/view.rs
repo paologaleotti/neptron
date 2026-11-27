@@ -194,7 +194,29 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             ),
             AUDIO_PAGE => pages::audio_page(&self.config, names),
             INPUT_PAGE => pages::input_page(&self.config, names, &self.roster()),
-            QUICK_MENU_PAGE => pages::quick_menu_page(&self.config, names),
+            QUICK_MENU_PAGE => {
+                let discs = match &mut self.stage {
+                    Stage::Game(game) => game.session.discs(),
+                    Stage::List(_) | Stage::Ended => None,
+                };
+                pages::quick_menu_page(&self.config, names, discs)
+            }
+            pages::BIOS_PAGE => {
+                if let Err(e) = self.library.request_bios() {
+                    self.log(e);
+                }
+                self.bios_seen = self.library.bios_changes();
+                pages::bios_page(self.library.bios())
+            }
+            pages::DISC_PAGE => match &mut self.stage {
+                Stage::Game(game) => match game.session.discs() {
+                    Some(discs) => pages::disc_page(discs, &game.disc_numbers),
+                    None => SettingsPage::new(pages::DISC_PAGE, pages::DISC_LABEL, Vec::new()),
+                },
+                Stage::List(_) | Stage::Ended => {
+                    SettingsPage::new(pages::DISC_PAGE, pages::DISC_LABEL, Vec::new())
+                }
+            },
             VIDEO_PAGE => pages::video_page(&self.config, names),
             other => match crate::pad_page::port_of_page(other) {
                 Some(port) => self.pad_page(other, port),

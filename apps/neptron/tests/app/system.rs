@@ -2,8 +2,9 @@
 //! outcome that the launcher turns into a reboot or a power-off.
 
 use neptron::pages::{
-    FORMAT_NEXT_RESTART, FORMAT_NEXT_RESTART_NOTICE, FORMAT_NOT_SAVED, FORMAT_NOT_SAVED_NOTICE,
-    FORMAT_SHARE_LABEL, POWER_IN_GAME, POWER_NO_LAUNCHER, REBOOT_LABEL, SHUT_DOWN_LABEL,
+    BIOS_FILES_LABEL, FORMAT_NEXT_RESTART, FORMAT_NEXT_RESTART_NOTICE, FORMAT_NOT_SAVED,
+    FORMAT_NOT_SAVED_NOTICE, FORMAT_SHARE_LABEL, POWER_IN_GAME, POWER_NO_LAUNCHER, REBOOT_LABEL,
+    SHUT_DOWN_LABEL,
 };
 use neptron::power::{POWER_OFF_EXIT_CODE, PowerRequest, REBOOT_EXIT_CODE, exit_code};
 use neptron::{NextRun, Outcome};
@@ -517,7 +518,12 @@ fn an_offer_shows_the_format_row_and_its_notice_says_where() {
             open_system(&mut rig);
             assert_eq!(
                 labels(&mut rig),
-                [REBOOT_LABEL, SHUT_DOWN_LABEL, FORMAT_SHARE_LABEL]
+                [
+                    BIOS_FILES_LABEL,
+                    REBOOT_LABEL,
+                    SHUT_DOWN_LABEL,
+                    FORMAT_SHARE_LABEL
+                ]
             );
             rig.focus(FORMAT_SHARE_LABEL);
             rig.tap(&[Control::A]);
@@ -548,7 +554,10 @@ fn with_no_offer_the_format_row_is_absent() {
             rig.frames(2);
             dismiss_notices(&mut rig);
             open_system(&mut rig);
-            assert_eq!(labels(&mut rig), [REBOOT_LABEL, SHUT_DOWN_LABEL]);
+            assert_eq!(
+                labels(&mut rig),
+                [BIOS_FILES_LABEL, REBOOT_LABEL, SHUT_DOWN_LABEL]
+            );
             // A request that reaches the app anyway does nothing: the
             // frames panic when the run ends.
             rig.shell().request_share_format();

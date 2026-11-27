@@ -139,6 +139,8 @@ pub struct Rig {
     /// The game frames that the heartbeat thread would read, shared with
     /// the runtime of each run.
     pub pulse: neptron::heartbeat::Pulse,
+    /// The systems and cores of each run; `None` for the built-in ones.
+    pub catalog: Option<neptron_library::Catalog>,
 }
 
 /// Runs `body` in a child process of the test binary with the test core's
@@ -252,7 +254,7 @@ pub fn test_name(module: &str, function: &str) -> String {
 }
 
 /// The built test core, next to the test binary.
-fn core_path() -> PathBuf {
+pub fn core_path() -> PathBuf {
     let exe = std::env::current_exe().expect("the test binary");
     let deps = exe.parent().expect("the deps folder");
     let name = if cfg!(target_os = "macos") {
@@ -305,6 +307,7 @@ impl Rig {
             stop: Arc::new(AtomicBool::new(false)),
             power: true,
             pulse: neptron::heartbeat::Pulse::default(),
+            catalog: None,
         }
     }
 
@@ -337,6 +340,7 @@ impl Rig {
             audio_outputs: audio_outputs(),
             power: self.power,
             pulse: self.pulse.clone(),
+            catalog: self.catalog.clone(),
         };
         let rule = match next.as_ref().and_then(|n| n.game.as_ref()) {
             Some(_) => PortRule::Game,

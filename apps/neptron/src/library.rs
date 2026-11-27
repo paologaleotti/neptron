@@ -10,6 +10,7 @@ use std::thread::{self, JoinHandle};
 use std::time::SystemTime;
 
 use neptron_library::arcade::{self, ArcadeIndex, Verdict};
+use neptron_library::bios::BiosSurvey;
 use neptron_library::cache::{self, CacheError, CacheLoad};
 use neptron_library::{Catalog, Changes, CoreDef, Game, Index, SystemDef, changes, refresh};
 use neptron_ui::snapshot::{
@@ -37,6 +38,35 @@ pub struct Library {
     arcade_file: PathBuf,
     arcade: ArcadeState,
     check: Option<Checking>,
+    /// `share/bios`, which each scan surveys after the games; empty for no
+    /// survey.
+    bios_folder: PathBuf,
+    /// The BIOS files of the last survey: of a scan, or of the survey that
+    /// the BIOS files page asked for. `None` before the first one.
+    bios: Option<BiosSurvey>,
+    /// The surveys that replaced `bios`, so the page knows a new one.
+    bios_changes: u64,
+    /// The survey that the page asked for, on its own thread.
+    surveying: Option<Surveying>,
+}
+
+/// A survey of `share/bios` on the thread `neptron-bios` that the library
+/// owns. Drop cancels it and joins the thread.
+#[derive(Debug)]
+struct Surveying {
+    cancel: Arc<AtomicBool>,
+    thread: Option<JoinHandle<BiosSurvey>>,
+}
+
+impl Drop for Surveying {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Relaxed);
+        if let Some(thread) = self.thread.take() {
+            // The owner gave up the result, so a lost survey needs no
+            // report here.
+            let _ = thread.join();
+        }
+    }
 }
 
 /// What [`Library::start_check`] did.
@@ -134,6 +164,7 @@ struct Prepared {
     ids: GameIds,
     changes: Changes,
     arcade: ArcadeState,
+    bios: Option<BiosSurvey>,
 }
 
 /// The game ids of the index. An id comes from the system and the path of
@@ -206,7 +237,80 @@ impl Library {
             arcade_file: PathBuf::new(),
             arcade: ArcadeState::Unread,
             check: None,
+            bios_folder: PathBuf::new(),
+            bios: None,
+            bios_changes: 0,
+            surveying: None,
         }
+    }
+
+    /// Makes each later scan survey `folder` (`share/bios`) for the BIOS
+    /// files of the catalog, on the scan thread.
+    pub fn set_bios_folder(&mut self, folder: PathBuf) {
+        self.bios_folder = folder;
+    }
+
+    /// Starts a survey of the BIOS folder on its own thread, for the BIOS
+    /// files page, when no survey is held and none runs: the scan of the
+    /// game list surveys after the games, and a game run has no scan.
+    ///
+    /// # Errors
+    ///
+    /// The text of the error when the thread cannot start.
+    pub fn request_bios(&mut self) -> Result<(), String> {
+        if self.bios.is_some()
+            || self.surveying.is_some()
+            || self.scan.is_some()
+            || self.bios_folder.as_os_str().is_empty()
+        {
+            return Ok(());
+        }
+        let catalog = self.catalog.clone();
+        let folder = self.bios_folder.clone();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let theirs = Arc::clone(&cancel);
+        let thread = thread::Builder::new()
+            .name("neptron-bios".into())
+            .spawn(move || neptron_library::bios::survey(&folder, &catalog, &theirs))
+            .map_err(|e| format!("cannot start the BIOS survey thread: {e}"))?;
+        self.surveying = Some(Surveying {
+            cancel,
+            thread: Some(thread),
+        });
+        Ok(())
+    }
+
+    /// Takes a finished survey of [`Library::request_bios`]. It never
+    /// waits: the join runs only when the thread has ended.
+    pub fn poll_bios(&mut self) {
+        let finished = self
+            .surveying
+            .as_ref()
+            .and_then(|s| s.thread.as_ref())
+            .is_some_and(JoinHandle::is_finished);
+        if !finished {
+            return;
+        }
+        let joined = self
+            .surveying
+            .take()
+            .and_then(|mut s| s.thread.take())
+            .map(JoinHandle::join);
+        if let Some(Ok(survey)) = joined {
+            self.bios = Some(survey);
+            self.bios_changes += 1;
+        }
+    }
+
+    /// The number of surveys that replaced the held one.
+    pub fn bios_changes(&self) -> u64 {
+        self.bios_changes
+    }
+
+    /// The BIOS files of the last survey, for the BIOS files page. `None`
+    /// before the first survey of the run.
+    pub fn bios(&self) -> Option<&BiosSurvey> {
+        self.bios.as_ref()
     }
 
     /// Starts a scan of `roms` on its own thread, unless one runs. `now` is
@@ -231,11 +335,16 @@ impl Library {
         let cancel = Arc::new(AtomicBool::new(false));
         let theirs = Arc::clone(&cancel);
         let arcade = (self.arcade.clone(), self.arcade_file.clone());
+        let bios = self.bios_folder.clone();
         let thread = thread::Builder::new()
             .name("neptron-scan".into())
             .spawn(move || {
                 let arcade = arcade.0.or_read(&arcade.1);
-                prepare(&roms, &catalog, arcade, &previous, kind, now, &theirs)
+                let mut prepared = prepare(&roms, &catalog, arcade, &previous, kind, now, &theirs)?;
+                if !bios.as_os_str().is_empty() {
+                    prepared.bios = Some(neptron_library::bios::survey(&bios, &catalog, &theirs));
+                }
+                Ok(prepared)
             })
             .map_err(|e| format!("cannot start the scan thread: {e}"))?;
         self.scan = Some(Running {
@@ -288,6 +397,10 @@ impl Library {
         self.index = prepared.index;
         self.ids = prepared.ids;
         self.arcade = prepared.arcade;
+        if prepared.bios.is_some() {
+            self.bios = prepared.bios;
+            self.bios_changes += 1;
+        }
         scanned
     }
 
@@ -579,6 +692,7 @@ fn prepare(
         ids: GameIds::of(catalog, &outcome.index),
         index: Arc::new(outcome.index),
         arcade,
+        bios: None,
     })
 }
 
@@ -1114,6 +1228,7 @@ mod tests {
                 ids: GameIds::of(&catalog, &next),
                 index: Arc::new(next),
                 arcade: ArcadeState::Unread,
+                bios: None,
             };
             let t = std::time::Instant::now();
             let scanned = lib.replace(prepared, ScanKind::Rescan);

@@ -95,6 +95,11 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             Intent::Action(pages::FORMAT_SHARE) => self.request_share_format(),
             Intent::Action(pages::KEEP_PICTURE) => self.keep_picture(now_ns),
             Intent::Action(pages::TRY_SETTINGS) => self.try_settings(now_ns),
+            Intent::Action(id) if pages::disc_of_action(id).is_some() => {
+                if let Some(index) = pages::disc_of_action(id) {
+                    self.change_disc(index);
+                }
+            }
             Intent::Action(id) => match crate::pad_page::pad_action(id) {
                 Some(crate::pad_page::PadAction::MapButtons(port)) => {
                     let key = self.roster().get(port).map(|e| e.pad.key());
@@ -233,6 +238,31 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 self.unchecked_launch = Some((id, game));
             }
         }
+    }
+
+    /// Takes a finished survey of the BIOS files, and loads the BIOS files
+    /// page again when it shows an older one. It never waits.
+    pub(super) fn poll_bios(&mut self) {
+        self.library.poll_bios();
+        if self.library.bios_changes() != self.bios_seen
+            && self.snap.settings.is_for(pages::BIOS_PAGE)
+        {
+            self.reload_page();
+        }
+    }
+
+    /// Puts disc `index` in the drive of the running game, from the Disc
+    /// page, and shows the page again with the new disc.
+    fn change_disc(&mut self, index: u32) {
+        let Stage::Game(game) = &mut self.stage else {
+            return;
+        };
+        let line = match game.session.change_disc(index) {
+            Ok(()) => format!("disc {index} put in the drive"),
+            Err(e) => format!("disc {index} not put in the drive: {e}"),
+        };
+        self.log(line);
+        self.reload_page();
     }
 
     /// Ends the run with a relaunch into `game`, from the game list.

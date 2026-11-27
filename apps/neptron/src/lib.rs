@@ -14,6 +14,7 @@ pub mod boot_output;
 pub mod config;
 pub mod control;
 pub mod devices;
+pub mod disc_launch;
 pub mod display;
 pub mod display_wait;
 pub mod game_files;
@@ -42,6 +43,8 @@ pub mod speed_notice;
 pub mod start_failure;
 pub mod stop;
 pub mod storage;
+#[cfg(test)]
+mod test_disc;
 pub mod tv;
 
 pub use paths::Paths;

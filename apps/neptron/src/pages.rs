@@ -3,6 +3,8 @@
 
 use neptron_audio::OutputDevice;
 use neptron_input::{MapKind, PLAYER_PORTS, Roster, RosterEntry};
+use neptron_library::bios::{BiosStatus, BiosSurvey};
+use neptron_session::DiscState;
 use neptron_settings::{
     AUDIO_OUTPUT, AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_ORIENTATION, DISPLAY_OUTPUT,
     DISPLAY_REFRESH_POLICY, DISPLAY_ROTATION, DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES,
@@ -825,8 +827,13 @@ pub(crate) fn fit_name(name: &str, room: usize) -> String {
 }
 
 /// The rows of the first page of the quick menu: resume, the volume of the
-/// game, the video page, the Settings page and quit.
-pub fn quick_menu_page(config: &Config, names: Names<'_>) -> SettingsPage {
+/// game, the video page, the Disc page for a game whose core holds two
+/// discs or more (`discs`), the Settings page and quit.
+pub fn quick_menu_page(
+    config: &Config,
+    names: Names<'_>,
+    discs: Option<DiscState>,
+) -> SettingsPage {
     let mut rows = vec![action(1, "Resume", RESUME)];
     rows.extend(
         QUICK_MENU_KEYS
@@ -834,6 +841,9 @@ pub fn quick_menu_page(config: &Config, names: Names<'_>) -> SettingsPage {
             .filter_map(|key| row(config, names, key, View::Game)),
     );
     rows.push(page_row(2, "Video", VIDEO_PAGE));
+    if discs.is_some_and(|d| d.count >= 2) {
+        rows.push(page_row(9, DISC_LABEL, DISC_PAGE));
+    }
     rows.push(page_row(5, "Settings", SETTINGS_PAGE));
     rows.push(action(3, "Quit game", QUIT_GAME));
     SettingsPage::new(QUICK_MENU_PAGE, "Quick menu", rows)
@@ -855,7 +865,8 @@ pub fn library_page(scanning: bool, in_game: bool) -> SettingsPage {
     SettingsPage::new(LIBRARY_PAGE, "Library", vec![rescan_row(scanning, in_game)])
 }
 
-/// The rows of the System panel: reboot and shut down, each behind a
+/// The rows of the System panel: the BIOS files page, always enabled, as
+/// it changes nothing; reboot and shut down, each behind a
 /// confirm question, and the format of the share partition when the
 /// storage script offers it (`offer`); with no offer that row is absent,
 /// since no other state has a format that fixes it. With no power
@@ -873,6 +884,7 @@ pub fn system_page(
         (true, true) => Some(POWER_IN_GAME),
         (true, false) => None,
     };
+    let bios_row = page_row(10, BIOS_FILES_LABEL, BIOS_PAGE);
     let rows = [
         action(6, REBOOT_LABEL, REBOOT).with_confirm(
             "Reboot NEPTRON?",
@@ -900,13 +912,11 @@ pub fn system_page(
         (None, FormatRow::Written) => row.unavailable(FORMAT_NEXT_RESTART),
         _ => row,
     });
-    let rows = rows
-        .into_iter()
-        .chain(format_row)
-        .map(|row| match reason {
+    let rows = std::iter::once(bios_row)
+        .chain(rows.into_iter().chain(format_row).map(|row| match reason {
             Some(reason) => row.unavailable(reason),
             None => row,
-        })
+        }))
         .collect();
     SettingsPage::new(SYSTEM_PAGE, "System", rows)
 }
@@ -972,6 +982,107 @@ pub fn network_page(info: Option<&NetworkInfo>) -> SettingsPage {
         }
     };
     SettingsPage::new(NETWORK_PAGE, "Network", rows)
+}
+
+/// The page of the BIOS files, under Settings > System.
+pub const BIOS_PAGE: PageId = PageId(0x0200);
+
+/// The Disc page of the quick menu.
+pub const DISC_PAGE: PageId = PageId(0x0201);
+
+/// The label of the System row that opens [`BIOS_PAGE`], and its title.
+pub const BIOS_FILES_LABEL: &str = "BIOS files";
+
+/// The text of the row of the BIOS files page when no system needs one.
+pub const NO_BIOS_NEEDED: &str = "None needed";
+
+/// The text of the row of the BIOS files page before the first survey.
+pub const BIOS_READING: &str = "Reading...";
+
+/// The label of the quick menu row that opens [`DISC_PAGE`], and its title.
+pub const DISC_LABEL: &str = "Disc";
+
+/// Why the row of the disc in the drive cannot be chosen.
+pub const IN_THE_DRIVE: &str = "In the drive";
+
+/// The action of the row of the first disc; the disc at index `i` has the
+/// action `DISC_ACTION_FIRST + i`.
+pub const DISC_ACTION_FIRST: u32 = 0x0200;
+
+/// The most discs that the Disc page lists.
+pub const DISC_ROWS_MAX: u32 = 64;
+
+/// The first key of the rows of the BIOS files page and of the Disc page.
+const LIST_KEY_BASE: u32 = ACTION_KEY_BASE + 0x200;
+
+/// The disc index of a row of the Disc page, from its action.
+pub fn disc_of_action(id: ActionId) -> Option<u32> {
+    id.0.checked_sub(DISC_ACTION_FIRST)
+        .filter(|i| *i < DISC_ROWS_MAX)
+}
+
+/// The rows of the BIOS files page: one for each BIOS file of each system
+/// that has some, with its status and the file name
+/// (`docs/spec/disc-games.md`, section 10.2). `None` before the first
+/// survey of the run.
+pub fn bios_page(survey: Option<&BiosSurvey>) -> SettingsPage {
+    let rows = match survey {
+        None => vec![text_row(0x300, BIOS_FILES_LABEL, BIOS_READING)],
+        Some(survey) if survey.systems().is_empty() => {
+            vec![text_row(0x300, BIOS_FILES_LABEL, NO_BIOS_NEEDED)]
+        }
+        Some(survey) => survey
+            .systems()
+            .iter()
+            .flat_map(|system| {
+                system
+                    .entries
+                    .iter()
+                    .map(move |entry| (system.name.as_str(), entry))
+            })
+            .zip(LIST_KEY_BASE..)
+            .map(|((name, entry), key)| {
+                let label = match entry.file.region {
+                    Some(region) => format!("{name} ({})", region.word()),
+                    None => name.to_owned(),
+                };
+                let state = match entry.status {
+                    BiosStatus::Found(_) => "Found",
+                    BiosStatus::Wrong(_) => "Wrong file",
+                    BiosStatus::Missing => "Missing",
+                };
+                MenuItem::new(
+                    SettingKey(key),
+                    label,
+                    SettingValue::Text(format!("{state}: {}", entry.file.file)),
+                )
+            })
+            .collect(),
+    };
+    SettingsPage::new(BIOS_PAGE, BIOS_FILES_LABEL, rows)
+}
+
+/// The rows of the Disc page: one for each disc of the core, at most
+/// [`DISC_ROWS_MAX`]. `numbers` gives the number of each disc of a group of
+/// files; a disc beyond it takes its position. The disc in the drive is
+/// disabled.
+pub fn disc_page(discs: DiscState, numbers: &[u8]) -> SettingsPage {
+    let rows = (0..discs.count.min(DISC_ROWS_MAX))
+        .map(|i| {
+            let number = numbers.get(i as usize).map_or(i + 1, |n| u32::from(*n));
+            let row = MenuItem::new(
+                SettingKey(LIST_KEY_BASE + i),
+                format!("{DISC_LABEL} {number}"),
+                SettingValue::Action(ActionId(DISC_ACTION_FIRST + i)),
+            );
+            if i == discs.index {
+                row.unavailable(IN_THE_DRIVE)
+            } else {
+                row
+            }
+        })
+        .collect();
+    SettingsPage::new(DISC_PAGE, DISC_LABEL, rows)
 }
 
 /// The rows of the video page of the quick menu: the display settings of
@@ -1486,6 +1597,7 @@ mod tests {
         assert_eq!(
             rows,
             [
+                (BIOS_FILES_LABEL, &SettingValue::Page(BIOS_PAGE), None),
                 (REBOOT_LABEL, &SettingValue::Action(REBOOT), None),
                 (SHUT_DOWN_LABEL, &SettingValue::Action(POWER_OFF), None),
             ]
@@ -1497,7 +1609,7 @@ mod tests {
             .collect();
         assert_eq!(
             questions,
-            [Some("Reboot NEPTRON?"), Some("Shut down NEPTRON?")]
+            [None, Some("Reboot NEPTRON?"), Some("Shut down NEPTRON?")]
         );
         for (in_game, power, reason) in [
             (true, true, POWER_IN_GAME),
@@ -1506,7 +1618,11 @@ mod tests {
         ] {
             let page = system_page(in_game, power, Some(&offer()), FormatRow::Offered);
             assert!(
-                page.rows
+                page.rows[0].is_enabled(),
+                "the BIOS files page changes nothing"
+            );
+            assert!(
+                page.rows[1..]
                     .iter()
                     .all(|r| r.unavailable.as_deref() == Some(reason)),
                 "{in_game} {power}"
@@ -1535,11 +1651,11 @@ mod tests {
             system_page(false, true, None, FormatRow::Offered)
                 .rows
                 .len(),
-            2
+            3
         );
         let page = system_page(false, true, Some(&offer()), FormatRow::Offered);
         let row = page.rows.last().expect("a row");
-        assert_eq!(page.rows.len(), 3);
+        assert_eq!(page.rows.len(), 4);
         assert_eq!(row.label, FORMAT_SHARE_LABEL);
         assert_eq!(row.value, SettingValue::Action(FORMAT_SHARE));
         assert!(row.is_enabled());
@@ -1551,13 +1667,13 @@ mod tests {
         );
         assert_eq!(confirm.working, "Formatting at the next start...");
         assert_eq!(
-            system_page(true, true, Some(&offer()), FormatRow::Offered).rows[2]
+            system_page(true, true, Some(&offer()), FormatRow::Offered).rows[3]
                 .unavailable
                 .as_deref(),
             Some(POWER_IN_GAME)
         );
         assert_eq!(
-            system_page(false, false, Some(&offer()), FormatRow::Offered).rows[2]
+            system_page(false, false, Some(&offer()), FormatRow::Offered).rows[3]
                 .unavailable
                 .as_deref(),
             Some(POWER_NO_LAUNCHER)
@@ -1567,11 +1683,11 @@ mod tests {
             (FormatRow::Written, FORMAT_NEXT_RESTART),
         ] {
             let page = system_page(false, true, Some(&offer()), format);
-            assert_eq!(page.rows[2].unavailable.as_deref(), Some(reason));
-            assert!(page.rows[..2].iter().all(|r| r.is_enabled()), "{format:?}");
+            assert_eq!(page.rows[3].unavailable.as_deref(), Some(reason));
+            assert!(page.rows[..3].iter().all(|r| r.is_enabled()), "{format:?}");
             let no_power = system_page(false, false, Some(&offer()), format);
             assert_eq!(
-                no_power.rows[2].unavailable.as_deref(),
+                no_power.rows[3].unavailable.as_deref(),
                 Some(POWER_NO_LAUNCHER),
                 "the reason of the whole panel comes first"
             );
@@ -2633,7 +2749,7 @@ mod tests {
             };
             for page in [
                 display_page(&config, names, false),
-                quick_menu_page(&config, names),
+                quick_menu_page(&config, names, None),
                 video_page(&config, names),
             ] {
                 for row in page.rows.iter().filter(|r| r.key.0 < ACTION_KEY_BASE) {
@@ -2682,7 +2798,7 @@ mod tests {
             outputs: &[],
         };
         let mut keys: Vec<_> = [
-            quick_menu_page(&config, names),
+            quick_menu_page(&config, names, None),
             display_page(&config, names, false),
             library_page(false, false),
             system_page(false, true, Some(&offer()), FormatRow::Offered),
@@ -2711,7 +2827,7 @@ mod tests {
             class: DisplayClass::Crt,
             outputs: &[],
         };
-        let page = quick_menu_page(&config, names);
+        let page = quick_menu_page(&config, names, None);
         let rows: Vec<_> = page
             .rows
             .iter()
@@ -3235,5 +3351,158 @@ mod tests {
         let rows = texts(&page);
         assert!(rows.contains(&("Host name", "neptron.lan")));
         assert!(rows.contains(&("Network name", "neptron.lan.local")));
+    }
+
+    fn quick_names<'a>(presets: &'a Presets, detected: &'a Detected) -> Names<'a> {
+        Names {
+            presets,
+            detected,
+            choices: None,
+            judging: false,
+            scope: Scope::ThisGame,
+            class: DisplayClass::Crt,
+            outputs: &[],
+        }
+    }
+
+    #[test]
+    fn the_quick_menu_has_a_disc_row_for_two_discs_or_more() {
+        let config = config();
+        let (presets, detected) = (Presets::default(), Detected::default());
+        let names = quick_names(&presets, &detected);
+        let discs = |count| {
+            Some(DiscState {
+                count,
+                index: 0,
+                tray_open: false,
+            })
+        };
+        for one in [None, discs(1)] {
+            let page = quick_menu_page(&config, names, one);
+            assert!(page.rows.iter().all(|r| r.label != DISC_LABEL));
+        }
+        let page = quick_menu_page(&config, names, discs(2));
+        let labels: Vec<&str> = page.rows.iter().map(|r| r.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            ["Resume", "Volume", "Video", "Disc", "Settings", "Quit game"]
+        );
+        assert_eq!(page.rows[3].value, SettingValue::Page(DISC_PAGE));
+    }
+
+    #[test]
+    fn the_disc_page_names_each_disc_and_the_one_in_the_drive() {
+        let page = disc_page(
+            DiscState {
+                count: 3,
+                index: 1,
+                tray_open: false,
+            },
+            &[1, 3],
+        );
+        assert!(page.is_for(DISC_PAGE));
+        assert_eq!(page.title, DISC_LABEL);
+        let rows: Vec<_> = page
+            .rows
+            .iter()
+            .map(|r| (r.label.as_str(), &r.value, r.unavailable.as_deref()))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                (
+                    "Disc 1",
+                    &SettingValue::Action(ActionId(DISC_ACTION_FIRST)),
+                    None
+                ),
+                (
+                    "Disc 3",
+                    &SettingValue::Action(ActionId(DISC_ACTION_FIRST + 1)),
+                    Some(IN_THE_DRIVE)
+                ),
+                (
+                    "Disc 3",
+                    &SettingValue::Action(ActionId(DISC_ACTION_FIRST + 2)),
+                    None
+                ),
+            ],
+            "a disc beyond the numbers takes its position"
+        );
+        assert_eq!(disc_of_action(ActionId(DISC_ACTION_FIRST + 2)), Some(2));
+        assert_eq!(
+            disc_of_action(ActionId(DISC_ACTION_FIRST + DISC_ROWS_MAX)),
+            None
+        );
+        assert_eq!(disc_of_action(RESCAN_GAMES), None);
+        let many = disc_page(
+            DiscState {
+                count: 1000,
+                index: 1000,
+                tray_open: true,
+            },
+            &[],
+        );
+        assert_eq!(many.rows.len(), DISC_ROWS_MAX as usize);
+        assert!(many.rows.iter().all(|r| r.is_enabled()));
+        for page in [BIOS_PAGE, DISC_PAGE] {
+            assert!(crate::pad_page::port_of_page(page).is_none());
+            assert!(page.0 < neptron_ui::screens::RESERVED_ID_MIN);
+        }
+    }
+
+    #[test]
+    fn the_bios_page_lists_each_file_with_its_state() {
+        use crate::test_disc::{Dir, US, catalog};
+        let texts = |page: &SettingsPage| -> Vec<(String, String)> {
+            page.rows
+                .iter()
+                .map(|r| match &r.value {
+                    SettingValue::Text(t) => (r.label.clone(), t.clone()),
+                    other => panic!("{other:?}"),
+                })
+                .collect()
+        };
+        let pair = |a: &str, b: &str| (a.to_owned(), b.to_owned());
+        assert_eq!(
+            texts(&bios_page(None)),
+            [pair(BIOS_FILES_LABEL, BIOS_READING)]
+        );
+        let none = neptron_library::bios::survey(
+            std::path::Path::new("/nonexistent"),
+            &neptron_library::Catalog::builtin().unwrap(),
+            &std::sync::atomic::AtomicBool::new(false),
+        );
+        assert_eq!(
+            texts(&bios_page(Some(&none))),
+            [pair(BIOS_FILES_LABEL, NO_BIOS_NEEDED)]
+        );
+        let dir = Dir::new("bios-page");
+        dir.put("bios/x/any name.bin", US);
+        dir.put("bios/TD-EU.bin", b"wrong 16 bytes!!");
+        let survey = neptron_library::bios::survey(
+            &dir.0.join("bios"),
+            &catalog(),
+            &std::sync::atomic::AtomicBool::new(false),
+        );
+        let page = bios_page(Some(&survey));
+        assert!(page.is_for(BIOS_PAGE));
+        assert_eq!(page.title, BIOS_FILES_LABEL);
+        assert_eq!(
+            texts(&page),
+            [
+                pair("Test Disc (USA)", "Found: td-us.bin"),
+                pair("Test Disc (Europe)", "Wrong file: td-eu.bin"),
+            ]
+        );
+        std::fs::remove_file(dir.0.join("bios/TD-EU.bin")).unwrap();
+        let survey = neptron_library::bios::survey(
+            &dir.0.join("bios"),
+            &catalog(),
+            &std::sync::atomic::AtomicBool::new(false),
+        );
+        assert_eq!(
+            texts(&bios_page(Some(&survey)))[1],
+            pair("Test Disc (Europe)", "Missing: td-eu.bin")
+        );
     }
 }

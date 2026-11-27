@@ -120,6 +120,9 @@ pub struct Runtime {
     /// The game frames for the watchdog of the launcher
     /// ([`crate::heartbeat`]). With no heartbeat thread nobody reads it.
     pub pulse: crate::heartbeat::Pulse,
+    /// The systems and cores of the run. `None` takes the ones built into
+    /// the binary; a test gives a test system.
+    pub catalog: Option<neptron_library::Catalog>,
 }
 
 /// How a run ends.
@@ -205,6 +208,9 @@ pub struct Shell<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock 
     /// The notice that asks whether to start an arcade game that cannot be
     /// checked, and that game.
     unchecked_launch: Option<(neptron_ui::snapshot::NoticeId, neptron_ui::snapshot::GameId)>,
+    /// The [`Library::bios_changes`] of the BIOS files page on show: a new
+    /// survey loads the page again.
+    bios_seen: u64,
     frame: Rc<Cell<u64>>,
     control_queue: Rc<RefCell<VecDeque<(u64, InputEvent)>>>,
     log: VecDeque<String>,
@@ -279,6 +285,9 @@ struct GameStage<D: Display, S: AudioSink, I: InputSource, C: Clock> {
     session: Session<D, S, ControlInput<I>, C>,
     reference: GameRef,
     core: String,
+    /// The number of each disc for the Disc page, the first disc first.
+    /// Empty for a game that is not a disc game.
+    disc_numbers: Vec<u8>,
 }
 
 /// When the picture notice of a game shows.

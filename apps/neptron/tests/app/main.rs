@@ -15,6 +15,7 @@ mod boot_file;
 mod continued;
 mod control;
 mod crawler;
+mod discs;
 mod end_to_end;
 mod faults;
 mod generic_pads;

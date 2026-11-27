@@ -78,6 +78,13 @@ impl Paths {
         self.state.join("saves").join(system)
     }
 
+    /// `state/system/<system>`, the system folder of the core of a system
+    /// with BIOS files: NEPTRON's copies of the good BIOS files, under the
+    /// names that the core opens (`docs/spec/disc-games.md`, section 6.5).
+    pub fn core_system(&self, system: &str) -> PathBuf {
+        self.state.join("system").join(system)
+    }
+
     /// `state/video/guard.toml`, the guard record.
     pub fn guard_record(&self) -> PathBuf {
         self.state.join("video").join("guard.toml")

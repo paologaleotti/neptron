@@ -43,6 +43,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         self.poll_format_request();
         self.poll_library();
         self.poll_set_check();
+        self.poll_bios();
         self.poll_network(now_ns);
         self.poll_pads(now_ns);
         self.step_picture_answers();

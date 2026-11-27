@@ -261,7 +261,12 @@ fn crawl_all(mut rig: Rig, class: DisplayClass) -> Found {
             found.screens
         );
     }
-    for label in [RESCAN_LABEL, REBOOT_LABEL, SHUT_DOWN_LABEL] {
+    for label in [
+        RESCAN_LABEL,
+        REBOOT_LABEL,
+        SHUT_DOWN_LABEL,
+        neptron::pages::BIOS_FILES_LABEL,
+    ] {
         assert!(
             found.labels.contains(label),
             "the row {label} is on no screen"

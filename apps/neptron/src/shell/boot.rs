@@ -101,7 +101,10 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         // that can fail for a reason other than the display, so a start
         // that fails later still counts as a boot.
         let presets = load_presets(&paths.monitors(), &mut found);
-        let catalog = Catalog::builtin()?;
+        let catalog = match runtime.catalog.take() {
+            Some(catalog) => catalog,
+            None => Catalog::builtin()?,
+        };
         let game = next.as_ref().and_then(|n| n.game.clone());
         let storage = Storage::new(paths.config());
         let mut game_log = Vec::new();
@@ -234,12 +237,15 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             Some(reference) => {
                 // Made above for every game.
                 let files = files.clone().unwrap_or_else(|| GameFiles::of(reference));
-                let (library, issue) = Library::load(
+                let (mut library, issue) = Library::load(
                     catalog.clone(),
                     &paths.library_cache(),
                     paths.arcade_index(ARCADE_CORE),
                 );
                 found.warn_all(issue);
+                // The BIOS files page of the quick menu surveys the folder
+                // when it opens, on a thread of the library.
+                library.set_bios_folder(paths.bios());
                 // Taken before the launch takes the input: a launch that
                 // fails gives the order of the players back to the list.
                 let pads = PadRecord::list(&input.roster());
@@ -267,6 +273,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                         found.warn_all(start_failure::fallback_line(
                             game.session.host().hw_refusal(),
                         ));
+                        game_log.extend(game.session.disc_issues().iter().cloned());
                         runtime.pulse.enter_game();
                         game
                     }
@@ -335,6 +342,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 } else {
                     ScanKind::Boot
                 };
+                library.set_bios_folder(paths.bios());
                 if let Err(e) = library.start_scan(paths.roms(), kind, SystemTime::now()) {
                     found.warn(format!("the game scan did not start: {e}"));
                 }
@@ -411,6 +419,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             input_notices: Vec::with_capacity(INPUT_NOTICES_CAPACITY),
             next_notice: 1,
             unchecked_launch: None,
+            bios_seen: 0,
             frame,
             control_queue: queue,
             log: VecDeque::new(),
@@ -645,7 +654,19 @@ fn launch<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone
     })?;
     let core_path = paths.core(&core.library);
     let content = paths.game(&reference.path);
-    let system_dir = paths.bios();
+    // A game the index does not list yet takes its file name; a disc game
+    // then takes its name with no disc tag, as the list shows a group.
+    let title = match library.find(reference) {
+        None if system.has_discs() => files.stem.clone(),
+        _ => library.title(reference),
+    };
+    let discs = crate::disc_launch::prepare(
+        system,
+        &content,
+        &title,
+        (&paths.bios(), &paths.core_system(&system.folder)),
+    )?;
+    let system_dir = discs.system_dir.clone();
     let save_dir = paths.saves(&system.folder);
     let game = GameLaunch {
         core: &core_path,
@@ -662,9 +683,9 @@ fn launch<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone
             native_lines: r.native_lines,
             values: &r.values,
         }),
-        more_discs: &[],
-        save_name: None,
-        core_saves_in_game_folder: false,
+        more_discs: &discs.more_discs,
+        save_name: system.has_discs().then_some(files.stem.as_str()),
+        core_saves_in_game_folder: system.has_discs(),
     };
     let policy = config.policy().map_err(|e| (e.to_string(), Vec::new()))?;
     let scanlines = config
@@ -697,5 +718,6 @@ fn launch<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone
         session,
         reference: reference.clone(),
         core: core.id.clone(),
+        disc_numbers: discs.numbers,
     })
 }
