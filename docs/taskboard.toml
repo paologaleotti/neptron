@@ -1,3 +1,5 @@
+# priority: the order of the open tasks, 1 first. Only a pending or in_progress task has one.
+# The owner sets the order; the orchestrator keeps the numbers current in each push (run rule 22).
 # The MVP taskboard: one row per task with its status. docs/plan/07-mvp-build-taskboard-for-claude-code.md
 # holds the run rules, the contracts and the briefs of the T tasks.
 # The orchestrator reads this file to find ready tasks and updates it on each merge.
@@ -489,6 +491,7 @@ owns = ["os", "docs/spec/network-share.md", "xtask/src/os"]
 needs = ["C13", "P06"]
 gate = "T1; the boot checks and the share check"
 status = "pending"
+priority = 12
 
 
 [[task]]
@@ -517,6 +520,7 @@ owns = ["docs/hardware-checklist.md"]
 needs = ["P06"]
 gate = "The checklist of docs/spec/raspberry-pi.md, section 6"
 status = "pending"
+priority = 10
 
 [[task]]
 id = "P10"
@@ -687,6 +691,7 @@ owns = ["os/board/common", "xtask/src/os", "crates/neptron-ui", "apps/neptron", 
 needs = []
 gate = "T2; os share-check with a new case"
 status = "pending"
+priority = 19
 
 [[task]]
 id = "M10"
@@ -723,6 +728,7 @@ owns = ["docs/hardware-checklist.md"]
 needs = ["M01", "M04", "M07c", "M08a"]
 gate = "Every check of the checklist has a recorded result"
 status = "pending"
+priority = 9
 
 [[task]]
 id = "M14"
@@ -779,6 +785,7 @@ owns = ["crates/neptron-types", "crates/neptron-gfx", "crates/neptron-video", "a
 needs = ["N01"]
 gate = "T2; goldens on NTSC and PAL; tier 3 GLES compare"
 status = "pending"
+priority = 14
 
 [[task]]
 id = "N04"
@@ -788,6 +795,7 @@ owns = ["crates/neptron-video", "crates/neptron-safety", "crates/neptron-launch"
 needs = []
 gate = "T2; a second review of the safety paths"
 status = "pending"
+priority = 15
 
 [[task]]
 id = "N05"
@@ -797,6 +805,7 @@ owns = ["crates/neptron-session", "crates/neptron-audio", "apps/neptron", "docs/
 needs = []
 gate = "T2 with the simulated clock"
 status = "pending"
+priority = 16
 
 [[task]]
 id = "N06"
@@ -806,6 +815,7 @@ owns = ["crates/neptron-session", "crates/neptron-testkit", "docs/spec"]
 needs = []
 gate = "T2; a measurement on the bench PC that is not worse than the build of 0.1"
 status = "pending"
+priority = 17
 
 [[task]]
 id = "N07"
@@ -815,6 +825,7 @@ owns = ["os", "crates/neptron-video", "crates/neptron-settings", "apps/neptron"]
 needs = []
 gate = "T2; boot checks"
 status = "pending"
+priority = 18
 
 [[task]]
 id = "N08"
@@ -842,6 +853,7 @@ owns = ["xtask", "os", "apps/neptron", ".github"]
 needs = []
 gate = "T1; image builds"
 status = "pending"
+priority = 13
 
 [[task]]
 id = "S01"
@@ -869,6 +881,7 @@ owns = ["crates/neptron-input", "crates/neptron-types", "crates/neptron-libretro
 needs = []
 gate = "T2"
 status = "pending"
+priority = 2
 
 [[task]]
 id = "S04"
@@ -887,6 +900,7 @@ owns = ["crates/neptron-libretro", "crates/neptron-settings", "crates/neptron-ui
 needs = []
 gate = "T2"
 status = "pending"
+priority = 3
 
 [[task]]
 id = "S06"
@@ -896,6 +910,7 @@ owns = ["crates/neptron-session", "crates/neptron-libretro", "crates/neptron-ui"
 needs = []
 gate = "T2"
 status = "pending"
+priority = 5
 
 [[task]]
 id = "S07"
@@ -905,6 +920,7 @@ owns = ["crates/neptron-modeline", "crates/neptron-video", "crates/neptron-gfx",
 needs = []
 gate = "T2; screen golden; gles-compare"
 status = "in_progress"
+priority = 1
 
 [[task]]
 id = "S08"
@@ -914,6 +930,7 @@ owns = ["crates/neptron-modeline", "crates/neptron-video", "crates/neptron-setti
 needs = []
 gate = "T2; a review of monitor safety"
 status = "pending"
+priority = 6
 
 [[task]]
 id = "S09"
@@ -923,6 +940,7 @@ owns = ["os"]
 needs = []
 gate = "image builds; boot checks"
 status = "pending"
+priority = 7
 
 [[task]]
 id = "S10"
@@ -932,6 +950,7 @@ owns = ["os", "crates/neptron-library", "apps/neptron", "docs/spec"]
 needs = ["S02", "S03", "S04", "S05", "S07"]
 gate = "T2; core-trace; image builds"
 status = "pending"
+priority = 4
 
 [[task]]
 id = "S11"
@@ -941,6 +960,7 @@ owns = ["os", "crates/neptron-library", "apps/neptron", "docs/spec"]
 needs = ["S02", "S03", "S04", "S05", "S07", "S09"]
 gate = "T2; core-trace; image builds"
 status = "pending"
+priority = 8
 
 [[task]]
 id = "S12"
@@ -950,6 +970,7 @@ owns = ["docs"]
 needs = ["S06", "S08", "S10", "S11"]
 gate = "the owner's bench session"
 status = "pending"
+priority = 11
 
 [[task]]
 id = "R01"
@@ -959,6 +980,7 @@ owns = ["docs/spec", "docs/adr"]
 needs = []
 gate = "T0; the owner's answers"
 status = "pending"
+priority = 20
 
 [[task]]
 id = "R02"
@@ -968,6 +990,7 @@ owns = ["os", "crates/neptron-library", "crates/neptron-session", "apps/neptron"
 needs = ["R01"]
 gate = "T2; core-trace; image builds"
 status = "pending"
+priority = 21
 
 [[task]]
 id = "R03"
@@ -977,6 +1000,7 @@ owns = ["docs/spec"]
 needs = ["S02"]
 gate = "T0; the owner's decision"
 status = "pending"
+priority = 23
 
 [[task]]
 id = "R04"
@@ -986,6 +1010,7 @@ owns = ["docs/spec", "docs/adr", "crates/neptron-gfx", "crates/neptron-libretro"
 needs = ["S02"]
 gate = "T2; tier 3 checks"
 status = "pending"
+priority = 24
 
 [[task]]
 id = "R05"
@@ -995,3 +1020,4 @@ owns = ["docs/spec"]
 needs = []
 gate = "T0; the owner's decision"
 status = "pending"
+priority = 22
