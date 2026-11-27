@@ -745,6 +745,14 @@ These need a 15 kHz display (a SCART TV or an arcade monitor) on a PC output. Th
   - Do: on `generic_15`, play a SNES or Mega Drive game at 224 lines and open the quick menu, then a dialog of the quick menu.
   - Expect: every line of each glyph shows, a little soft (`SharpBilinear` on 240 canvas lines in 224 lines). No line of a glyph is missing, and the text is readable.
   - Record: a photo of the quick menu, and how soft the text looks at a normal distance.
+- [ ] `needs-hardware` **The shape and the size of the screen simulator's 15 kHz tube.** (T101)
+  - Do: on `generic_15` and on `arcade_15`, set the size controls once so that a 320x240 test card at 60 Hz fills the screen. Then show, with no new adjustment, the gate cases `snes_256-generic_15` (224 lines), `ps1_320-generic_15` and `ddonpach-generic_15-auto` (248 lines at 57.55 Hz). Measure with a ruler the width and the height of the circle and of the red border of each card.
+  - Expect: the circle and the border have the shape that `cargo xtask screen gate` gives for the case (for example +2.7 % against the console for a 224-line SNES game), within 1 %. The simulator assumes that a 15 kHz tube is set up once for 240 lines at 60 Hz (`TUBE_15KHZ_FIELD_MHZ`).
+  - Record: the two sizes of each card in millimetres, the monitor, and whether the assumption holds.
+- [ ] `needs-hardware` **The overscan of a TV.** (T101)
+  - Do: on an NTSC and a PAL TV on the composite output of the Pi, show the gate case `ps1_320-ntsc` (and `ps1_320-pal`) and read the first and the last line number of the card that show, and the columns of the red border.
+  - Expect: about 5 % of the 4:3 picture hidden at each side (`TV_OVERSCAN_PERMILLE`): 12 lines at the top and the bottom of a 240-line field.
+  - Record: the lines and the columns that each TV hides.
 - [ ] `needs-hardware` **A SCART TV.** (MVP exit, not required for the MVP)
   - Do: with a 15 kHz profile, show 288p at 50 Hz and 240p at 60 Hz. 576i needs interlace: it is checked on the Pi composite output (section 6, "TV standard on Composite-1 (P05)").
   - Expect: each mode is stable.

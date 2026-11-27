@@ -200,7 +200,7 @@ pub type GoldenCase = (
 
 /// The case of golden `index`: [`GOLDEN_CASES`], then [`TATE_CASES`],
 /// then [`INTERLACED_CASES`], then [`WIDTH_CASES`].
-fn golden_case(index: usize) -> GoldenCase {
+pub fn golden_case(index: usize) -> GoldenCase {
     let mut i = index % GOLDEN_COUNT;
     for list in [&GOLDEN_CASES[..], &TATE_CASES[..]] {
         if let Some(&(name, display, source, sets)) = list.get(i) {
@@ -224,7 +224,8 @@ usage: screen --display D --source S [--gpu ID] [--set KEY=VALUE]... [--aspect A
               [--rotate 0|90|180|270] [--interlaced] [--arcade] [--frame FILE.ppm]
               [--overscan PERCENT] [--size WxH] [--turn 0|90|180|270] [--exact] [--out NAME]
        screen survey [--display D]... [--source S]...
-       screen golden [--bless]";
+       screen golden [--bless]
+       screen gate";
 
 /// An error of the command line.
 #[derive(Debug, thiserror::Error)]
@@ -270,6 +271,7 @@ pub fn run(args: &[&str]) -> Result<ExitCode, CliError> {
     match args.split_first() {
         Some((&"survey", rest)) => run_survey(&root, &tables, rest),
         Some((&"golden", rest)) => run_golden(&root, &tables, rest),
+        Some((&"gate", rest)) => run_gate_command(&root, &tables, rest),
         _ => run_case(&root, &tables, args),
     }
 }
@@ -380,6 +382,62 @@ fn run_survey(root: &Path, tables: &Tables, args: &[&str]) -> Result<ExitCode, C
     }
     println!("{}", dir.join("survey.md").display());
     Ok(ExitCode::SUCCESS)
+}
+
+/// The size of each picture on a sheet of the gate, in pixels: large
+/// enough to read the line numbers of the card.
+pub const GATE_TILE: (u32, u32) = (360, 270);
+
+/// The gate: runs every stored case, prints one table, writes one contact
+/// sheet per screen type, the field pictures of the interlaced cases and
+/// `gate.md` under `target/screen/gate/`, and fails when a case fails.
+fn run_gate_command(root: &Path, tables: &Tables, args: &[&str]) -> Result<ExitCode, CliError> {
+    if !args.is_empty() {
+        return Err(CliError::Usage("screen gate takes no arguments".into()));
+    }
+    let dir = root.join(OUT_DIR).join("gate");
+    if dir.exists() {
+        // Pictures of an older run would mislead; the directory is in
+        // target/ and holds no user data.
+        fs::remove_dir_all(&dir).map_err(|source| CliError::Write {
+            path: dir.clone(),
+            source,
+        })?;
+    }
+    let run = super::gate::run_gate(tables, GATE_TILE)?;
+    for screen in super::gate::ScreenType::ALL {
+        if let Some((image, labels)) = super::gate::gate_sheet(&run, screen, GATE_TILE) {
+            let stem = screen.file_stem();
+            write_ppm(&dir.join(format!("{stem}.ppm")), &image)?;
+            let json = survey::labels_json(&labels).compact();
+            write(&dir.join(format!("{stem}.labels.json")), json.as_bytes())?;
+        }
+    }
+    for f in &run.fields {
+        for (picture, suffix) in f
+            .pictures
+            .iter()
+            .zip(["field1", "field2", "eye", "eye-filtered"])
+        {
+            write_ppm(
+                &dir.join("fields").join(format!("{}-{suffix}.ppm", f.name)),
+                picture,
+            )?;
+        }
+    }
+    let table = super::gate::table(&run.rows);
+    write(&dir.join("gate.md"), table.as_bytes())?;
+    println!("{table}");
+    println!("{}", dir.display());
+    let failed = run
+        .rows
+        .iter()
+        .any(|r| matches!(r.verdict, super::gate::Verdict::Fail(_)));
+    Ok(if failed {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    })
 }
 
 /// The goldens: compares the glass of each reference case with its golden,

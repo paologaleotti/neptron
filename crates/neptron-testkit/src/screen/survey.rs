@@ -607,13 +607,13 @@ pub fn labels_json(labels: &[Label]) -> Json {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use neptron_types::{Rect, Rotation};
 
     use super::super::measure::{Edges, ModeFacts};
     use super::*;
 
-    fn picture() -> Picture {
+    pub(crate) fn picture() -> Picture {
         Picture {
             mode: ModeFacts {
                 hactive: 320,

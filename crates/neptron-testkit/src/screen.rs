@@ -16,6 +16,7 @@ mod case;
 pub mod cli;
 mod consoles;
 mod fields;
+mod gate;
 mod glass;
 mod image;
 mod json;
@@ -23,6 +24,7 @@ mod measure;
 mod pattern;
 mod redraw;
 mod run;
+mod sheet;
 mod survey;
 mod wire;
 
@@ -39,6 +41,15 @@ pub use consoles::{
 };
 pub use fields::{
     Fields, SourceLines, field_picture, flicker, flicker_filter, line_card, pairing, source_lines,
+};
+pub use gate::{
+    ACCEPTED, ACCEPTED_MATCH_PERMILLE, Accepted, CRT_31KHZ_MIN_LINE_RATE_MHZ, FIELD_OFFSET_MILLI,
+    FIELD_OFFSET_TOLERANCE_MILLI, FIELD_PICTURE_SIZE, FieldPictures, GATE_CASES, GateRow, GateRun,
+    HEADER as GATE_HEADER, SHAPE_MAX_PERMILLE, SPEED_AGREE_PPM, ScreenType, Verdict, gate_cases,
+    gate_sheet, row_text, run_cases, run_gate, screen_type, table as gate_table, verdict,
+};
+pub use gate::{
+    CENTRE_MATCH_PERMILLE, FILL_MATCH_PERMILLE, PINNED, Pinned, SPEED_MATCH_PPM, pin_text,
 };
 pub use glass::{
     Band, GLASS_SIZE, Glass, TUBE_15KHZ_FIELD_MHZ, TUBE_ASPECT, TV_OVERSCAN_PERMILLE, Tube,
@@ -57,6 +68,7 @@ pub use run::{
     card_of, class_of, console_pixel_shape, finish, measure_card, pattern_of, player_turn,
     simulate, simulate_with_reference_card, survey_rows,
 };
+pub use sheet::{Cell, card_legend, sheet};
 pub use survey::{
     ASPECT_ERROR_MAX_PERMILLE, Counts, DISPLAYS, EXTRA_SOURCES, Flag, LABEL_ADVANCE_PX,
     LABEL_COLOR, LABEL_LINE_PX, LARGER_MARGIN_PERMILLE, LOOK_COLOR, Label, NOTE_COLOR,
