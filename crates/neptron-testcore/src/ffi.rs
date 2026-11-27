@@ -135,11 +135,29 @@ const _: () = {
 struct Global {
     callbacks: Callbacks,
     core: Option<Core>,
+    drive: Drive,
 }
+
+/// The discs of the disc control interface: how many, the one in the
+/// drive, and the tray.
+#[derive(Debug, Clone, Copy)]
+struct Drive {
+    count: c_uint,
+    index: c_uint,
+    open: bool,
+}
+
+/// The most discs that the frontend can add.
+const DRIVE_MAX_DISCS: c_uint = 64;
 
 static GLOBAL: Mutex<Global> = Mutex::new(Global {
     callbacks: Callbacks::NONE,
     core: None,
+    drive: Drive {
+        count: 0,
+        index: 0,
+        open: false,
+    },
 });
 
 static FAILED: AtomicBool = AtomicBool::new(false);
@@ -490,6 +508,27 @@ pub extern "C" fn retro_load_game(_game: *const retro_game_info) -> bool {
             );
             return false;
         }
+        if let Some(count) = script.discs {
+            with_global(|g| {
+                g.drive = Drive {
+                    count,
+                    index: 0,
+                    open: false,
+                };
+            });
+            let mut interface = DISC_INTERFACE;
+            if !env(
+                &callbacks,
+                RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE,
+                &raw mut interface,
+            ) {
+                log(
+                    &callbacks,
+                    RETRO_LOG_WARN,
+                    "the frontend refused the disc control interface",
+                );
+            }
+        }
         if let Some(text) = &script.load_error {
             log(&callbacks, RETRO_LOG_ERROR, text);
         }
@@ -504,6 +543,90 @@ pub extern "C" fn retro_load_game(_game: *const retro_game_info) -> bool {
         }
         let core = Core::new(script, can_dupe);
         with_global(|g| g.core = Some(core)).is_some()
+    })
+}
+
+/// The disc control interface of a script with `discs`. The extended
+/// callbacks are null: the frontend reads the plain ones.
+const DISC_INTERFACE: retro_disk_control_ext_callback = retro_disk_control_ext_callback {
+    set_eject_state: Some(disc_set_eject_state),
+    get_eject_state: Some(disc_get_eject_state),
+    get_image_index: Some(disc_get_image_index),
+    set_image_index: Some(disc_set_image_index),
+    get_num_images: Some(disc_get_num_images),
+    replace_image_index: Some(disc_replace_image_index),
+    add_image_index: Some(disc_add_image_index),
+    set_initial_image: None,
+    get_image_path: None,
+    get_image_label: None,
+};
+
+/// Runs `f` on the drive and logs the line it returns, with no lock held
+/// during the log.
+fn drive_call<R: Copy>(default: R, f: impl FnOnce(&mut Drive) -> (R, Option<String>)) -> R {
+    guarded(default, || {
+        let Some((value, line, callbacks)) = with_global(|g| {
+            let (value, line) = f(&mut g.drive);
+            (value, line, g.callbacks)
+        }) else {
+            return default;
+        };
+        if let Some(line) = line {
+            log(&callbacks, RETRO_LOG_INFO, &line);
+        }
+        value
+    })
+}
+
+extern "C" fn disc_set_eject_state(open: bool) -> bool {
+    drive_call(false, |d| {
+        d.open = open;
+        let state = if open { "open" } else { "closed" };
+        (true, Some(format!("disc tray {state}")))
+    })
+}
+
+extern "C" fn disc_get_eject_state() -> bool {
+    drive_call(false, |d| (d.open, None))
+}
+
+extern "C" fn disc_get_image_index() -> c_uint {
+    drive_call(0, |d| (d.index, None))
+}
+
+/// libretro.h: the tray must be open. `count` itself means no disc.
+extern "C" fn disc_set_image_index(index: c_uint) -> bool {
+    drive_call(false, |d| {
+        if !d.open || index > d.count {
+            return (false, None);
+        }
+        d.index = index;
+        (true, Some(format!("disc {index} in the drive")))
+    })
+}
+
+extern "C" fn disc_get_num_images() -> c_uint {
+    drive_call(0, |d| (d.count, None))
+}
+
+/// Takes a disc at `index`. The core reads no content, so it does not read
+/// `info`.
+extern "C" fn disc_replace_image_index(index: c_uint, _info: *const retro_game_info) -> bool {
+    drive_call(false, |d| {
+        if index >= d.count {
+            return (false, None);
+        }
+        (true, Some(format!("disc {index} replaced")))
+    })
+}
+
+extern "C" fn disc_add_image_index() -> bool {
+    drive_call(false, |d| {
+        if d.count >= DRIVE_MAX_DISCS {
+            return (false, None);
+        }
+        d.count += 1;
+        (true, None)
     })
 }
 

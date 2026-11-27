@@ -18,8 +18,8 @@ pub const HEADER_KEYWORD: &str = "neptron-testcore";
 /// setup lines `load` and `load_error`, version 3 the actions `log` and
 /// `message`, version 4 the setup line `pattern`, version 5 the setup line
 /// `hw_render` and the actions `hw_null`, `hw_none`, `hw_dirty` and
-/// `hw_fbo0`.
-pub const SCRIPT_VERSION: u32 = 5;
+/// `hw_fbo0`, version 6 the setup line `discs`.
+pub const SCRIPT_VERSION: u32 = 6;
 /// The first script version with the setup lines `load` and `load_error`.
 pub const LOAD_LINES_VERSION: u32 = 2;
 /// The first script version with the actions `log` and `message`.
@@ -29,6 +29,10 @@ pub const PATTERN_VERSION: u32 = 4;
 /// The first script version with the setup line `hw_render` and the
 /// actions `hw_null`, `hw_none`, `hw_dirty` and `hw_fbo0`.
 pub const HW_RENDER_VERSION: u32 = 5;
+/// The first script version with the setup line `discs`.
+pub const DISCS_VERSION: u32 = 6;
+/// The most discs that a `discs` line gives the core at load.
+pub const MAX_DISCS: u32 = 16;
 /// Largest GL version number of a `hw_render` line, major or minor.
 pub const MAX_GL_VERSION: u32 = 255;
 /// Largest frame width or height, in pixels.
@@ -306,6 +310,9 @@ pub struct Script {
     /// The context that the core asks for with `SET_HW_RENDER`, or `None`
     /// for a core that draws in memory.
     pub hw_render: Option<HwRender>,
+    /// The discs that the core holds at load, with the disc control
+    /// interface, or `None` for a core with no interface.
+    pub discs: Option<u32>,
     /// A line that `retro_load_game` logs at error level, if any.
     pub load_error: Option<String>,
     /// The texts of the `log` and `message` actions.
@@ -609,6 +616,7 @@ struct Builder {
     load_error: Option<String>,
     pattern: Option<Pattern>,
     hw_render: Option<HwRender>,
+    discs: Option<u32>,
     texts: Vec<String>,
     max_line: usize,
     events: Vec<(usize, Event)>,
@@ -649,6 +657,7 @@ impl Builder {
         if (LOAD_KEYWORDS.contains(&keyword) && self.version < LOAD_LINES_VERSION)
             || (keyword == "pattern" && self.version < PATTERN_VERSION)
             || (keyword == "hw_render" && self.version < HW_RENDER_VERSION)
+            || (keyword == "discs" && self.version < DISCS_VERSION)
         {
             return Err(ScriptError::UnknownKeyword {
                 line,
@@ -706,6 +715,10 @@ impl Builder {
                 a.pattern(0)
             }),
             "hw_render" => set_once(&mut self.hw_render, &a, |a| a.hw_render()),
+            "discs" => set_once(&mut self.discs, &a, |a| {
+                a.count(1)?;
+                a.number(0, "disc count", 1, MAX_DISCS)
+            }),
             _ => Err(ScriptError::UnknownKeyword {
                 line,
                 keyword: keyword.to_owned(),
@@ -907,6 +920,7 @@ impl Builder {
             load: self.load.unwrap_or_default(),
             pattern: self.pattern.unwrap_or_default(),
             hw_render: self.hw_render,
+            discs: self.discs,
             load_error: self.load_error,
             texts: self.texts,
             events: self.events.into_iter().map(|(_, e)| e).collect(),
@@ -923,7 +937,7 @@ fn hw_action_name(action: Action) -> &'static str {
     }
 }
 
-const SETUP_KEYWORDS: [&str; 12] = [
+const SETUP_KEYWORDS: [&str; 13] = [
     "pixel_format",
     "geometry",
     "max_size",
@@ -936,6 +950,7 @@ const SETUP_KEYWORDS: [&str; 12] = [
     "load_error",
     "pattern",
     "hw_render",
+    "discs",
 ];
 
 /// The setup keywords that a script of version 1 does not have.
@@ -1583,10 +1598,10 @@ rotation 2"
             Err(ScriptError::Header { .. })
         ));
         assert_eq!(
-            Script::parse("neptron-testcore 6"),
+            Script::parse("neptron-testcore 7"),
             Err(ScriptError::Version {
                 line: 1,
-                version: 6
+                version: 7
             })
         );
         assert!(matches!(
@@ -1943,5 +1958,22 @@ rotation 2"
                 height: 960
             }
         );
+    }
+
+    #[test]
+    fn version_6_has_the_discs_line() {
+        let s = Script::parse("neptron-testcore 6\ndiscs 3\n").unwrap();
+        assert_eq!(s.discs, Some(3));
+        assert_eq!(parse("").unwrap().discs, None);
+        for bad in [
+            "neptron-testcore 5\ndiscs 2\n",
+            "neptron-testcore 6\ndiscs 0\n",
+            "neptron-testcore 6\ndiscs 17\n",
+            "neptron-testcore 6\ndiscs\n",
+            "neptron-testcore 6\ndiscs 2\ndiscs 2\n",
+            "neptron-testcore 6\nat 1 reset\ndiscs 2\n",
+        ] {
+            assert!(Script::parse(bad).is_err(), "{bad}");
+        }
     }
 }

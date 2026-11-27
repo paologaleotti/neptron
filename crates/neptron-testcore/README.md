@@ -15,7 +15,7 @@ A libretro core that follows a script, for tests. It reads its script from the f
 
 A script is a UTF-8 text file. A byte sequence that is not UTF-8 is an error, reported with its line. Each line holds one keyword and its arguments, separated by spaces. A `#` starts a comment to the end of the line. Blank lines do not count. Every number is an unsigned decimal integer, ASCII digits only (no sign, no separators): frequencies in millihertz or hertz, sizes in pixels, aspect ratios in thousandths.
 
-The first line is the header `neptron-testcore <version>`, version 1 to 5. Version 2 adds the setup lines `load` and `load_error`. Version 3 adds the actions `log` and `message`. Version 4 adds the setup line `pattern`. Version 5 adds the setup line `hw_render` and the actions `hw_null`, `hw_none`, `hw_dirty` and `hw_fbo0`. A script of an older version that has one of them is an error.
+The first line is the header `neptron-testcore <version>`, version 1 to 6. Version 2 adds the setup lines `load` and `load_error`. Version 3 adds the actions `log` and `message`. Version 4 adds the setup line `pattern`. Version 5 adds the setup line `hw_render` and the actions `hw_null`, `hw_none`, `hw_dirty` and `hw_fbo0`. Version 6 adds the setup line `discs`. A script of an older version that has one of them is an error.
 
 The setup lines come next. Each one is optional and can appear once.
 
@@ -32,6 +32,7 @@ The setup lines come next. Each one is optional and can appear once.
 | `load_error <text>` | Version 2. `retro_load_game` logs the text (the rest of the line) at error level, after the rotation, as a core logs why a game cannot run | none |
 | `load <ok\|refuse\|shutdown>` | Version 2. What `retro_load_game` does last: return true; return false, as a core that refuses the content; or call `RETRO_ENVIRONMENT_SHUTDOWN` and return true, as a core that shows its own error screen | `ok` |
 | `hw_render <type> <major> <minor> [depth] [stencil] [bottom_left]` | Version 5. The core draws with GL (see GL core). `<type>` is `gles2`, `gles3`, `gles` (`OPENGLES_VERSION`), `gl` (`OPENGL`) or `glcore` (`OPENGL_CORE`); the version is 0 to 255. Each flag at most once, in any order | none: the core draws in memory |
+| `discs <count>` | Version 6. The core holds `<count>` discs (1 to 16) and gives the extended disc control interface in `retro_load_game` (see Discs) | none: no disc control interface |
 | `pattern <noise\|shape>` | Version 4. What the frames show. `noise`: a hash of the frame number, the buttons and the position (`pixel`), so every frame differs. `shape`: the same test card in every frame (`shape_pixel`), drawn on the upright picture: a white border, a green diagonal from the top-left to the bottom-right corner, a red circle that is round on the glass, a yellow arrow that points to the top and a blue top-left corner. The card takes the turn of the `rotation` setup line and the reported aspect as the shape of the upright picture (0: square pixels). A `rotation` action does not change it | `noise` |
 
 Event lines follow: `at <frame> <action>`. Frame 0 is the first `retro_run` after `retro_load_game` or `retro_reset`. The frame numbers must not go down. Events of one frame run in file order, before the core sends that frame.
@@ -145,3 +146,16 @@ Panics: no panic crosses the C boundary. Each entry point runs in `catch_unwind`
 - Unit tests of the parser, the generators, the GL card, the core model and the FFI helpers.
 - The GL core runs end to end in `crates/neptron-libretro/tests/test_core.rs`, with the reference core GL of `neptron-testkit`.
 - `tests/load.rs` opens the built library with `libloading` (a dev-dependency), checks that all 25 entry points are exported, and runs scripts through the raw API with frontend callbacks: frame hashes, the order of the environment calls, audio, save RAM, reset, the load failures, and the `load refuse` and `load shutdown` lines. The test plays the frontend, so it uses `unsafe` to call the core. Each test needs its own process, which `cargo nextest` gives.
+
+## Discs
+
+With `discs`, `retro_load_game` gives `SET_DISK_CONTROL_EXT_INTERFACE` with the seven plain callbacks; the three extended ones are null. The core holds `<count>` discs, disc 0 in the drive and the tray closed. It reads no disc. Each change logs one line at info level, which a test reads in the core log:
+
+| Call | What the core does | Log line |
+| --- | --- | --- |
+| `set_eject_state` | Opens or closes the tray | `disc tray open`, `disc tray closed` |
+| `set_image_index` | With the tray open and an index up to the count (the count is "no disc"): puts the disc in the drive. Else returns false | `disc <index> in the drive` |
+| `add_image_index` | Adds an empty disc, up to 64 | none |
+| `replace_image_index` | With an index below the count: takes the disc. It does not read the path | `disc <index> replaced` |
+
+When the frontend refuses the interface, the core logs `the frontend refused the disc control interface` at warn level and loads anyway.

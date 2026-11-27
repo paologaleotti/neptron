@@ -14,9 +14,9 @@ use neptron_backend::{
     AudioSink, ContextOffer, ContextRequest, Display, GlApi, GlVersion, InputSource,
 };
 use neptron_libretro::{
-    AvInfo, Backup, ContentRequest, Event, GameGeometry, Host, HostConfig, HwApi, HwRefusal,
-    HwRefusalReason, LoadError, LogLevel, LogSource, OpenError, OptionError, Pad, Refusal, Timing,
-    Video, ZipError, read_save_file, save_file_path, write_save_file,
+    AvInfo, Backup, ContentRequest, DiscError, DiscState, Event, GameGeometry, Host, HostConfig,
+    HwApi, HwRefusal, HwRefusalReason, LoadError, LogLevel, LogSource, OpenError, OptionError, Pad,
+    Refusal, Timing, Video, ZipError, read_save_file, save_file_path, write_save_file,
 };
 use neptron_testcore::{
     PixelFormat as CoreFormat, SCRIPT_ENV, Size, expected_hash, frames_after, gl_card_pixel, hash,
@@ -834,4 +834,53 @@ fn crc32(data: &[u8]) -> u32 {
         }
         crc
     })
+}
+
+#[test]
+fn the_test_core_holds_discs_and_changes_them() {
+    let dir = temp_dir("discs");
+    let content = use_script(&dir, "neptron-testcore 6\ndiscs 2\n");
+    let mut host = open(&dir);
+    load(&mut host, &content);
+    assert_eq!(
+        host.disc_state(),
+        Some(DiscState {
+            count: 2,
+            index: 0,
+            tray_open: false
+        })
+    );
+    assert_eq!(host.add_disc(&dir.join("Game (Disc 3).chd")), Ok(2));
+    let texts =
+        |host: &Host| -> Vec<String> { host.logs().iter().map(|r| r.text.clone()).collect() };
+    assert_eq!(texts(&host), ["disc 2 replaced"]);
+    assert_eq!(
+        host.set_disc_index(1),
+        Err(DiscError::Refused {
+            call: "set_image_index"
+        }),
+        "the tray is closed"
+    );
+    host.set_disc_tray(true).unwrap();
+    host.set_disc_index(2).unwrap();
+    assert_eq!(texts(&host), ["disc 2 in the drive"]);
+    host.set_disc_tray(false).unwrap();
+    assert_eq!(
+        host.disc_state(),
+        Some(DiscState {
+            count: 3,
+            index: 2,
+            tray_open: false
+        })
+    );
+}
+
+#[test]
+fn a_test_core_with_no_discs_line_has_no_disc_interface() {
+    let dir = temp_dir("no-discs");
+    let content = use_script(&dir, "neptron-testcore 6\n");
+    let mut host = open(&dir);
+    load(&mut host, &content);
+    assert_eq!(host.disc_state(), None);
+    assert_eq!(host.set_disc_tray(true), Err(DiscError::NoInterface));
 }

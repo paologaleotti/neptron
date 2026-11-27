@@ -33,9 +33,9 @@ pub use options::{
 };
 
 pub use script::{
-    Action, AudioMode, AvInfo, Event, Geometry, HEADER_KEYWORD, HW_RENDER_VERSION, HwContext,
-    HwRender, LOAD_LINES_VERSION, LoadError, LoadOutcome, LogLevel, MAX_ASPECT_MILLI,
-    MAX_DIMENSION_PX, MAX_FPS_MHZ, MAX_GL_VERSION, MAX_SAMPLE_RATE_HZ, MAX_SAVE_RAM_BYTES,
-    MIN_FPS_MHZ, OptionTiming, PATTERN_VERSION, Pattern, PixelFormat, SCRIPT_ENV, SCRIPT_VERSION,
-    Script, ScriptError, Size, TEXT_ACTIONS_VERSION, Timing,
+    Action, AudioMode, AvInfo, DISCS_VERSION, Event, Geometry, HEADER_KEYWORD, HW_RENDER_VERSION,
+    HwContext, HwRender, LOAD_LINES_VERSION, LoadError, LoadOutcome, LogLevel, MAX_ASPECT_MILLI,
+    MAX_DIMENSION_PX, MAX_DISCS, MAX_FPS_MHZ, MAX_GL_VERSION, MAX_SAMPLE_RATE_HZ,
+    MAX_SAVE_RAM_BYTES, MIN_FPS_MHZ, OptionTiming, PATTERN_VERSION, Pattern, PixelFormat,
+    SCRIPT_ENV, SCRIPT_VERSION, Script, ScriptError, Size, TEXT_ACTIONS_VERSION, Timing,
 };
